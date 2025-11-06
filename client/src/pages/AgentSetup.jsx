@@ -47,6 +47,12 @@ export default function AgentSetupSingle() {
   const [isLoadingResponse, setIsLoadingResponse] = useState(false);
   const [showChat, setShowChat] = useState(false);
 
+  // Knowledge Base state
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const [uploadSuccess, setUploadSuccess] = useState(null);
+
   // Load chat history from localStorage on mount
   useEffect(() => {
     const savedChatHistory = localStorage.getItem('agent_chat_history');
@@ -58,6 +64,98 @@ export default function AgentSetupSingle() {
         console.error('Failed to load chat history:', error);
       }
     }
+  }, []);
+
+  // Load uploaded files from localStorage on mount
+  useEffect(() => {
+    const loadUploadedFiles = async () => {
+      const savedFiles = localStorage.getItem('uploaded_knowledge_files');
+      if (savedFiles) {
+        try {
+          const parsed = JSON.parse(savedFiles);
+          console.log('📂 Loaded files from localStorage:', parsed);
+          
+          // Verify files still exist on server
+          const response = await fetch('http://localhost:5000/api/knowledge-files');
+          const data = await response.json();
+          
+          if (data.success) {
+            // Match localStorage files with server files
+            const serverFileNames = data.files.map(f => f.fileName);
+            const validFiles = parsed.filter(file => serverFileNames.includes(file.fileName));
+            
+            if (validFiles.length !== parsed.length) {
+              console.log('⚠️ Some files no longer exist on server, cleaning up...');
+              localStorage.setItem('uploaded_knowledge_files', JSON.stringify(validFiles));
+            }
+            
+            setUploadedFiles(validFiles);
+          } else {
+            setUploadedFiles(parsed);
+          }
+        } catch (error) {
+          console.error('Failed to load uploaded files:', error);
+          localStorage.removeItem('uploaded_knowledge_files');
+        }
+      } else {
+        // If no localStorage, fetch from server
+        fetchUploadedFiles();
+      }
+    };
+    
+    loadUploadedFiles();
+  }, []);
+
+  // Fetch uploaded files from server
+  const fetchUploadedFiles = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/knowledge-files');
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('📂 Loaded files from server:', data.files);
+        setUploadedFiles(data.files);
+        localStorage.setItem('uploaded_knowledge_files', JSON.stringify(data.files));
+      }
+    } catch (error) {
+      console.error('Failed to fetch files:', error);
+    }
+  };
+
+  // Save uploaded files to localStorage whenever they change
+  useEffect(() => {
+    if (uploadedFiles.length > 0) {
+      localStorage.setItem('uploaded_knowledge_files', JSON.stringify(uploadedFiles));
+      console.log('💾 Saved files to localStorage:', uploadedFiles.length);
+    } else {
+      localStorage.removeItem('uploaded_knowledge_files');
+    }
+  }, [uploadedFiles]);
+
+  // Cleanup: Delete files from server when browser closes/reloads
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Optional: Ask user if they want to keep files
+      const savedFiles = localStorage.getItem('uploaded_knowledge_files');
+      if (savedFiles) {
+        const files = JSON.parse(savedFiles);
+        if (files.length > 0) {
+          // If you want to always delete files on close, uncomment this:
+          // e.preventDefault();
+          // e.returnValue = '';
+          // await deleteAllFilesFromServer(files);
+          
+          // For now, we'll keep files persistent across reloads
+          console.log('🔄 Page reload/close detected. Files preserved in localStorage.');
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
   }, []);
 
   // Save chat history to localStorage whenever it changes
@@ -193,6 +291,145 @@ export default function AgentSetupSingle() {
     }
     setShowChat(true);
   }
+
+  // Knowledge Base file upload handlers
+  const handleFileUpload = async (event) => {
+    const files = Array.from(event.target.files);
+    
+    if (files.length === 0) return;
+    
+    // Validate files
+    const validFiles = files.filter(file => {
+      const extension = file.name.split('.').pop().toLowerCase();
+      const isValid = ['pdf', 'doc', 'docx'].includes(extension);
+      const isUnderLimit = file.size <= 10 * 1024 * 1024; // 10MB
+      
+      if (!isValid) {
+        setUploadError(`${file.name}: Invalid file type. Only PDF, DOC, DOCX allowed.`);
+        return false;
+      }
+      if (!isUnderLimit) {
+        setUploadError(`${file.name}: File too large. Maximum 10MB.`);
+        return false;
+      }
+      return true;
+    });
+
+    if (validFiles.length === 0) return;
+
+    setIsUploading(true);
+    setUploadError(null);
+    setUploadSuccess(null);
+
+    try {
+      const formData = new FormData();
+      validFiles.forEach(file => {
+        formData.append('files', file);
+      });
+
+      const response = await fetch('http://localhost:5000/api/upload-knowledge', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        const newFiles = [...uploadedFiles, ...data.files];
+        setUploadedFiles(newFiles);
+        
+        // Save to localStorage
+        localStorage.setItem('uploaded_knowledge_files', JSON.stringify(newFiles));
+        console.log('💾 Saved to localStorage after upload:', newFiles.length, 'files');
+        
+        setUploadSuccess(`Successfully uploaded ${data.files.length} file(s)`);
+        
+        // Clear success message after 3 seconds
+        setTimeout(() => setUploadSuccess(null), 3000);
+      } else {
+        setUploadError(data.error || 'Upload failed');
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      setUploadError('Failed to upload files. Make sure the server is running.');
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      event.target.value = '';
+    }
+  };
+
+  const handleRemoveFile = async (index, fileName) => {
+    try {
+      const response = await fetch(`http://localhost:5000/api/knowledge-files/${fileName}`, {
+        method: 'DELETE',
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        const updatedFiles = uploadedFiles.filter((_, i) => i !== index);
+        setUploadedFiles(updatedFiles);
+        
+        // Update localStorage
+        if (updatedFiles.length > 0) {
+          localStorage.setItem('uploaded_knowledge_files', JSON.stringify(updatedFiles));
+        } else {
+          localStorage.removeItem('uploaded_knowledge_files');
+        }
+        console.log('🗑️ File removed and localStorage updated');
+        
+        setUploadSuccess('File removed successfully');
+        setTimeout(() => setUploadSuccess(null), 2000);
+      } else {
+        setUploadError('Failed to remove file');
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      setUploadError('Failed to remove file');
+    }
+  };
+
+  // Function to clear all uploaded files
+  const handleClearAllFiles = async () => {
+    if (uploadedFiles.length === 0) return;
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to delete all ${uploadedFiles.length} file(s)? This action cannot be undone.`
+    );
+    
+    if (!confirmed) return;
+    
+    setIsUploading(true);
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const file of uploadedFiles) {
+      try {
+        const response = await fetch(`http://localhost:5000/api/knowledge-files/${file.fileName}`, {
+          method: 'DELETE',
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch (error) {
+        console.error('Failed to delete:', file.fileName, error);
+        failCount++;
+      }
+    }
+    
+    // Clear state and localStorage
+    setUploadedFiles([]);
+    localStorage.removeItem('uploaded_knowledge_files');
+    
+    setIsUploading(false);
+    setUploadSuccess(`Deleted ${successCount} file(s)${failCount > 0 ? `, ${failCount} failed` : ''}`);
+    setTimeout(() => setUploadSuccess(null), 3000);
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-6">
@@ -406,6 +643,210 @@ export default function AgentSetupSingle() {
             )}
             {activeTab === "Voice" && (
               <section>
+                {/* Knowledge Base Section */}
+                <div className="mb-6 bg-white rounded-lg border border-slate-200 p-6">
+                  <h3 className="text-lg font-semibold mb-4">Knowledge Base</h3>
+                  
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Upload Documents (PDF, Word)
+                    </label>
+                    <p className="text-xs text-slate-500 mb-3">
+                      Upload documents to enhance your agent's knowledge. The agent will use this information to answer questions more accurately.
+                    </p>
+                    
+                    {/* File Upload Input */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <label className={`flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer transition-colors ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                          </svg>
+                          <span className="text-sm font-medium">
+                            {isUploading ? 'Uploading...' : 'Choose Files'}
+                          </span>
+                          <input
+                            type="file"
+                            multiple
+                            accept=".pdf,.doc,.docx"
+                            onChange={handleFileUpload}
+                            disabled={isUploading}
+                            className="hidden"
+                          />
+                        </label>
+                        <span className="text-xs text-slate-500">
+                          Supported: PDF, DOC, DOCX (Max 10MB each)
+                        </span>
+                      </div>
+
+                      {/* Upload Status Messages */}
+                      {uploadSuccess && (
+                        <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-md">
+                          <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span className="text-sm text-green-700">{uploadSuccess}</span>
+                        </div>
+                      )}
+
+                      {uploadError && (
+                        <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-md">
+                          <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                          <span className="text-sm text-red-700">{uploadError}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Uploaded Files List */}
+                  {uploadedFiles.length > 0 && (
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-medium text-slate-700">
+                          📚 Knowledge Base Files ({uploadedFiles.length})
+                        </h4>
+                        <button
+                          onClick={handleClearAllFiles}
+                          disabled={isUploading}
+                          className="px-3 py-1.5 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md border border-red-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                      
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {uploadedFiles.map((file, index) => {
+                          const isPDF = file.originalName?.toLowerCase().endsWith('.pdf');
+                          const isWord = file.originalName?.toLowerCase().match(/\.(doc|docx)$/);
+                          
+                          return (
+                            <div
+                              key={`${file.fileName}-${index}`}
+                              className="flex items-start justify-between p-3 bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 transition-colors"
+                            >
+                              <div className="flex items-start gap-3 flex-1 min-w-0">
+                                {/* File Icon */}
+                                <div className={`shrink-0 mt-0.5 ${file.status === 'processed' ? 'text-green-600' : file.status === 'failed' ? 'text-red-600' : 'text-blue-600'}`}>
+                                  {isPDF ? (
+                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18.5,9L13,3.5V9H18.5M6,20V4H11V10H18V20H6M7.93,17.5H9.61L9.85,16.74H11.58L11.82,17.5H13.5L11.58,12.5H9.85L7.93,17.5M10.15,15.43L10.71,13.34L11.27,15.43H10.15Z" />
+                                    </svg>
+                                  ) : isWord ? (
+                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18.5,9L13,3.5V9H18.5M7,12.5L8.5,17.5H9.5L10.5,14L11.5,17.5H12.5L14,12.5H13L12,15.5L11,12.5H10L9,15.5L8,12.5H7Z" />
+                                    </svg>
+                                  ) : (
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                    </svg>
+                                  )}
+                                </div>
+                                
+                                {/* File Info */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-medium text-slate-700 truncate">
+                                      {file.originalName}
+                                    </p>
+                                    {file.status === 'processed' && (
+                                      <span className="shrink-0 px-2 py-0.5 text-xs font-medium text-green-700 bg-green-100 rounded-full">
+                                        ✓ Ready
+                                      </span>
+                                    )}
+                                    {file.status === 'failed' && (
+                                      <span className="shrink-0 px-2 py-0.5 text-xs font-medium text-red-700 bg-red-100 rounded-full">
+                                        ✗ Failed
+                                      </span>
+                                    )}
+                                  </div>
+                                  
+                                  <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-500">
+                                    <span className="flex items-center gap-1">
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                      </svg>
+                                      {(file.size / 1024).toFixed(1)} KB
+                                    </span>
+                                    
+                                    {file.status === 'processed' && file.textLength && (
+                                      <>
+                                        <span className="text-slate-400">•</span>
+                                        <span className="flex items-center gap-1">
+                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                          </svg>
+                                          {file.textLength.toLocaleString()} chars
+                                        </span>
+                                      </>
+                                    )}
+                                    
+                                    {file.uploadedAt && (
+                                      <>
+                                        <span className="text-slate-400">•</span>
+                                        <span className="flex items-center gap-1">
+                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                          </svg>
+                                          {new Date(file.uploadedAt).toLocaleDateString()}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                  
+                                  {file.status === 'failed' && file.error && (
+                                    <p className="text-xs text-red-500 mt-1">
+                                      Error: {file.error}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              {/* Delete Button */}
+                              <button
+                                onClick={() => handleRemoveFile(index, file.fileName)}
+                                disabled={isUploading}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors shrink-0 ml-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Remove file"
+                              >
+                                <BiTrash className="w-5 h-5" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      
+                      {/* Summary Stats */}
+                      <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-blue-700 font-medium">
+                            📊 Total: {uploadedFiles.length} file{uploadedFiles.length !== 1 ? 's' : ''}
+                          </span>
+                          <span className="text-blue-600">
+                            {(uploadedFiles.reduce((acc, f) => acc + (f.size || 0), 0) / 1024).toFixed(1)} KB total
+                          </span>
+                          <span className="text-blue-600">
+                            {uploadedFiles.filter(f => f.status === 'processed').length} ready
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Info Box */}
+                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                    <p className="text-xs text-blue-800 font-medium mb-1">💡 How it works:</p>
+                    <ul className="text-xs text-blue-700 space-y-0.5 ml-3">
+                      <li>• Upload product manuals, FAQs, or company documents</li>
+                      <li>• The agent will extract and learn from the content</li>
+                      <li>• Use this knowledge to answer customer questions accurately</li>
+                      <li>• Maximum file size: 10MB per file</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Voice Chat Component */}
                 <VoiceChat systemPrompt={prompt} agentName={agentName} />
               </section>
             )}

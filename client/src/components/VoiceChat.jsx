@@ -3,15 +3,20 @@ import { BiMicrophone, BiStop, BiVolumeFull, BiTrash } from 'react-icons/bi';
 import { createClient } from '@deepgram/sdk';
 import axios from 'axios';
 
-const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
+const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentId = 'default' }) => {
+  // Initialize language from localStorage or default to 'en'
+  const [selectedLanguage, setSelectedLanguage] = useState(() => {
+    const saved = localStorage.getItem('voiceChat_selectedLanguage');
+    return saved || 'en';
+  });
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [conversation, setConversation] = useState([]);
   const [error, setError] = useState('');
-  const [selectedLanguage, setSelectedLanguage] = useState('en'); // Language selector
   const [selectedVoice, setSelectedVoice] = useState('anushka'); // Voice selector
+  const [ragEnabled, setRagEnabled] = useState(useRAG); // RAG toggle
 
   const mediaRecorderRef = useRef(null);
   const mediaStreamRef = useRef(null);
@@ -19,6 +24,23 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
   const deepgramRef = useRef(null);
   const conversationHistoryRef = useRef([]);
   const isRecordingRef = useRef(false); // Track recording state immediately
+  
+  // Initialize currentLanguageRef from localStorage
+  const savedLanguage = localStorage.getItem('voiceChat_selectedLanguage');
+  const currentLanguageRef = useRef(savedLanguage || 'en');
+
+  // Debug: Log every render with current ref value
+  console.log(`🔄 VoiceChat render - currentLanguageRef.current: ${currentLanguageRef.current}, selectedLanguage state: ${selectedLanguage}`);
+
+  // Update currentLanguageRef whenever selectedLanguage changes
+  useEffect(() => {
+    console.log(`🔄 useEffect triggered: Syncing currentLanguageRef from "${currentLanguageRef.current}" to "${selectedLanguage}"`);
+    currentLanguageRef.current = selectedLanguage;
+    
+    // Persist to localStorage
+    localStorage.setItem('voiceChat_selectedLanguage', selectedLanguage);
+    console.log(`✅ useEffect complete: currentLanguageRef.current is now "${currentLanguageRef.current}" and saved to localStorage`);
+  }, [selectedLanguage]);
 
   // Initialize Deepgram client
   useEffect(() => {
@@ -46,11 +68,8 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
    */
   const startListening = async () => {
     try {
-      console.log('Start button clicked!');
       setError('');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      console.log('Got media stream');
       
       // Store stream reference for cleanup
       mediaStreamRef.current = stream;
@@ -61,8 +80,6 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
         mimeType: mimeType,
       });
 
-      console.log('Created MediaRecorder');
-
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -72,8 +89,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        console.log('MediaRecorder stopped, processing audio...');
-        isRecordingRef.current = false; // Ensure ref is reset
+        isRecordingRef.current = false;
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
         await processAudio(audioBlob);
         
@@ -84,10 +100,8 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
         }
       };
 
-      isRecordingRef.current = true; // Set ref BEFORE starting
+      isRecordingRef.current = true;
       mediaRecorderRef.current.start();
-      console.log('MediaRecorder started, state:', mediaRecorderRef.current.state);
-      console.log('isRecordingRef set to:', isRecordingRef.current);
       setIsListening(true);
       setTranscript('Listening...');
     } catch (error) {
@@ -100,19 +114,11 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
    * Stop listening
    */
   const stopListening = () => {
-    console.log('Stop button clicked!');
-    console.log('isRecordingRef.current:', isRecordingRef.current);
-    console.log('MediaRecorder state:', mediaRecorderRef.current?.state);
-    console.log('isListening state:', isListening);
-    
     if (isRecordingRef.current && mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      console.log('Stopping recording...');
       mediaRecorderRef.current.stop();
-      isRecordingRef.current = false; // Set ref immediately
+      isRecordingRef.current = false;
       setIsListening(false);
       setTranscript('Processing...');
-    } else {
-      console.log('Not recording - isRecordingRef:', isRecordingRef.current, 'state:', mediaRecorderRef.current?.state);
     }
   };
 
@@ -121,14 +127,11 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
    */
   const processAudio = async (audioBlob) => {
     setIsProcessing(true);
-    console.log('Processing audio blob, size:', audioBlob.size);
     
     try {
       // Step 1: Convert speech to text using Deepgram
       setTranscript('Converting speech to text...');
-      console.log('Calling speechToText...');
       const userText = await speechToText(audioBlob);
-      console.log('Transcript received:', userText);
 
       if (!userText || userText.trim().length === 0) {
         setTranscript('');
@@ -146,9 +149,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
 
       // Step 2: Get AI response from OpenAI
       setTranscript('Getting AI response...');
-      console.log('Calling OpenAI...');
       const aiResponse = await getAIResponse();
-      console.log('AI response received:', aiResponse);
 
       // Add AI message to conversation
       const aiMessage = { role: 'assistant', content: aiResponse };
@@ -157,9 +158,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
 
       // Step 3: Speak the response using Sarvam AI
       setTranscript('');
-      console.log('Speaking response with Sarvam...');
       await speakTextWithSarvam(aiResponse);
-      console.log('Speech completed');
 
       setIsProcessing(false);
     } catch (error) {
@@ -175,84 +174,71 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
    */
   const speechToText = async (audioBlob) => {
     try {
-      console.log('speechToText called');
       if (!deepgramRef.current) {
         console.error('Deepgram client not initialized');
         throw new Error('Deepgram not initialized');
       }
 
-      console.log('Converting blob to array buffer...');
       // Convert blob to array buffer
       const arrayBuffer = await audioBlob.arrayBuffer();
-      console.log('Audio buffer size:', arrayBuffer.byteLength);
 
-      // Use Deepgram's streaming connection for browser compatibility
-      console.log('Creating Deepgram live connection...');
-      
       return new Promise((resolve, reject) => {
         let transcriptText = '';
-        let resultsReceived = 0;
+        
+        // Use ref to get the most current language (might have been switched)
+        const languageToUse = currentLanguageRef.current;
+        console.log('🎤 Deepgram STT STARTING...');
+        console.log('📊 selectedLanguage state:', selectedLanguage);
+        console.log('📊 currentLanguageRef.current:', currentLanguageRef.current);
+        console.log('🎤 Deepgram will use language:', languageToUse);
         
         const connection = deepgramRef.current.listen.live({
           model: 'nova-2',
           smart_format: true,
           punctuate: true,
-          language: selectedLanguage, // Use selected language
+          language: languageToUse, // Use ref instead of state
           encoding: 'opus',  // Match our audio codec
           // Note: sample_rate not needed for opus
         });
 
         connection.on('open', () => {
-          console.log('Deepgram connection opened with language:', selectedLanguage);
-          
           // Send the audio data
           connection.send(arrayBuffer);
-          console.log('Audio data sent to Deepgram');
           
           // Close connection after sending (give it time to process)
           setTimeout(() => {
-            console.log('Finishing Deepgram connection...');
             connection.finish();
           }, 1500);
         });
 
         connection.on('Results', (data) => {
-          resultsReceived++;
-          console.log(`Deepgram result #${resultsReceived} received:`, data);
-          console.log('Full data structure:', JSON.stringify(data, null, 2));
-          
           // Try multiple ways to extract transcript
           let transcript = null;
           
           // Method 1: Check channel.alternatives[0].transcript
           if (data.channel?.alternatives?.[0]?.transcript) {
             transcript = data.channel.alternatives[0].transcript;
-            console.log('Method 1 (channel.alternatives) - Transcript:', transcript);
-          }
-          
-          // Method 2: Check if it's in the first channel_index
-          if (!transcript && data.channel_index && Array.isArray(data.channel_index)) {
-            console.log('Trying channel_index method...');
           }
           
           if (transcript && transcript.trim().length > 0) {
             transcriptText += transcript + ' ';
-            console.log('Added to transcript. Current full text:', transcriptText);
-          } else {
-            console.log('No transcript in this result or transcript is empty');
           }
         });
 
         connection.on('close', () => {
-          console.log('Deepgram connection closed');
-          console.log('Total results received:', resultsReceived);
-          console.log('Final transcript:', transcriptText.trim());
-          
           const finalTranscript = transcriptText.trim();
           if (finalTranscript) {
+            console.log('✅ Transcript:', finalTranscript);
             resolve(finalTranscript);
           } else {
-            reject(new Error('No transcript received. Please speak clearly and try again.'));
+            const languageNames = {
+              'en': 'English', 'hi': 'Hindi', 'ta': 'Tamil', 'te': 'Telugu',
+              'kn': 'Kannada', 'ml': 'Malayalam', 'bn': 'Bengali', 'mr': 'Marathi',
+              'gu': 'Gujarati', 'pa': 'Punjabi', 'es': 'Spanish', 'fr': 'French',
+              'de': 'German', 'zh': 'Chinese', 'ja': 'Japanese', 'ko': 'Korean'
+            };
+            const currentLangName = languageNames[languageToUse] || languageToUse;
+            reject(new Error(`No speech detected. Please speak in ${currentLangName} or select a different language.`));
           }
         });
 
@@ -263,7 +249,6 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
 
         // Timeout after 15 seconds
         setTimeout(() => {
-          console.log('Deepgram timeout check - transcript:', transcriptText);
           if (!transcriptText.trim()) {
             connection.finish();
             reject(new Error('Transcription timeout - no speech detected'));
@@ -277,7 +262,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
   };
 
   /**
-   * Get AI response using OpenAI
+   * Get AI response using OpenAI or RAG
    */
   const getAIResponse = async () => {
     try {
@@ -286,13 +271,116 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
         throw new Error('OpenAI API key not found');
       }
 
-      // Build messages array with conversation history
+      // Language mapping
+      const languageNames = {
+        'en': 'English',
+        'hi': 'Hindi',
+        'ta': 'Tamil',
+        'te': 'Telugu',
+        'kn': 'Kannada',
+        'ml': 'Malayalam',
+        'bn': 'Bengali',
+        'mr': 'Marathi',
+        'gu': 'Gujarati',
+        'pa': 'Punjabi',
+        'es': 'Spanish',
+        'fr': 'French',
+        'de': 'German',
+        'zh': 'Chinese',
+        'ja': 'Japanese',
+        'ko': 'Korean'
+      };
+
+      const currentLanguageName = languageNames[selectedLanguage] || 'English';
+
+      // Build enhanced system prompt with language instructions
+      const enhancedSystemPrompt = `${systemPrompt || 'You are a helpful AI assistant.'}
+
+Current language: ${currentLanguageName}. Keep responses brief for voice chat.
+To switch language, respond with "LANGUAGE_SWITCH:[code]" then your message.
+Codes: en, hi, ta, te, kn, ml, bn, mr, gu, pa, es, fr, de, zh, ja, ko`;
+
+      // Get the last user message
+      const lastUserMessage = conversationHistoryRef.current[conversationHistoryRef.current.length - 1]?.content || '';
+
+      // If RAG is enabled, use the RAG endpoint
+      if (ragEnabled && lastUserMessage) {
+        try {
+          const ragResponse = await fetch('http://localhost:5000/api/rag/chat', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              query: lastUserMessage,
+              conversationHistory: conversationHistoryRef.current.slice(-6),
+              systemPrompt: enhancedSystemPrompt, // Pass full prompt with language instructions
+              options: {
+                temperature: 0.7,
+                max_tokens: 500,
+              }
+            }),
+          });
+
+          if (ragResponse.ok) {
+            const ragData = await ragResponse.json();
+            if (ragData.success) {
+              console.log('🤖 Using RAG response with knowledge base');
+              console.log('📊 Tokens used:', ragData.tokensUsed);
+              console.log('📚 Context used:', ragData.contextUsed);
+              
+              let aiResponse = ragData.response;
+              
+              // Log the AI response to debug language switching
+              console.log('🤖 RAG AI Response:', aiResponse);
+              console.log('🔍 Starts with LANGUAGE_SWITCH?', aiResponse.startsWith('LANGUAGE_SWITCH:'));
+
+              // Check if AI wants to switch language (same logic as standard OpenAI)
+              if (aiResponse.startsWith('LANGUAGE_SWITCH:')) {
+                const match = aiResponse.match(/^LANGUAGE_SWITCH:([a-z]{2})[\s\n]/i);
+                
+                if (match) {
+                  const newLanguageCode = match[1].toLowerCase();
+                  
+                  console.log(`🔍 Extracted language code: "${newLanguageCode}"`);
+                  
+                  if (languageNames[newLanguageCode]) {
+                    console.log(`🌐 Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`);
+                    
+                    // CRITICAL: Update ref FIRST (synchronous), then state (async)
+                    currentLanguageRef.current = newLanguageCode;
+                    setSelectedLanguage(newLanguageCode);
+                    
+                    console.log(`✅ Language switched!`);
+                    console.log(`  - currentLanguageRef.current: ${currentLanguageRef.current}`);
+                    console.log(`  - selectedLanguage state: updating to "${newLanguageCode}"`);
+                    
+                    // Remove the switch command from response
+                    aiResponse = aiResponse.replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, '').trim();
+                  }
+                }
+              }
+              
+              return aiResponse;
+            }
+          }
+          console.log('⚠️ RAG failed, falling back to standard OpenAI');
+        } catch (ragError) {
+          console.warn('RAG error, using standard OpenAI:', ragError);
+        }
+      }
+
+      // Standard OpenAI response (fallback or when RAG disabled)
+
+      // Build messages array with LIMITED conversation history (last 6 messages = 3 exchanges)
+      // This significantly reduces token usage while maintaining context
+      const recentHistory = conversationHistoryRef.current.slice(-6);
       const messages = [
         {
           role: 'system',
-          content: systemPrompt || 'You are a helpful AI assistant. Keep your responses concise and conversational, suitable for voice interaction.',
+          content: enhancedSystemPrompt,
         },
-        ...conversationHistoryRef.current,
+        ...recentHistory,
       ];
 
       // Call OpenAI API
@@ -303,10 +391,10 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4',
+          model: 'gpt-4o-mini', // Much cheaper than gpt-4 (15x cheaper!) and faster
           messages: messages,
           temperature: 0.7,
-          max_tokens: 150, // Keep responses short for voice
+          max_tokens: 100, // Reduced from 150 - shorter responses for voice
         }),
       });
 
@@ -315,7 +403,47 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
       }
 
       const data = await response.json();
-      return data.choices[0].message.content;
+      let aiResponse = data.choices[0].message.content;
+
+      // Log the AI response to debug language switching
+      console.log('🤖 AI Response:', aiResponse);
+      console.log('🔍 Starts with LANGUAGE_SWITCH?', aiResponse.startsWith('LANGUAGE_SWITCH:'));
+
+      // Check if AI wants to switch language
+      if (aiResponse.startsWith('LANGUAGE_SWITCH:')) {
+        // Extract language code - it should be right after "LANGUAGE_SWITCH:" and before space or newline
+        const match = aiResponse.match(/^LANGUAGE_SWITCH:([a-z]{2})[\s\n]/i);
+        
+        if (match) {
+          const newLanguageCode = match[1].toLowerCase();
+          
+          console.log(`🔍 Extracted language code: "${newLanguageCode}"`);
+          console.log(`🔍 Language code exists in map?`, languageNames[newLanguageCode]);
+          
+          // Update the language
+          if (languageNames[newLanguageCode]) {
+            console.log(`🌐 Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`);
+            
+            // CRITICAL: Update ref FIRST (synchronous), then state (async)
+            // This ensures the ref has the new value immediately for next recording
+            currentLanguageRef.current = newLanguageCode;
+            setSelectedLanguage(newLanguageCode);
+            
+            console.log(`✅ Language switched!`);
+            console.log(`  - currentLanguageRef.current: ${currentLanguageRef.current} (updated synchronously)`);
+            console.log(`  - selectedLanguage state: will update to "${newLanguageCode}" (async)`);
+            
+            // Remove the switch command from response (everything after "LANGUAGE_SWITCH:xx ")
+            aiResponse = aiResponse.replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, '').trim();
+          } else {
+            console.log(`❌ Language code "${newLanguageCode}" not found in languageNames map`);
+          }
+        } else {
+          console.log(`❌ Could not extract valid language code from response`);
+        }
+      }
+
+      return aiResponse;
     } catch (error) {
       console.error('OpenAI error:', error);
       throw new Error('Failed to get AI response');
@@ -327,7 +455,6 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
    */
   const speakTextWithSarvam = async (text) => {
     try {
-      console.log('speakTextWithSarvam called with:', text);
       setIsSpeaking(true);
 
       const apiKey = import.meta.env.VITE_SARVAM_API_KEY;
@@ -350,24 +477,14 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
         'pa': 'pa-IN',
       };
 
-      const sarvamLanguage = languageMap[selectedLanguage] || 'en-IN';
-      console.log('Using Sarvam language:', sarvamLanguage);
-
-      // Call Sarvam TTS API
-      console.log('Calling Sarvam TTS API...');
-      console.log('Request payload:', {
-        inputs: [text],
-        target_language_code: sarvamLanguage,
-        speaker: selectedVoice,
-        model: 'bulbul:v2'
-      });
+      const sarvamLanguage = languageMap[currentLanguageRef.current] || 'en-IN';
       
       const response = await axios.post(
         'https://api.sarvam.ai/text-to-speech',
         {
           inputs: [text],
           target_language_code: sarvamLanguage,
-          speaker: selectedVoice, // Use selected voice
+          speaker: selectedVoice,
           model: 'bulbul:v2'
         },
         {
@@ -377,8 +494,6 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
           }
         }
       );
-
-      console.log('Sarvam response received');
 
       // Get the base64 audio from response
       const audioBase64 = response.data.audios[0];
@@ -395,11 +510,8 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
       
-      console.log('Playing audio...');
-      
       return new Promise((resolve, reject) => {
         audio.onended = () => {
-          console.log('Audio playback ended');
           setIsSpeaking(false);
           URL.revokeObjectURL(audioUrl);
           resolve();
@@ -464,7 +576,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
       <div className="mb-6">
         <h2 className="text-2xl font-bold mb-2">Voice Chat with {agentName}</h2>
         <p className="text-sm text-slate-600">
-          Click the microphone to start speaking. Your conversation will be transcribed and the agent will respond with voice.
+          Click the microphone to start speaking. Your conversation will be transcribed and the agent will respond with voice. Try saying "Switch to Hindi" or "Talk in Tamil" to change languages!
         </p>
       </div>
 
@@ -541,6 +653,24 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
             </optgroup>
           </select>
         </div>
+
+        {/* RAG Toggle */}
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={ragEnabled}
+              onChange={(e) => setRagEnabled(e.target.checked)}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <span className="text-sm font-medium text-slate-700">
+              Use Knowledge Base (RAG)
+            </span>
+          </label>
+          <span className="text-xs text-slate-500">
+            {ragEnabled ? '✓ Enhanced with uploaded documents' : '⚠ Basic mode only'}
+          </span>
+        </div>
       </div>
 
       {/* Error Display */}
@@ -556,22 +686,15 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent" }) => {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              console.log('=== BUTTON CLICK ===');
-              console.log('isRecordingRef.current:', isRecordingRef.current);
-              console.log('isProcessing:', isProcessing);
-              console.log('isSpeaking:', isSpeaking);
               
               // Don't do anything if processing or speaking
               if (isProcessing || isSpeaking) {
-                console.log('Button disabled, ignoring click');
                 return;
               }
               
               if (isRecordingRef.current) {
-                console.log('STOPPING recording via onClick');
                 stopListening();
               } else {
-                console.log('STARTING recording via onClick');
                 startListening();
               }
             }}

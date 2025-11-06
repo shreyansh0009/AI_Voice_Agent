@@ -1,0 +1,267 @@
+import { Pinecone } from '@pinecone-database/pinecone';
+import { OpenAIEmbeddings } from '@langchain/openai';
+import { PineconeStore } from '@langchain/pinecone';
+import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import { Document } from '@langchain/core/documents';
+import { config } from '../config/index.js';
+
+class RAGService {
+  constructor() {
+    this.pinecone = null;
+    this.embeddings = null;
+    this.index = null;
+    this.initialized = false;
+  }
+
+  async initialize() {
+    try {
+      // Initialize Pinecone
+      if (config.pineconeApiKey) {
+        this.pinecone = new Pinecone({
+          apiKey: config.pineconeApiKey,
+        });
+        
+        this.index = this.pinecone.index(config.pineconeIndex);
+        
+        console.log('✅ Pinecone initialized');
+      } else {
+        console.warn('⚠️  Pinecone API key not found. Vector search disabled.');
+      }
+
+      // Initialize OpenAI Embeddings
+      if (config.openaiApiKey) {
+        this.embeddings = new OpenAIEmbeddings({
+          openAIApiKey: config.openaiApiKey,
+          modelName: config.embeddingModel,
+        });
+        console.log('✅ OpenAI Embeddings initialized');
+      } else {
+        console.warn('⚠️  OpenAI API key not found. Embeddings disabled.');
+      }
+
+      this.initialized = this.embeddings && this.pinecone;
+      return this.initialized;
+    } catch (error) {
+      console.error('❌ Failed to initialize RAG service:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Split text into chunks for better retrieval
+   */
+  async chunkText(text, metadata = {}) {
+    const splitter = new RecursiveCharacterTextSplitter({
+      chunkSize: config.chunkSize,
+      chunkOverlap: config.chunkOverlap,
+      separators: ['\n\n', '\n', '.', '!', '?', ',', ' ', ''],
+    });
+
+    const chunks = await splitter.splitText(text);
+    
+    return chunks.map((chunk, index) => ({
+      pageContent: chunk,
+      metadata: {
+        ...metadata,
+        chunkIndex: index,
+        totalChunks: chunks.length,
+      },
+    }));
+  }
+
+  /**
+   * Store document in vector database
+   */
+  async storeDocument(fileInfo, extractedText) {
+    if (!this.initialized) {
+      console.log('RAG not initialized, skipping vector storage');
+      return null;
+    }
+
+    try {
+      // Chunk the text
+      const chunks = await this.chunkText(extractedText, {
+        fileName: fileInfo.originalName,
+        fileId: fileInfo.fileName,
+        uploadedAt: fileInfo.uploadedAt,
+        fileSize: fileInfo.size,
+        mimeType: fileInfo.mimetype,
+      });
+
+      console.log(`📄 Chunked "${fileInfo.originalName}" into ${chunks.length} pieces`);
+
+      // Create documents
+      const documents = chunks.map(chunk => new Document(chunk));
+
+      // Store in Pinecone
+      await PineconeStore.fromDocuments(documents, this.embeddings, {
+        pineconeIndex: this.index,
+        namespace: 'knowledge-base',
+      });
+
+      console.log(`✅ Stored ${chunks.length} chunks in vector database`);
+
+      return {
+        success: true,
+        chunksStored: chunks.length,
+      };
+    } catch (error) {
+      console.error('❌ Error storing document:', error);
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Retrieve relevant context for a query
+   */
+  async retrieveContext(query, topK = 5) {
+    if (!this.initialized) {
+      return {
+        success: false,
+        error: 'RAG service not initialized',
+        context: '',
+      };
+    }
+
+    try {
+      const vectorStore = await PineconeStore.fromExistingIndex(this.embeddings, {
+        pineconeIndex: this.index,
+        namespace: 'knowledge-base',
+      });
+
+      const results = await vectorStore.similaritySearch(query, topK);
+
+      const context = results
+        .map((doc, idx) => {
+          const source = doc.metadata.fileName || 'Unknown';
+          return `[Source ${idx + 1}: ${source}]\n${doc.pageContent}`;
+        })
+        .join('\n\n---\n\n');
+
+      return {
+        success: true,
+        context,
+        sources: results.map(doc => doc.metadata),
+        numResults: results.length,
+      };
+    } catch (error) {
+      console.error('❌ Error retrieving context:', error);
+      return {
+        success: false,
+        error: error.message,
+        context: '',
+      };
+    }
+  }
+
+  /**
+   * Delete all vectors for a specific file
+   */
+  async deleteFileVectors(fileId) {
+    if (!this.initialized) {
+      return { success: false, error: 'RAG not initialized' };
+    }
+
+    try {
+      // Query all vectors with this fileId
+      const queryResponse = await this.index.query({
+        namespace: 'knowledge-base',
+        filter: { fileId: { $eq: fileId } },
+        topK: 10000,
+        includeMetadata: false,
+      });
+
+      if (queryResponse.matches && queryResponse.matches.length > 0) {
+        const ids = queryResponse.matches.map(match => match.id);
+        await this.index.deleteMany(ids, 'knowledge-base');
+        console.log(`🗑️  Deleted ${ids.length} vectors for file ${fileId}`);
+      }
+
+      return { success: true, deletedCount: queryResponse.matches?.length || 0 };
+    } catch (error) {
+      console.error('❌ Error deleting vectors:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Generate enhanced response with RAG
+   */
+  async generateRAGResponse(query, conversationHistory = [], systemPrompt = '', options = {}) {
+    try {
+      // Retrieve relevant context from knowledge base
+      const retrieval = await this.retrieveContext(query, 3);
+
+      if (!retrieval.success) {
+        throw new Error('Failed to retrieve context');
+      }
+
+      // Build smart RAG prompt - only use KB when needed
+      const contextSection = retrieval.context && retrieval.context.length > 50
+        ? `\n\n--- KNOWLEDGE BASE REFERENCE (Use ONLY if your instructions don't cover this) ---\n${retrieval.context}\n--- END KNOWLEDGE BASE ---\n\n`
+        : '';
+
+      // Priority: Agent Prompt > Knowledge Base > General Knowledge
+      const enhancedSystemPrompt = `${systemPrompt}
+
+${contextSection}INSTRUCTIONS:
+1. FIRST, follow your main instructions above to answer the question.
+2. ONLY if your instructions don't cover the topic, use the Knowledge Base reference.
+3. If neither covers it, politely say you don't have specific information about that.
+4. IMPORTANT: Preserve all language switching capabilities and formatting instructions from your main prompt.
+5. Keep responses concise and natural for voice conversations.`;
+
+      // Build messages with conversation history
+      const messages = [
+        { role: 'system', content: enhancedSystemPrompt },
+        ...conversationHistory,
+        { role: 'user', content: query },
+      ];
+
+      // Call OpenAI
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.openaiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: config.chatModel,
+          messages: messages,
+          temperature: options.temperature || config.temperature,
+          max_tokens: options.max_tokens || 500, // Increased for better responses
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || 'OpenAI API error');
+      }
+
+      const data = await response.json();
+      const aiResponse = data.choices[0].message.content;
+
+      return {
+        success: true,
+        response: aiResponse,
+        sources: retrieval.sources,
+        contextUsed: retrieval.context.length > 0,
+        tokensUsed: data.usage?.total_tokens || 0,
+      };
+    } catch (error) {
+      console.error('❌ RAG generation error:', error);
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+}
+
+// Create singleton instance
+const ragService = new RAGService();
+
+export default ragService;

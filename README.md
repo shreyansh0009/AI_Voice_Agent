@@ -271,7 +271,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 For issues and questions:
 - Open an issue on GitHub
-- Contact: [Your email or support channel]
+- Contact: saurabh.kumar@crmlanding.in
 
 ## 🙏 Acknowledgments
 
@@ -283,6 +283,6 @@ For issues and questions:
 
 ---
 
-Made with ❤️ by Saurabh Kumar
+Made with ❤️ by Saurabh Kumar & Mahendra Gurjar
 
 🌟 **Star this repo if you find it useful!**
