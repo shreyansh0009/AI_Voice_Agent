@@ -779,7 +779,7 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
       // If RAG is enabled, use the RAG endpoint
       if (ragEnabled && lastUserMessage) {
         try {
-          const ragResponse = await fetch('http://localhost:5000/api/rag/chat', {
+          const ragResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/rag/chat`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
