@@ -9,7 +9,14 @@ import { cloudinary } from '../config/multer.js';
  * Upload and process knowledge base files
  */
 export const uploadKnowledgeFiles = asyncHandler(async (req, res) => {
-  await connectDB();
+  const dbConnection = await connectDB();
+  
+  if (!dbConnection) {
+    return res.status(503).json({
+      success: false,
+      error: 'Database connection unavailable. Please try again later.'
+    });
+  }
 
   if (!req.file) {
     return res.status(400).json({ 
@@ -140,7 +147,14 @@ export const uploadKnowledgeFiles = asyncHandler(async (req, res) => {
  * Get all knowledge files
  */
 export const getKnowledgeFiles = asyncHandler(async (req, res) => {
-  await connectDB();
+  const dbConnection = await connectDB();
+  
+  if (!dbConnection) {
+    return res.status(503).json({
+      success: false,
+      error: 'Database connection unavailable. Please try again later.'
+    });
+  }
 
   const { agentId } = req.query;
   const query = agentId ? { agentId } : {};
@@ -156,7 +170,14 @@ export const getKnowledgeFiles = asyncHandler(async (req, res) => {
  * Delete knowledge file
  */
 export const deleteKnowledgeFile = asyncHandler(async (req, res) => {
-  await connectDB();
+  const dbConnection = await connectDB();
+  
+  if (!dbConnection) {
+    return res.status(503).json({
+      success: false,
+      error: 'Database connection unavailable. Please try again later.'
+    });
+  }
 
   const { filename } = req.params;
 
