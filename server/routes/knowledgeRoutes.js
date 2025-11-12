@@ -11,8 +11,8 @@ import {
 
 const router = express.Router();
 
-// Upload files
-router.post('/upload-knowledge', upload.array('files', 10), uploadKnowledgeFiles);
+// Upload single file only
+router.post('/upload-knowledge', upload.single('files'), uploadKnowledgeFiles);
 
 // Get all files
 router.get('/knowledge-files', getKnowledgeFiles);

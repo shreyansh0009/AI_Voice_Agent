@@ -1,64 +1,138 @@
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { extractText } from '../utils/textExtraction.js';
 import ragService from '../services/ragService.js';
-import fileManagementService from '../services/fileManagementService.js';
-import fs from 'fs';
-import path from 'path';
-import { config } from '../config/index.js';
+import File from '../models/File.js';
+import { connectDB } from '../config/database.js';
+import { cloudinary } from '../config/multer.js';
 
 /**
  * Upload and process knowledge base files
  */
 export const uploadKnowledgeFiles = asyncHandler(async (req, res) => {
-  if (!req.files || req.files.length === 0) {
+  await connectDB();
+
+  if (!req.file) {
     return res.status(400).json({ 
       success: false,
-      error: 'No files uploaded' 
+      error: 'No file uploaded. Please select a PDF, DOC, or DOCX file.' 
     });
   }
 
   const { agentId = 'default', tags = [] } = req.body;
   const parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
-  const processedFiles = [];
 
-  for (const file of req.files) {
-    const fileInfo = {
-      originalName: file.originalname,
-      fileName: file.filename,
-      size: file.size,
-      mimetype: file.mimetype,
-      uploadedAt: new Date(),
-      extractedText: null,
-      error: null,
-    };
-
-    try {
-      // Extract text
-      fileInfo.extractedText = await extractText(file.path, file.mimetype);
-      fileInfo.textLength = fileInfo.extractedText?.length || 0;
-      fileInfo.status = 'processed';
-
-      // Store in vector database
-      if (fileInfo.extractedText) {
-        const vectorResult = await ragService.storeDocument(fileInfo, fileInfo.extractedText);
-        fileInfo.vectorStored = vectorResult?.success || false;
-        fileInfo.chunksStored = vectorResult?.chunksStored || 0;
+  // Check if a file already exists for this agent
+  const existingFiles = await File.find({ agentId });
+  if (existingFiles.length > 0) {
+    // Delete the uploaded temp file since we're rejecting the upload
+    const fs = await import('fs');
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    
+    return res.status(400).json({
+      success: false,
+      error: 'A file is already uploaded. Please delete the existing file before uploading a new one.',
+      existingFile: {
+        originalName: existingFiles[0].originalName,
+        fileName: existingFiles[0].fileName,
+        uploadedAt: existingFiles[0].uploadedAt
       }
+    });
+  }
 
-      // Add to file management system
-      fileManagementService.addFile(fileInfo, agentId, parsedTags);
-    } catch (error) {
-      fileInfo.error = error.message;
-      fileInfo.status = 'failed';
+  const file = req.file;
+  console.log('📁 Processing file:', file.originalname);
+  
+  let cloudinaryResult = null;
+  const fileInfo = {
+    originalName: file.originalname,
+    fileName: file.filename,
+    cloudinaryUrl: null,
+    cloudinaryPublicId: null,
+    size: file.size,
+    mimeType: file.mimetype,
+    uploadedAt: new Date(),
+    agentId,
+    tags: parsedTags,
+    extractedText: null,
+    error: null,
+  };
+
+  try {
+    // Step 1: Extract text from local temp file
+    console.log('📄 Extracting text from local file:', file.path);
+    const textContent = await extractText(file.path, file.mimetype, false, null);
+    fileInfo.extractedText = textContent;
+    fileInfo.textLength = textContent?.length || 0;
+    fileInfo.status = 'processed';
+    console.log(`✅ Extracted ${fileInfo.textLength} characters`);
+
+    // Step 2: Upload to Cloudinary
+    console.log('☁️  Uploading to Cloudinary...');
+    const uniquePublicId = `${Date.now()}-${Math.round(Math.random() * 1E9)}-${file.originalname}`;
+    cloudinaryResult = await cloudinary.uploader.upload(file.path, {
+      folder: 'ai-voice-crm/knowledge-base',
+      resource_type: 'raw',
+      public_id: uniquePublicId,
+    });
+    
+    fileInfo.cloudinaryUrl = cloudinaryResult.secure_url;
+    fileInfo.cloudinaryPublicId = cloudinaryResult.public_id;
+    console.log('✅ Uploaded to Cloudinary:', cloudinaryResult.secure_url);
+
+    // Step 3: Store in vector database
+    if (textContent) {
+      console.log('🔍 Storing in vector database...');
+      const vectorResult = await ragService.storeDocument(fileInfo, textContent);
+      fileInfo.vectorStored = vectorResult?.success || false;
+      fileInfo.chunksStored = vectorResult?.chunksStored || 0;
+      console.log(`✅ Stored ${fileInfo.chunksStored} chunks in vector DB`);
     }
 
-    processedFiles.push(fileInfo);
+    // Step 4: Save metadata to MongoDB
+    console.log('💾 Saving to MongoDB...');
+    const fileDoc = new File({
+      fileName: fileInfo.fileName,
+      originalName: fileInfo.originalName,
+      cloudinaryUrl: fileInfo.cloudinaryUrl,
+      cloudinaryPublicId: fileInfo.cloudinaryPublicId,
+      size: fileInfo.size,
+      mimeType: fileInfo.mimeType,
+      agentId,
+      tags: parsedTags,
+      processedForRAG: !!textContent,
+    });
+
+    await fileDoc.save();
+    fileInfo._id = fileDoc._id;
+    console.log('✅ Saved to MongoDB with ID:', fileDoc._id);
+
+    // Step 5: Delete temp file
+    const fs = await import('fs');
+    fs.unlinkSync(file.path);
+    console.log('🗑️  Deleted temp file');
+
+  } catch (error) {
+    console.error('❌ Error processing file:', error);
+    fileInfo.error = error.message;
+    fileInfo.status = 'failed';
+    
+    // Clean up temp file on error
+    try {
+      const fs = await import('fs');
+      if (fs.existsSync(file.path)) {
+        fs.unlinkSync(file.path);
+      }
+    } catch (cleanupError) {
+      console.error('Error cleaning up temp file:', cleanupError);
+    }
   }
 
   res.json({
     success: true,
-    message: `${processedFiles.length} file(s) uploaded successfully`,
-    files: processedFiles,
+    message: 'File uploaded successfully',
+    file: fileInfo,
   });
 });
 
@@ -66,8 +140,11 @@ export const uploadKnowledgeFiles = asyncHandler(async (req, res) => {
  * Get all knowledge files
  */
 export const getKnowledgeFiles = asyncHandler(async (req, res) => {
+  await connectDB();
+
   const { agentId } = req.query;
-  const files = fileManagementService.getAllFiles(agentId);
+  const query = agentId ? { agentId } : {};
+  const files = await File.find(query).sort({ uploadedAt: -1 });
 
   res.json({
     success: true,
@@ -79,28 +156,49 @@ export const getKnowledgeFiles = asyncHandler(async (req, res) => {
  * Delete knowledge file
  */
 export const deleteKnowledgeFile = asyncHandler(async (req, res) => {
-  const { filename } = req.params;
-  const filePath = path.join(config.uploadsDir, filename);
+  await connectDB();
 
-  if (!fs.existsSync(filePath)) {
+  const { filename } = req.params;
+
+  console.log('🗑️  Deleting file:', filename);
+
+  // Find file in MongoDB
+  const fileDoc = await File.findOne({ fileName: filename });
+
+  if (!fileDoc) {
     return res.status(404).json({
       success: false,
       error: 'File not found',
     });
   }
 
-  // Delete from vector database
-  await ragService.deleteFileVectors(filename);
+  // Step 1: Delete from vector database (Pinecone)
+  console.log('🔍 Deleting from vector database...');
+  const vectorDeleteResult = await ragService.deleteFileVectors(filename);
+  if (vectorDeleteResult.success) {
+    console.log(`✅ Deleted ${vectorDeleteResult.deletedCount || 0} vectors from Pinecone`);
+  }
 
-  // Delete from file system
-  fs.unlinkSync(filePath);
+  // Step 2: Delete from Cloudinary
+  console.log('☁️  Deleting from Cloudinary...');
+  try {
+    const cloudinaryResult = await cloudinary.uploader.destroy(fileDoc.cloudinaryPublicId, {
+      resource_type: 'raw'
+    });
+    console.log('✅ Deleted from Cloudinary:', cloudinaryResult.result);
+  } catch (error) {
+    console.error('❌ Error deleting from Cloudinary:', error);
+    // Continue even if Cloudinary deletion fails
+  }
 
-  // Delete metadata
-  fileManagementService.deleteFile(filename);
+  // Step 3: Delete from MongoDB
+  console.log('💾 Deleting from MongoDB...');
+  await File.deleteOne({ fileName: filename });
+  console.log('✅ Deleted from MongoDB');
 
   res.json({
     success: true,
-    message: 'File deleted successfully',
+    message: 'File deleted successfully from all storage locations (MongoDB, Cloudinary, and Vector DB)',
   });
 });
 
@@ -108,6 +206,8 @@ export const deleteKnowledgeFile = asyncHandler(async (req, res) => {
  * Search knowledge files
  */
 export const searchKnowledgeFiles = asyncHandler(async (req, res) => {
+  await connectDB();
+
   const { q, agentId } = req.query;
 
   if (!q) {
@@ -117,7 +217,19 @@ export const searchKnowledgeFiles = asyncHandler(async (req, res) => {
     });
   }
 
-  const results = fileManagementService.searchFiles(q, agentId);
+  const query = {
+    $or: [
+      { originalName: { $regex: q, $options: 'i' } },
+      { fileName: { $regex: q, $options: 'i' } },
+      { tags: { $regex: q, $options: 'i' } },
+    ],
+  };
+
+  if (agentId) {
+    query.agentId = agentId;
+  }
+
+  const results = await File.find(query).sort({ uploadedAt: -1 });
 
   res.json({
     success: true,
@@ -130,10 +242,16 @@ export const searchKnowledgeFiles = asyncHandler(async (req, res) => {
  * Update file tags
  */
 export const updateFileTags = asyncHandler(async (req, res) => {
+  await connectDB();
+
   const { filename } = req.params;
   const { tags } = req.body;
 
-  const updatedFile = fileManagementService.updateFileTags(filename, tags);
+  const updatedFile = await File.findOneAndUpdate(
+    { fileName: filename },
+    { tags },
+    { new: true }
+  );
 
   if (!updatedFile) {
     return res.status(404).json({
@@ -152,10 +270,16 @@ export const updateFileTags = asyncHandler(async (req, res) => {
  * Update file agent
  */
 export const updateFileAgent = asyncHandler(async (req, res) => {
+  await connectDB();
+
   const { filename } = req.params;
   const { agentId } = req.body;
 
-  const updatedFile = fileManagementService.updateFileAgent(filename, agentId);
+  const updatedFile = await File.findOneAndUpdate(
+    { fileName: filename },
+    { agentId },
+    { new: true }
+  );
 
   if (!updatedFile) {
     return res.status(404).json({

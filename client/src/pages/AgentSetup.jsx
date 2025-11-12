@@ -66,47 +66,12 @@ export default function AgentSetupSingle() {
     }
   }, []);
 
-  // Load uploaded files from localStorage on mount
+  // Load uploaded files from server on mount (server is the source of truth)
   useEffect(() => {
-    const loadUploadedFiles = async () => {
-      const savedFiles = localStorage.getItem('uploaded_knowledge_files');
-      if (savedFiles) {
-        try {
-          const parsed = JSON.parse(savedFiles);
-          console.log('📂 Loaded files from localStorage:', parsed);
-          
-          // Verify files still exist on server
-          const response = await fetch('http://localhost:5000/api/knowledge-files');
-          const data = await response.json();
-          
-          if (data.success) {
-            // Match localStorage files with server files
-            const serverFileNames = data.files.map(f => f.fileName);
-            const validFiles = parsed.filter(file => serverFileNames.includes(file.fileName));
-            
-            if (validFiles.length !== parsed.length) {
-              console.log('⚠️ Some files no longer exist on server, cleaning up...');
-              localStorage.setItem('uploaded_knowledge_files', JSON.stringify(validFiles));
-            }
-            
-            setUploadedFiles(validFiles);
-          } else {
-            setUploadedFiles(parsed);
-          }
-        } catch (error) {
-          console.error('Failed to load uploaded files:', error);
-          localStorage.removeItem('uploaded_knowledge_files');
-        }
-      } else {
-        // If no localStorage, fetch from server
-        fetchUploadedFiles();
-      }
-    };
-    
-    loadUploadedFiles();
+    fetchUploadedFiles();
   }, []);
 
-  // Fetch uploaded files from server
+  // Fetch uploaded files from server (server is the single source of truth)
   const fetchUploadedFiles = async () => {
     try {
       const response = await fetch('http://localhost:5000/api/knowledge-files');
@@ -115,48 +80,12 @@ export default function AgentSetupSingle() {
       if (data.success) {
         console.log('📂 Loaded files from server:', data.files);
         setUploadedFiles(data.files);
-        localStorage.setItem('uploaded_knowledge_files', JSON.stringify(data.files));
+        // Server is the source of truth - no localStorage needed
       }
     } catch (error) {
       console.error('Failed to fetch files:', error);
     }
   };
-
-  // Save uploaded files to localStorage whenever they change
-  useEffect(() => {
-    if (uploadedFiles.length > 0) {
-      localStorage.setItem('uploaded_knowledge_files', JSON.stringify(uploadedFiles));
-      console.log('💾 Saved files to localStorage:', uploadedFiles.length);
-    } else {
-      localStorage.removeItem('uploaded_knowledge_files');
-    }
-  }, [uploadedFiles]);
-
-  // Cleanup: Delete files from server when browser closes/reloads
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      // Optional: Ask user if they want to keep files
-      const savedFiles = localStorage.getItem('uploaded_knowledge_files');
-      if (savedFiles) {
-        const files = JSON.parse(savedFiles);
-        if (files.length > 0) {
-          // If you want to always delete files on close, uncomment this:
-          // e.preventDefault();
-          // e.returnValue = '';
-          // await deleteAllFilesFromServer(files);
-          
-          // For now, we'll keep files persistent across reloads
-          console.log('🔄 Page reload/close detected. Files preserved in localStorage.');
-        }
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, []);
 
   // Save chat history to localStorage whenever it changes
   useEffect(() => {
@@ -298,24 +227,31 @@ export default function AgentSetupSingle() {
     
     if (files.length === 0) return;
     
-    // Validate files
-    const validFiles = files.filter(file => {
-      const extension = file.name.split('.').pop().toLowerCase();
-      const isValid = ['pdf', 'doc', 'docx'].includes(extension);
-      const isUnderLimit = file.size <= 10 * 1024 * 1024; // 10MB
-      
-      if (!isValid) {
-        setUploadError(`${file.name}: Invalid file type. Only PDF, DOC, DOCX allowed.`);
-        return false;
-      }
-      if (!isUnderLimit) {
-        setUploadError(`${file.name}: File too large. Maximum 10MB.`);
-        return false;
-      }
-      return true;
-    });
-
-    if (validFiles.length === 0) return;
+    // Check if a file is already uploaded
+    if (uploadedFiles.length > 0) {
+      setUploadError('A file is already uploaded. Please delete the existing file before uploading a new one.');
+      event.target.value = ''; // Reset file input
+      return;
+    }
+    
+    // Only allow one file
+    const file = files[0]; // Take only the first file
+    
+    // Validate file
+    const extension = file.name.split('.').pop().toLowerCase();
+    const isValid = ['pdf', 'doc', 'docx'].includes(extension);
+    const isUnderLimit = file.size <= 10 * 1024 * 1024; // 10MB
+    
+    if (!isValid) {
+      setUploadError(`Invalid file type. Only PDF, DOC, DOCX allowed.`);
+      event.target.value = '';
+      return;
+    }
+    if (!isUnderLimit) {
+      setUploadError(`File too large. Maximum 10MB.`);
+      event.target.value = '';
+      return;
+    }
 
     setIsUploading(true);
     setUploadError(null);
@@ -323,9 +259,7 @@ export default function AgentSetupSingle() {
 
     try {
       const formData = new FormData();
-      validFiles.forEach(file => {
-        formData.append('files', file);
-      });
+      formData.append('files', file); // Single file with 'files' field name
 
       const response = await fetch('http://localhost:5000/api/upload-knowledge', {
         method: 'POST',
@@ -335,14 +269,10 @@ export default function AgentSetupSingle() {
       const data = await response.json();
 
       if (data.success) {
-        const newFiles = [...uploadedFiles, ...data.files];
-        setUploadedFiles(newFiles);
+        // Refresh from server to get the actual uploaded file data
+        await fetchUploadedFiles();
         
-        // Save to localStorage
-        localStorage.setItem('uploaded_knowledge_files', JSON.stringify(newFiles));
-        console.log('💾 Saved to localStorage after upload:', newFiles.length, 'files');
-        
-        setUploadSuccess(`Successfully uploaded ${data.files.length} file(s)`);
+        setUploadSuccess(`Successfully uploaded ${file.name}`);
         
         // Clear success message after 3 seconds
         setTimeout(() => setUploadSuccess(null), 3000);
@@ -351,7 +281,7 @@ export default function AgentSetupSingle() {
       }
     } catch (error) {
       console.error('Upload error:', error);
-      setUploadError('Failed to upload files. Make sure the server is running.');
+      setUploadError('Failed to upload file. Make sure the server is running.');
     } finally {
       setIsUploading(false);
       // Reset file input
@@ -368,16 +298,8 @@ export default function AgentSetupSingle() {
       const data = await response.json();
 
       if (data.success) {
-        const updatedFiles = uploadedFiles.filter((_, i) => i !== index);
-        setUploadedFiles(updatedFiles);
-        
-        // Update localStorage
-        if (updatedFiles.length > 0) {
-          localStorage.setItem('uploaded_knowledge_files', JSON.stringify(updatedFiles));
-        } else {
-          localStorage.removeItem('uploaded_knowledge_files');
-        }
-        console.log('🗑️ File removed and localStorage updated');
+        // Refresh from server to ensure we're in sync
+        await fetchUploadedFiles();
         
         setUploadSuccess('File removed successfully');
         setTimeout(() => setUploadSuccess(null), 2000);
@@ -422,9 +344,8 @@ export default function AgentSetupSingle() {
       }
     }
     
-    // Clear state and localStorage
-    setUploadedFiles([]);
-    localStorage.removeItem('uploaded_knowledge_files');
+    // Clear state by refreshing from server
+    await fetchUploadedFiles();
     
     setIsUploading(false);
     setUploadSuccess(`Deleted ${successCount} file(s)${failCount > 0 ? `, ${failCount} failed` : ''}`);
@@ -663,19 +584,18 @@ export default function AgentSetupSingle() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                           </svg>
                           <span className="text-sm font-medium">
-                            {isUploading ? 'Uploading...' : 'Choose Files'}
+                            {isUploading ? 'Uploading...' : 'Choose File'}
                           </span>
                           <input
                             type="file"
-                            multiple
                             accept=".pdf,.doc,.docx"
                             onChange={handleFileUpload}
-                            disabled={isUploading}
+                            disabled={isUploading || uploadedFiles.length > 0}
                             className="hidden"
                           />
                         </label>
                         <span className="text-xs text-slate-500">
-                          Supported: PDF, DOC, DOCX (Max 10MB each)
+                          Supported: PDF, DOC, DOCX (Max 10MB) - Only one file allowed
                         </span>
                       </div>
 

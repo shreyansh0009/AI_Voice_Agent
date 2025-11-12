@@ -42,30 +42,34 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Start server
-app.listen(config.port, async () => {
-  console.log('='.repeat(50));
-  console.log(`🚀 Server running on http://localhost:${config.port}`);
-  console.log(`📁 Uploads directory: ${config.uploadsDir}`);
-  console.log(`📊 Environment: ${config.env}`);
-  console.log('='.repeat(50));
-  
-  // Initialize RAG service
-  const ragInitialized = await ragService.initialize();
-  if (ragInitialized) {
-    console.log('🤖 RAG Service ready for vector search');
-  } else {
-    console.log('⚠️  RAG Service running in basic mode (no vector search)');
+// Initialize RAG service at module load time so serverless functions
+// have the vector store warmed up (best-effort, runs in background)
+(async () => {
+  try {
+    const ragInitialized = await ragService.initialize();
+    if (ragInitialized) {
+      console.log('🤖 RAG Service ready for vector search');
+    } else {
+      console.log('⚠️  RAG Service running in basic mode (no vector search)');
+    }
+  } catch (err) {
+    console.error('Error initializing RAG service:', err);
   }
-  console.log('='.repeat(50));
-});
+})();
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  process.exit(0);
-});
+// Start server only for local / non-production runs. In serverless
+// deployments (e.g. Vercel), the platform will import this module and
+// handle requests — so we export the app instead of always listening.
+if (config.env !== 'production') {
+  const PORT = config.port || 5000;
+  app.listen(PORT, () => {
+    console.log('='.repeat(50));
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`📁 Uploads directory: ${config.uploadsDir}`);
+    console.log(`📊 Environment: ${config.env}`);
+    console.log('='.repeat(50));
+  });
+}
 
-process.on('SIGINT', () => {
-  console.log('SIGINT signal received: closing HTTP server');
-  process.exit(0);
-});
+// Export the app for serverless platforms (Vercel, Netlify functions, etc.)
+export default app;
