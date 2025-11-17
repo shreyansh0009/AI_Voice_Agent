@@ -66,26 +66,97 @@ export default function AgentSetupSingle() {
     }
   }, []);
 
-  // Load uploaded files from server on mount (server is the source of truth)
+  // Load uploaded files from localStorage on mount
   useEffect(() => {
-    fetchUploadedFiles();
+    const loadUploadedFiles = async () => {
+      const savedFiles = localStorage.getItem('uploaded_knowledge_files');
+      if (savedFiles) {
+        try {
+          const parsed = JSON.parse(savedFiles);
+          console.log('📂 Loaded files from localStorage:', parsed);
+          
+          // Verify files still exist on server
+          const response = await fetch('http://localhost:5000/api/knowledge-files');
+          const data = await response.json();
+          
+          if (data.success) {
+            // Match localStorage files with server files
+            const serverFileNames = data.files.map(f => f.fileName);
+            const validFiles = parsed.filter(file => serverFileNames.includes(file.fileName));
+            
+            if (validFiles.length !== parsed.length) {
+              console.log('⚠️ Some files no longer exist on server, cleaning up...');
+              localStorage.setItem('uploaded_knowledge_files', JSON.stringify(validFiles));
+            }
+            
+            setUploadedFiles(validFiles);
+          } else {
+            setUploadedFiles(parsed);
+          }
+        } catch (error) {
+          console.error('Failed to load uploaded files:', error);
+          localStorage.removeItem('uploaded_knowledge_files');
+        }
+      } else {
+        // If no localStorage, fetch from server
+        fetchUploadedFiles();
+      }
+    };
+    
+    loadUploadedFiles();
   }, []);
 
-  // Fetch uploaded files from server (server is the single source of truth)
+  // Fetch uploaded files from server
   const fetchUploadedFiles = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/knowledge-files`);
+      const response = await fetch('http://localhost:5000/api/knowledge-files');
       const data = await response.json();
       
       if (data.success) {
         console.log('📂 Loaded files from server:', data.files);
         setUploadedFiles(data.files);
-        // Server is the source of truth - no localStorage needed
+        localStorage.setItem('uploaded_knowledge_files', JSON.stringify(data.files));
       }
     } catch (error) {
       console.error('Failed to fetch files:', error);
     }
   };
+
+  // Save uploaded files to localStorage whenever they change
+  useEffect(() => {
+    if (uploadedFiles.length > 0) {
+      localStorage.setItem('uploaded_knowledge_files', JSON.stringify(uploadedFiles));
+      console.log('💾 Saved files to localStorage:', uploadedFiles.length);
+    } else {
+      localStorage.removeItem('uploaded_knowledge_files');
+    }
+  }, [uploadedFiles]);
+
+  // Cleanup: Delete files from server when browser closes/reloads
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Optional: Ask user if they want to keep files
+      const savedFiles = localStorage.getItem('uploaded_knowledge_files');
+      if (savedFiles) {
+        const files = JSON.parse(savedFiles);
+        if (files.length > 0) {
+          // If you want to always delete files on close, uncomment this:
+          // e.preventDefault();
+          // e.returnValue = '';
+          // await deleteAllFilesFromServer(files);
+          
+          // For now, we'll keep files persistent across reloads
+          console.log('🔄 Page reload/close detected. Files preserved in localStorage.');
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
 
   // Save chat history to localStorage whenever it changes
   useEffect(() => {
@@ -227,31 +298,24 @@ export default function AgentSetupSingle() {
     
     if (files.length === 0) return;
     
-    // Check if a file is already uploaded
-    if (uploadedFiles.length > 0) {
-      setUploadError('A file is already uploaded. Please delete the existing file before uploading a new one.');
-      event.target.value = ''; // Reset file input
-      return;
-    }
-    
-    // Only allow one file
-    const file = files[0]; // Take only the first file
-    
-    // Validate file
-    const extension = file.name.split('.').pop().toLowerCase();
-    const isValid = ['pdf', 'doc', 'docx'].includes(extension);
-    const isUnderLimit = file.size <= 10 * 1024 * 1024; // 10MB
-    
-    if (!isValid) {
-      setUploadError(`Invalid file type. Only PDF, DOC, DOCX allowed.`);
-      event.target.value = '';
-      return;
-    }
-    if (!isUnderLimit) {
-      setUploadError(`File too large. Maximum 10MB.`);
-      event.target.value = '';
-      return;
-    }
+    // Validate files
+    const validFiles = files.filter(file => {
+      const extension = file.name.split('.').pop().toLowerCase();
+      const isValid = ['pdf', 'doc', 'docx'].includes(extension);
+      const isUnderLimit = file.size <= 10 * 1024 * 1024; // 10MB
+      
+      if (!isValid) {
+        setUploadError(`${file.name}: Invalid file type. Only PDF, DOC, DOCX allowed.`);
+        return false;
+      }
+      if (!isUnderLimit) {
+        setUploadError(`${file.name}: File too large. Maximum 10MB.`);
+        return false;
+      }
+      return true;
+    });
+
+    if (validFiles.length === 0) return;
 
     setIsUploading(true);
     setUploadError(null);
@@ -259,9 +323,11 @@ export default function AgentSetupSingle() {
 
     try {
       const formData = new FormData();
-      formData.append('files', file); // Single file with 'files' field name
+      validFiles.forEach(file => {
+        formData.append('files', file);
+      });
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/upload-knowledge`, {
+      const response = await fetch('http://localhost:5000/api/upload-knowledge', {
         method: 'POST',
         body: formData,
       });
@@ -269,10 +335,14 @@ export default function AgentSetupSingle() {
       const data = await response.json();
 
       if (data.success) {
-        // Refresh from server to get the actual uploaded file data
-        await fetchUploadedFiles();
+        const newFiles = [...uploadedFiles, ...data.files];
+        setUploadedFiles(newFiles);
         
-        setUploadSuccess(`Successfully uploaded ${file.name}`);
+        // Save to localStorage
+        localStorage.setItem('uploaded_knowledge_files', JSON.stringify(newFiles));
+        console.log('💾 Saved to localStorage after upload:', newFiles.length, 'files');
+        
+        setUploadSuccess(`Successfully uploaded ${data.files.length} file(s)`);
         
         // Clear success message after 3 seconds
         setTimeout(() => setUploadSuccess(null), 3000);
@@ -281,7 +351,7 @@ export default function AgentSetupSingle() {
       }
     } catch (error) {
       console.error('Upload error:', error);
-      setUploadError('Failed to upload file. Make sure the server is running.');
+      setUploadError('Failed to upload files. Make sure the server is running.');
     } finally {
       setIsUploading(false);
       // Reset file input
@@ -291,15 +361,23 @@ export default function AgentSetupSingle() {
 
   const handleRemoveFile = async (index, fileName) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/knowledge-files/${fileName}`, {
+      const response = await fetch(`http://localhost:5000/api/knowledge-files/${fileName}`, {
         method: 'DELETE',
       });
 
       const data = await response.json();
 
       if (data.success) {
-        // Refresh from server to ensure we're in sync
-        await fetchUploadedFiles();
+        const updatedFiles = uploadedFiles.filter((_, i) => i !== index);
+        setUploadedFiles(updatedFiles);
+        
+        // Update localStorage
+        if (updatedFiles.length > 0) {
+          localStorage.setItem('uploaded_knowledge_files', JSON.stringify(updatedFiles));
+        } else {
+          localStorage.removeItem('uploaded_knowledge_files');
+        }
+        console.log('🗑️ File removed and localStorage updated');
         
         setUploadSuccess('File removed successfully');
         setTimeout(() => setUploadSuccess(null), 2000);
@@ -328,7 +406,7 @@ export default function AgentSetupSingle() {
     
     for (const file of uploadedFiles) {
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/knowledge-files/${file.fileName}`, {
+        const response = await fetch(`http://localhost:5000/api/knowledge-files/${file.fileName}`, {
           method: 'DELETE',
         });
         
@@ -344,8 +422,9 @@ export default function AgentSetupSingle() {
       }
     }
     
-    // Clear state by refreshing from server
-    await fetchUploadedFiles();
+    // Clear state and localStorage
+    setUploadedFiles([]);
+    localStorage.removeItem('uploaded_knowledge_files');
     
     setIsUploading(false);
     setUploadSuccess(`Deleted ${successCount} file(s)${failCount > 0 ? `, ${failCount} failed` : ''}`);
@@ -353,28 +432,28 @@ export default function AgentSetupSingle() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 p-6">
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-2 sm:p-4 md:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-5 gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Agent setup</h1>
-          <p className="text-sm text-slate-500">Fine tune your agents</p>
+          <h1 className="text-xl sm:text-2xl font-semibold">Agent setup</h1>
+          <p className="text-xs sm:text-sm text-slate-500">Fine tune your agents</p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="text-sm text-slate-500">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
+          <div className="text-xs sm:text-sm text-slate-500 whitespace-nowrap">
             Available balance: <span className="font-medium">$5.00</span>
           </div>
-          <button className="px-3 py-1 rounded-md bg-white border shadow-sm text-sm">
+          <button className="px-2 sm:px-3 py-1 rounded-md bg-white border shadow-sm text-xs sm:text-sm whitespace-nowrap">
             Add more funds
           </button>
-          <button className="px-3 py-1 rounded-md bg-white border text-sm">Help</button>
+          <button className="px-2 sm:px-3 py-1 rounded-md bg-white border text-xs sm:text-sm">Help</button>
         </div>
       </div>
 
-      <div className="flex gap-6">
-        {/* Left column */}
-        <aside className="w-64 bg-white rounded-lg shadow-sm p-4 flex flex-col gap-4">
+      <div className="flex flex-col xl:flex-row gap-4 lg:gap-6">
+        {/* Left column - Hidden on mobile by default, can toggle */}
+        <aside className="w-full xl:w-64 bg-white rounded-lg shadow-sm p-4 flex flex-col gap-4 max-h-[400px] xl:max-h-screen overflow-y-auto">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">Your Agents</h2>
             <button className="text-xs text-slate-500">⋯</button>
@@ -433,62 +512,62 @@ export default function AgentSetupSingle() {
         </aside>
 
         {/* Center */}
-        <main className="flex-1 bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-start justify-between mb-4 gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-4">
+        <main className="flex-1 bg-white rounded-lg shadow-sm p-3 sm:p-4 md:p-6 min-w-0 xl:min-w-[600px]">
+          <div className="flex flex-col lg:flex-row items-start justify-between mb-4 gap-3 lg:gap-4">
+            <div className="flex-1 w-full min-w-0">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 flex-wrap">
                 <input
                   value={agentName}
                   onChange={(e) => setAgentName(e.target.value)}
-                  className="text-2xl font-semibold border-b border-transparent focus:border-blue-500 focus:outline-none"
+                  className="text-lg sm:text-xl md:text-2xl font-semibold border-b border-transparent focus:border-blue-500 focus:outline-none w-full sm:w-auto min-w-0 max-w-full sm:max-w-xs"
                   placeholder="Enter agent name"
                 />
                 {isNewAgent && (
-                  <span className="text-sm bg-blue-100 text-blue-700 px-2 py-1 rounded">Unsaved</span>
+                  <span className="text-xs sm:text-sm bg-blue-100 text-blue-700 px-2 py-1 rounded whitespace-nowrap">Unsaved</span>
                 )}
-                <div className="text-sm text-slate-500">
+                <div className="text-xs sm:text-sm text-slate-500 whitespace-nowrap">
                   Cost per min: <span className="font-medium">~ $0.094</span>
                 </div>
               </div>
 
-              <div className="mt-3 w-80 h-3 bg-slate-100 rounded-full overflow-hidden">
+              <div className="mt-3 w-full max-w-2xl h-3 bg-slate-100 rounded-full overflow-hidden">
                 <div className="h-3 w-3/4 bg-linear-to-r from-orange-400 via-blue-500 to-sky-600" />
               </div>
 
-              <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-2 text-xs text-slate-400">
                 <span>Transcriber</span>
-                <span>•</span>
+                <span className="hidden sm:inline">•</span>
                 <span>LLM</span>
-                <span>•</span>
+                <span className="hidden sm:inline">•</span>
                 <span>Voice</span>
-                <span>•</span>
+                <span className="hidden sm:inline">•</span>
                 <span>Telephony</span>
-                <span>•</span>
+                <span className="hidden sm:inline">•</span>
                 <span>Platform</span>
               </div>
             </div>
 
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex gap-2">
-                <button className="px-3 py-1 rounded-md border text-sm">Agent ID</button>
-                <button className="px-3 py-1 rounded-md border text-sm">Share</button>
+            <div className="flex flex-col items-start lg:items-end gap-2 w-full lg:w-auto shrink-0">
+              <div className="flex gap-2 w-full lg:w-auto">
+                <button className="flex-1 lg:flex-none px-3 py-1 rounded-md border text-xs sm:text-sm whitespace-nowrap">Agent ID</button>
+                <button className="flex-1 lg:flex-none px-3 py-1 rounded-md border text-xs sm:text-sm">Share</button>
               </div>
-              <div className="mt-2">
-                <button className="px-4 py-2 bg-sky-600 text-white rounded-md text-sm">Get call from agent</button>
+              <div className="w-full lg:w-auto">
+                <button className="w-full px-4 py-2 bg-sky-600 text-white rounded-md text-xs sm:text-sm whitespace-nowrap hover:bg-sky-700 transition-colors">Get call from agent</button>
               </div>
             </div>
           </div>
 
           {/* Tabs */}
-          <div className="mb-6 border-b">
-            <nav className="flex gap-4 overflow-x-auto pb-2">
+          <div className="mb-6 border-b overflow-x-auto">
+            <nav className="flex gap-2 sm:gap-4 pb-2 min-w-max">
               {TABS.map((t) => {
                 const active = t === activeTab;
                 return (
                   <button
                     key={t}
                     onClick={() => setActiveTab(t)}
-                    className={`relative pb-2 text-sm ${active ? "text-sky-600 font-semibold" : "text-slate-600"}`}
+                    className={`relative pb-2 text-xs sm:text-sm whitespace-nowrap ${active ? "text-sky-600 font-semibold" : "text-slate-600"}`}
                     aria-current={active ? "page" : undefined}
                   >
                     {t}
@@ -506,11 +585,11 @@ export default function AgentSetupSingle() {
               <section>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-semibold mb-1">Agent Welcome Message</label>
+                    <label className="block text-xs sm:text-sm font-semibold mb-1">Agent Welcome Message</label>
                     <input
                       value={welcome}
                       onChange={(e) => setWelcome(e.target.value)}
-                      className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
+                      className="w-full border border-slate-200 rounded-md px-3 py-2 text-xs sm:text-sm"
                     />
                     <p className="text-xs text-slate-400 mt-1">
                       This will be the initial message from the agent. You can use variables here using{" "}
@@ -519,12 +598,12 @@ export default function AgentSetupSingle() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold mb-1">Agent Prompt</label>
+                    <label className="block text-xs sm:text-sm font-semibold mb-1">Agent Prompt</label>
                     <textarea
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
                       rows={8}
-                      className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm font-mono"
+                      className="w-full border border-slate-200 rounded-md px-3 py-2 text-xs sm:text-sm font-mono"
                       placeholder="Enter your agent's system prompt here..."
                     />
                     <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
@@ -543,7 +622,7 @@ export default function AgentSetupSingle() {
                   </div>
 
                   <div>
-                    <h3 className="text-sm font-semibold">You can fill in your following prompt variables for testing</h3>
+                    <h3 className="text-xs sm:text-sm font-semibold">You can fill in your following prompt variables for testing</h3>
                     <div className="mt-2 text-xs text-slate-500">(variables UI placeholder)</div>
                   </div>
                 </div>
@@ -565,11 +644,11 @@ export default function AgentSetupSingle() {
             {activeTab === "Voice" && (
               <section>
                 {/* Knowledge Base Section */}
-                <div className="mb-6 bg-white rounded-lg border border-slate-200 p-6">
-                  <h3 className="text-lg font-semibold mb-4">Knowledge Base</h3>
+                <div className="mb-6 bg-white rounded-lg border border-slate-200 p-3 sm:p-4 md:p-6">
+                  <h3 className="text-base sm:text-lg font-semibold mb-4">Knowledge Base</h3>
                   
                   <div className="mb-4">
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                    <label className="block text-xs sm:text-sm font-medium text-slate-700 mb-2">
                       Upload Documents (PDF, Word)
                     </label>
                     <p className="text-xs text-slate-500 mb-3">
@@ -578,24 +657,25 @@ export default function AgentSetupSingle() {
                     
                     {/* File Upload Input */}
                     <div className="space-y-3">
-                      <div className="flex items-center gap-3">
-                        <label className={`flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer transition-colors ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+                        <label className={`flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer transition-colors w-full sm:w-auto ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                          <svg className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                           </svg>
-                          <span className="text-sm font-medium">
-                            {isUploading ? 'Uploading...' : 'Choose File'}
+                          <span className="text-xs sm:text-sm font-medium">
+                            {isUploading ? 'Uploading...' : 'Choose Files'}
                           </span>
                           <input
                             type="file"
+                            multiple
                             accept=".pdf,.doc,.docx"
                             onChange={handleFileUpload}
-                            disabled={isUploading || uploadedFiles.length > 0}
+                            disabled={isUploading}
                             className="hidden"
                           />
                         </label>
-                        <span className="text-xs text-slate-500">
-                          Supported: PDF, DOC, DOCX (Max 10MB) - Only one file allowed
+                        <span className="text-xs text-slate-500 text-center sm:text-left">
+                          Supported: PDF, DOC, DOCX (Max 10MB each)
                         </span>
                       </div>
 
@@ -791,19 +871,19 @@ export default function AgentSetupSingle() {
               </section>
             )}
             {/* Other tabs (placeholders) */}
-            {activeTab !== "Agent" && activeTab !== "LLM" && (
+            {activeTab !== "Agent" && activeTab !== "LLM" && activeTab !== "Audio" && activeTab !== "Voice" && activeTab !== "Engine" && activeTab !== "Call" && activeTab !== "Tools" && activeTab !== "Analytics" && (
               <section>
-                <div className="p-6 bg-slate-50 rounded-md border border-dashed border-slate-100 text-sm text-slate-600">
+                <div className="p-4 sm:p-6 bg-slate-50 rounded-md border border-dashed border-slate-100 text-xs sm:text-sm text-slate-600">
                   <div className="font-medium mb-2">{activeTab} settings</div>
-                  <div className="text-sm text-slate-500">Use the SelectField pattern to add dropdowns and settings for this tab.</div>
+                  <div className="text-xs sm:text-sm text-slate-500">Use the SelectField pattern to add dropdowns and settings for this tab.</div>
                 </div>
               </section>
             )}
           </div>
         </main>
 
-        {/* Right column */}
-        <aside className="w-80 bg-white rounded-lg shadow-sm p-4 flex flex-col gap-4 max-h-screen overflow-y-auto">
+        {/* Right column - Testing panel */}
+        <aside className="w-full xl:w-80 bg-white rounded-lg shadow-sm p-4 flex flex-col gap-4 max-h-[600px] xl:max-h-screen overflow-y-auto">
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold">Agent Testing</div>
             <button className="text-slate-400">↗</button>
@@ -812,7 +892,7 @@ export default function AgentSetupSingle() {
           <div className="space-y-3">
             <button 
               onClick={handleSaveAgent}
-              className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors"
+              className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors text-sm"
             >
               {isNewAgent ? 'Create Agent' : 'Update Agent'}
             </button>
@@ -826,7 +906,7 @@ export default function AgentSetupSingle() {
                 <>
                   <button 
                     onClick={handleStartChat}
-                    className="w-full px-3 py-2 border rounded-md bg-white hover:bg-gray-50 transition-colors"
+                    className="w-full px-3 py-2 border rounded-md bg-white hover:bg-gray-50 transition-colors text-sm"
                   >
                     💬 Chat with agent
                   </button>
@@ -847,7 +927,7 @@ export default function AgentSetupSingle() {
                   </div>
                   
                   {/* Chat Messages */}
-                  <div className="bg-white border rounded-md p-3 max-h-64 overflow-y-auto space-y-2">
+                  <div className="bg-white border rounded-md p-3 max-h-48 sm:max-h-64 overflow-y-auto space-y-2">
                     {chatMessages.length === 0 ? (
                       <div className="text-xs text-slate-400 text-center py-4">
                         Start a conversation...
@@ -856,7 +936,7 @@ export default function AgentSetupSingle() {
                       chatMessages.map((msg, idx) => (
                         <div
                           key={idx}
-                          className={`p-2 rounded-md text-sm ${
+                          className={`p-2 rounded-md text-xs sm:text-sm overflow-wrap-break-word ${
                             msg.role === 'user'
                               ? 'bg-blue-100 text-blue-900 ml-4'
                               : msg.role === 'error'
@@ -900,7 +980,7 @@ export default function AgentSetupSingle() {
                     <button
                       onClick={handleSendMessage}
                       disabled={isLoadingResponse || !userMessage.trim()}
-                      className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 transition-colors"
+                      className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 transition-colors shrink-0"
                     >
                       ➤
                     </button>
@@ -910,7 +990,7 @@ export default function AgentSetupSingle() {
             </div>
 
             <div className="p-3 border rounded-md bg-slate-50 text-sm">
-              <button className="w-full px-3 py-2 border rounded-md">Test via web call</button>
+              <button className="w-full px-3 py-2 border rounded-md text-sm">Test via web call</button>
               <p className="text-xs text-slate-400 mt-2">Test your agent with voice calls</p>
             </div>
           </div>

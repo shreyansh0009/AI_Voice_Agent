@@ -7,6 +7,8 @@ import PostCallSurveyAnalyticsCard from "../components/PostCallSurveyAnalyticsCa
 import CallDispositionAnalyticsCard from "../components/CallDispositionAnalyticsCard";
 import BusyHoursCard from "../components/BusyHoursCard";
 import AITestComponent from "../components/AITestComponent";
+import CallDialer from "../components/CallDialer";
+import CallHistory from "../components/CallHistory";
 import { MdOutlineSpeed } from "react-icons/md";
 import { BiPhone, BiPhoneCall, BiPhoneIncoming, BiPhoneOff, BiChevronDown } from "react-icons/bi";
 import { AiOutlineClockCircle, AiOutlineClose } from "react-icons/ai";
@@ -283,18 +285,41 @@ function Dashboard() {
                   >
                     Callers in Queue
                   </button>
+                  <button
+                    onClick={() => setActiveTab("phoneCalls")}
+                    className={`py-4 px-1 border-b-2 font-medium text-xs lg:text-sm whitespace-nowrap transition-all duration-200 ${
+                      activeTab === "phoneCalls"
+                        ? "border-blue-500 text-blue-600"
+                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    }`}
+                  >
+                    📞 Phone Calls
+                  </button>
                 </div>
               </div>
 
-              <div className="p-6 lg:p-12 flex items-center justify-center min-h-[200px] lg:min-h-[300px]">
-                <div className="text-center transform hover:scale-105 transition-transform duration-300">
-                  <div className="w-24 h-24 lg:w-32 lg:h-32 mx-auto mb-4 rounded-full bg-linear-to-br from-gray-50 to-gray-100 flex items-center justify-center shadow-inner">
-                    <BiPhone className="text-gray-300 text-5xl lg:text-6xl" />
+              <div className="p-6 lg:p-12 min-h-[200px] lg:min-h-[300px]">
+                {activeTab === "phoneCalls" ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <CallDialer agents={[
+                      { id: 'default', name: 'Default Agent' },
+                      { id: 'sales', name: 'Sales Agent' },
+                      { id: 'support', name: 'Support Agent' }
+                    ]} />
+                    <CallHistory />
                   </div>
-                  <p className="text-gray-400 font-medium text-sm lg:text-base">
-                    No Live Activities
-                  </p>
-                </div>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center transform hover:scale-105 transition-transform duration-300">
+                      <div className="w-24 h-24 lg:w-32 lg:h-32 mx-auto mb-4 rounded-full bg-linear-to-br from-gray-50 to-gray-100 flex items-center justify-center shadow-inner">
+                        <BiPhone className="text-gray-300 text-5xl lg:text-6xl" />
+                      </div>
+                      <p className="text-gray-400 font-medium text-sm lg:text-base">
+                        No Live Activities
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

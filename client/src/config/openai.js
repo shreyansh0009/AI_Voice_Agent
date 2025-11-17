@@ -10,9 +10,32 @@ const openai = new OpenAI({
   dangerouslyAllowBrowser: true // Only for development/demo purposes
 });
 
-// Chat completion function
+// Simple in-memory cache for responses (reduces API calls for repeated questions)
+const responseCache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Generate cache key from messages
+const getCacheKey = (messages) => {
+  return JSON.stringify(messages.slice(-3)); // Cache based on last 3 messages
+};
+
+// Chat completion function with caching and optimization
 export const createChatCompletion = async (messages, options = {}) => {
   try {
+    // Check cache for recent identical requests
+    const cacheKey = getCacheKey(messages);
+    const cached = responseCache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      console.log('Using cached response');
+      return {
+        success: true,
+        data: cached.data,
+        cached: true,
+        usage: cached.usage
+      };
+    }
+    
     console.log('Creating chat completion with:', { messages, options });
     
     // Build the request with proper parameter names
@@ -20,18 +43,37 @@ export const createChatCompletion = async (messages, options = {}) => {
       model: options.model || 'gpt-3.5-turbo',
       messages: messages,
       temperature: options.temperature || 0.7,
-      max_tokens: options.max_tokens || 500
+      max_tokens: options.max_tokens || 500,
+      // Add these for better performance
+      top_p: options.top_p || 0.9,
+      frequency_penalty: 0.3, // Reduce repetition
+      presence_penalty: 0.3   // Encourage diverse responses
     };
     
     const response = await openai.chat.completions.create(requestParams);
     
     console.log('OpenAI response received:', response);
     
-    return {
+    const result = {
       success: true,
       data: response.choices[0].message.content,
       usage: response.usage
     };
+    
+    // Cache the response
+    responseCache.set(cacheKey, {
+      data: result.data,
+      usage: result.usage,
+      timestamp: Date.now()
+    });
+    
+    // Clean old cache entries
+    if (responseCache.size > 50) {
+      const oldestKey = responseCache.keys().next().value;
+      responseCache.delete(oldestKey);
+    }
+    
+    return result;
   } catch (error) {
     console.error('OpenAI API Error:', error);
     console.error('Error details:', {
@@ -81,15 +123,17 @@ export const generateAgentResponse = async (userMessage, systemPrompt, agentConf
   });
 };
 
-// Generate agent response with conversation history and RAG (Retrieval Augmented Generation)
-// Generate agent response with conversation history
+// Generate agent response with conversation history (optimized)
 export const generateAgentResponseWithHistory = async (conversationHistory, userMessage, systemPrompt, agentConfig = {}) => {
+  // Optimize: Keep only last 10 messages to reduce tokens and latency
+  const recentHistory = conversationHistory.slice(-10);
+  
   const messages = [
     {
       role: 'system',
       content: systemPrompt || 'You are a helpful AI assistant for customer service.'
     },
-    ...conversationHistory, // Include full conversation history
+    ...recentHistory,
     {
       role: 'user',
       content: userMessage
