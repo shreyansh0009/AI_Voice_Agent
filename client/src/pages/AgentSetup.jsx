@@ -335,14 +335,10 @@ export default function AgentSetupSingle() {
       const data = await response.json();
 
       if (data.success) {
-        const newFiles = [...uploadedFiles, ...data.files];
-        setUploadedFiles(newFiles);
+        // Backend returns single file (data.file), refresh from server to get updated list
+        await fetchUploadedFiles();
         
-        // Save to localStorage
-        localStorage.setItem('uploaded_knowledge_files', JSON.stringify(newFiles));
-        console.log('💾 Saved to localStorage after upload:', newFiles.length, 'files');
-        
-        setUploadSuccess(`Successfully uploaded ${data.files.length} file(s)`);
+        setUploadSuccess(`Successfully uploaded ${data.file.originalName}`);
         
         // Clear success message after 3 seconds
         setTimeout(() => setUploadSuccess(null), 3000);
