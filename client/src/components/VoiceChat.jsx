@@ -66,16 +66,16 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
   const currentLanguageRef = useRef(savedLanguage || 'en');
 
   // Debug: Log every render with current ref value
-  console.log(`🔄 VoiceChat render - currentLanguageRef.current: ${currentLanguageRef.current}, selectedLanguage state: ${selectedLanguage}`);
+  // console.log(`🔄 VoiceChat render - currentLanguageRef.current: ${currentLanguageRef.current}, selectedLanguage state: ${selectedLanguage}`);
 
   // Update currentLanguageRef whenever selectedLanguage changes
   useEffect(() => {
-    console.log(`🔄 useEffect triggered: Syncing currentLanguageRef from "${currentLanguageRef.current}" to "${selectedLanguage}"`);
+    // console.log(`🔄 useEffect triggered: Syncing currentLanguageRef from "${currentLanguageRef.current}" to "${selectedLanguage}"`);
     currentLanguageRef.current = selectedLanguage;
     
     // Persist to localStorage
     localStorage.setItem('voiceChat_selectedLanguage', selectedLanguage);
-    console.log(`✅ useEffect complete: currentLanguageRef.current is now "${currentLanguageRef.current}" and saved to localStorage`);
+    // console.log(`✅ useEffect complete: currentLanguageRef.current is now "${currentLanguageRef.current}" and saved to localStorage`);
   }, [selectedLanguage]);
 
   // Save customer context to localStorage whenever it changes
@@ -85,7 +85,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
 
     if (customerContext.lastUpdated) {
       localStorage.setItem('voiceChat_customerContext', JSON.stringify(customerContext));
-      console.log('💾 Customer context saved:', customerContext);
+      // console.log('💾 Customer context saved:', customerContext);
     }
   }, [customerContext]);
 
@@ -138,7 +138,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
     
     // Debug: Log audio level occasionally
     if (Math.random() < 0.01) { // Log ~1% of frames (about once per second)
-      console.log('🎵 Audio level:', normalizedLevel.toFixed(1), '| Raw average:', average.toFixed(1));
+      // console.log('🎵 Audio level:', normalizedLevel.toFixed(1), '| Raw average:', average.toFixed(1));
     }
 
     // Continue animation loop
@@ -149,7 +149,42 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
   useEffect(() => {
     const apiKey = import.meta.env.VITE_DEEPGRAM_API_KEY;
     if (apiKey) {
-      deepgramRef.current = createClient(apiKey);
+      try {
+        // Initialize with browser-compatible options
+        deepgramRef.current = createClient(apiKey);
+        // console.log('✅ Deepgram client initialized with API key:', apiKey.substring(0, 10) + '...');
+        
+        // Test connection by creating a quick test connection
+        const testConnection = () => {
+          try {
+            const testConn = deepgramRef.current.listen.live({
+              model: 'nova-2',
+              language: 'en',
+              smart_format: true,
+              punctuate: true,
+            });
+            
+            testConn.on('open', () => {
+              // console.log('✅ Deepgram WebSocket test successful');
+              testConn.finish();
+            });
+            
+            testConn.on('error', (err) => {
+              console.error('❌ Deepgram WebSocket test failed:', err);
+              setError('Deepgram connection test failed. Please check your API key.');
+            });
+          } catch (err) {
+            console.error('❌ Failed to create test connection:', err);
+          }
+        };
+        
+        // Test after a short delay
+        setTimeout(testConnection, 1000);
+        
+      } catch (err) {
+        console.error('❌ Failed to initialize Deepgram:', err);
+        setError('Failed to initialize Deepgram client: ' + err.message);
+      }
     } else {
       setError('Deepgram API key not found. Please add VITE_DEEPGRAM_API_KEY to your .env file');
     }
@@ -229,7 +264,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       
       // In continuous mode, use timeslice to collect chunks periodically
       if (continuousModeRef.current) {
-        console.log('🎙️ Starting continuous recording with 100ms timeslice');
+        // console.log('🎙️ Starting continuous recording with 100ms timeslice');
         mediaRecorderRef.current.start(100); // Collect data every 100ms
         // Set up Voice Activity Detection AFTER starting recording
         setupVoiceActivityDetection(stream);
@@ -240,7 +275,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       setTranscript(continuousModeRef.current ? 'Listening continuously... Speak when ready' : 'Listening...');
       
       if (continuousModeRef.current) {
-        console.log('✅ Continuous mode active - VAD will detect when you speak');
+        // console.log('✅ Continuous mode active - VAD will detect when you speak');
       }
     } catch (error) {
       console.error('Error accessing microphone:', error);
@@ -287,7 +322,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
 
     const checkAudioLevel = () => {
       if (!continuousModeRef.current || !isRecordingRef.current) {
-        console.log('⚠️ VAD stopped - continuousMode:', continuousModeRef.current, 'isRecording:', isRecordingRef.current);
+        // console.log('⚠️ VAD stopped - continuousMode:', continuousModeRef.current, 'isRecording:', isRecordingRef.current);
         audioContext.close(); // Clean up audio context
         return; // Stop checking if continuous mode disabled or not recording
       }
@@ -296,7 +331,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       
       // Debug: Log that we're in the loop
       if (!isCalibrated && calibrationSamples.length === 0) {
-        console.log('🔍 First checkAudioLevel call - starting calibration...');
+        // console.log('🔍 First checkAudioLevel call - starting calibration...');
       }
       
       // Focus on human voice frequencies (85Hz - 3000Hz)
@@ -306,10 +341,10 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       
       // Debug frequency range on first call
       if (!isCalibrated && calibrationSamples.length === 0) {
-        console.log('🎵 Audio analysis setup:');
-        console.log('  - Sample rate:', audioContext.sampleRate, 'Hz');
-        console.log('  - Buffer length:', bufferLength);
-        console.log('  - Voice frequency range:', voiceFrequencyStart, '-', voiceFrequencyEnd, 'bins');
+        // console.log('🎵 Audio analysis setup:');
+        // console.log('  - Sample rate:', audioContext.sampleRate, 'Hz');
+        // console.log('  - Buffer length:', bufferLength);
+        // console.log('  - Voice frequency range:', voiceFrequencyStart, '-', voiceFrequencyEnd, 'bins');
       }
       
       // Calculate average volume in voice frequency range
@@ -323,14 +358,14 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       if (!isCalibrated && calibrationSamples.length < 30) {
         calibrationSamples.push(voiceAverage);
         setIsCalibrating(true);
-        console.log(`🔍 Calibration sample ${calibrationSamples.length}/30: ${voiceAverage.toFixed(2)}`);
+        // console.log(`🔍 Calibration sample ${calibrationSamples.length}/30: ${voiceAverage.toFixed(2)}`);
         if (calibrationSamples.length === 30) {
           backgroundNoiseLevel = calibrationSamples.reduce((a, b) => a + b) / 30;
           isCalibrated = true;
           setIsCalibrating(false);
-          console.log('✅ Background noise calibrated:', backgroundNoiseLevel.toFixed(2));
-          console.log('🎯 Speech detection threshold:', (backgroundNoiseLevel + SPEECH_THRESHOLD).toFixed(2));
-          console.log('📊 Ready to detect speech! Speak now...');
+          // console.log('✅ Background noise calibrated:', backgroundNoiseLevel.toFixed(2));
+          // console.log('🎯 Speech detection threshold:', (backgroundNoiseLevel + SPEECH_THRESHOLD).toFixed(2));
+          // console.log('📊 Ready to detect speech! Speak now...');
         }
       }
       
@@ -339,20 +374,20 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       
       // Debug: Log current levels every 50 frames (~1.5 seconds)
       if (isCalibrated && Math.random() < 0.02) {
-        console.log('📊 Audio level:', voiceAverage.toFixed(2), '| Threshold:', adaptiveThreshold.toFixed(2), '| Speaking:', isSpeaking);
+        // console.log('📊 Audio level:', voiceAverage.toFixed(2), '| Threshold:', adaptiveThreshold.toFixed(2), '| Speaking:', isSpeaking);
       }
       
       if (voiceAverage > adaptiveThreshold) {
         // Potential voice detected
         if (!isSpeaking && !speechStartTime) {
           speechStartTime = Date.now();
-          console.log('👂 Potential speech detected, waiting for', MIN_SPEECH_DURATION, 'ms confirmation...');
+          // console.log('👂 Potential speech detected, waiting for', MIN_SPEECH_DURATION, 'ms confirmation...');
         }
         
         // Confirm as speech only if it lasts longer than MIN_SPEECH_DURATION
         if (speechStartTime && Date.now() - speechStartTime > MIN_SPEECH_DURATION) {
           if (!isSpeaking) {
-            console.log('✅ Speech CONFIRMED! (level:', voiceAverage.toFixed(2), ', threshold:', adaptiveThreshold.toFixed(2), ')');
+            // console.log('✅ Speech CONFIRMED! (level:', voiceAverage.toFixed(2), ', threshold:', adaptiveThreshold.toFixed(2), ')');
             isSpeaking = true;
           }
           silenceStart = Date.now();
@@ -360,14 +395,14 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       } else {
         // Below threshold - potential silence
         if (speechStartTime && !isSpeaking) {
-          console.log('❌ False alarm - sound too short (was only', Date.now() - speechStartTime, 'ms)');
+          // console.log('❌ False alarm - sound too short (was only', Date.now() - speechStartTime, 'ms)');
         }
         speechStartTime = null; // Reset speech start timer
         
         // Only process if we were actually speaking (not just noise spikes)
         if (isSpeaking && Date.now() - silenceStart > SILENCE_DURATION) {
-          console.log('🔇 Silence detected after', SILENCE_DURATION, 'ms, processing speech...');
-          console.log('📦 Audio chunks collected so far:', audioChunksRef.current.length);
+          // console.log('🔇 Silence detected after', SILENCE_DURATION, 'ms, processing speech...');
+          // console.log('📦 Audio chunks collected so far:', audioChunksRef.current.length);
           isSpeaking = false;
           
           // Stop current recording to process (with small delay for final chunks)
@@ -384,14 +419,14 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       }
 
       // Continue checking
-      console.log('🔁 Requesting next animation frame... (sample', calibrationSamples.length, ')');
+      // console.log('🔁 Requesting next animation frame... (sample', calibrationSamples.length, ')');
       requestAnimationFrame(checkAudioLevel);
     };
 
     // Start checking audio levels
-    console.log('🎙️ Voice Activity Detection started (calibrating background noise...)');
-    console.log('🔧 Sensitivity level:', voiceSensitivity, '(threshold: +' + SPEECH_THRESHOLD + ')');
-    console.log('🚀 About to call checkAudioLevel() for the first time...');
+    // console.log('🎙️ Voice Activity Detection started (calibrating background noise...)');
+    // console.log('🔧 Sensitivity level:', voiceSensitivity, '(threshold: +' + SPEECH_THRESHOLD + ')');
+    // console.log('🚀 About to call checkAudioLevel() for the first time...');
     checkAudioLevel();
   };
 
@@ -445,7 +480,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
     setAudioLevel(0);
     setTranscript('');
     
-    console.log('⏹️ All recording stopped');
+    // console.log('⏹️ All recording stopped');
   };
 
   /**
@@ -456,7 +491,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
     
     if (newMode) {
       // Turning ON continuous mode
-      console.log('🔄 Continuous mode enabled');
+      // console.log('🔄 Continuous mode enabled');
       setContinuousMode(true);
       continuousModeRef.current = true; // Set ref immediately
       // Start listening immediately (ref is already updated)
@@ -465,7 +500,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       }, 50);
     } else {
       // Turning OFF continuous mode - stop everything
-      console.log('⏸️ Continuous mode disabled');
+      // console.log('⏸️ Continuous mode disabled');
       setContinuousMode(false);
       continuousModeRef.current = false; // Set ref immediately
       if (isRecordingRef.current) {
@@ -524,7 +559,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       // Update state and ref
       setCustomerContext(newContext);
       customerContextRef.current = newContext;
-      console.log('📝 Extracted customer info (sync):', updates, newContext);
+      // console.log('📝 Extracted customer info (sync):', updates, newContext);
     }
   };
 
@@ -537,7 +572,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
     try {
       // Check if we have actual audio data
       if (!audioBlob || audioBlob.size === 0) {
-        console.warn('⚠️ Empty audio blob, skipping processing');
+        // console.warn('⚠️ Empty audio blob, skipping processing');
         setIsProcessing(false);
         
         // In continuous mode, restart listening immediately
@@ -551,7 +586,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
         return;
       }
       
-      console.log('🎵 Processing audio blob, size:', audioBlob.size, 'bytes');
+      // console.log('🎵 Processing audio blob, size:', audioBlob.size, 'bytes');
       
       // Step 1: Convert speech to text using Deepgram
       setTranscript('Converting speech to text...');
@@ -559,7 +594,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
 
       if (!userText || userText.trim().length === 0) {
         setTranscript('');
-        console.warn('⚠️ No speech detected in audio');
+        // console.warn('⚠️ No speech detected in audio');
         setIsProcessing(false);
         
         // In continuous mode, restart listening
@@ -600,7 +635,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       
       // In continuous mode, restart listening after AI finishes speaking
       if (continuousModeRef.current && mediaStreamRef.current) {
-        console.log('🔄 Continuous mode: Restarting listening...');
+        // console.log('🔄 Continuous mode: Restarting listening...');
         // Small delay to avoid overlap
         setTimeout(() => {
           if (continuousModeRef.current && !isRecordingRef.current) {
@@ -643,27 +678,44 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
         
         // Use ref to get the most current language (might have been switched)
         const languageToUse = currentLanguageRef.current;
-        console.log('🎤 Deepgram STT STARTING...');
-        console.log('📊 selectedLanguage state:', selectedLanguage);
-        console.log('📊 currentLanguageRef.current:', currentLanguageRef.current);
-        console.log('🎤 Deepgram will use language:', languageToUse);
+        // console.log('🎤 Deepgram STT STARTING...');
+        // console.log('📊 selectedLanguage state:', selectedLanguage);
+        // console.log('📊 currentLanguageRef.current:', currentLanguageRef.current);
+        // console.log('🎤 Deepgram will use language:', languageToUse);
         
-        const connection = deepgramRef.current.listen.live({
-          model: 'nova-2',
-          smart_format: true,
-          punctuate: true,
-          language: languageToUse, // Use ref instead of state
-          encoding: 'opus',  // Match our audio codec
-          // Note: sample_rate not needed for opus
-        });
+        let connection;
+        try {
+          connection = deepgramRef.current.listen.live({
+            model: 'nova-2',
+            smart_format: true,
+            punctuate: true,
+            language: languageToUse,
+          });
+        } catch (err) {
+          console.error('❌ Failed to create Deepgram connection:', err);
+          reject(new Error('Failed to connect to speech recognition service. Please check your internet connection and API key.'));
+          return;
+        }
 
         connection.on('open', () => {
+          // console.log('✅ Deepgram WebSocket opened');
           // Send the audio data
-          connection.send(arrayBuffer);
+          try {
+            connection.send(arrayBuffer);
+            // console.log('📤 Audio data sent to Deepgram');
+          } catch (err) {
+            console.error('❌ Failed to send audio:', err);
+            reject(err);
+            return;
+          }
           
           // Close connection after sending (give it time to process)
           setTimeout(() => {
-            connection.finish();
+            try {
+              connection.finish();
+            } catch (err) {
+              console.error('Error finishing connection:', err);
+            }
           }, 1500);
         });
 
@@ -682,9 +734,10 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
         });
 
         connection.on('close', () => {
+          // console.log('🔌 Deepgram WebSocket closed');
           const finalTranscript = transcriptText.trim();
           if (finalTranscript) {
-            console.log('✅ Transcript:', finalTranscript);
+            // console.log('✅ Transcript:', finalTranscript);
             resolve(finalTranscript);
           } else {
             const languageNames = {
@@ -699,8 +752,14 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
         });
 
         connection.on('error', (error) => {
-          console.error('Deepgram streaming error:', error);
-          reject(error);
+          console.error('❌ Deepgram streaming error:', error);
+          console.error('Error details:', {
+            message: error.message,
+            url: error.url,
+            readyState: error.readyState,
+            statusCode: error.statusCode
+          });
+          reject(new Error(`Speech recognition error: ${error.message || 'Connection failed'}. Please check your API key and internet connection.`));
         });
 
         // Timeout after 15 seconds
@@ -779,7 +838,7 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
       // If RAG is enabled, use the RAG endpoint
       if (ragEnabled && lastUserMessage) {
         try {
-          const ragResponse = await fetch('http://localhost:5000/api/rag/chat', {
+          const ragResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/rag/chat`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -798,15 +857,15 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
           if (ragResponse.ok) {
             const ragData = await ragResponse.json();
             if (ragData.success) {
-              console.log('🤖 Using RAG response with knowledge base');
-              console.log('📊 Tokens used:', ragData.tokensUsed);
-              console.log('📚 Context used:', ragData.contextUsed);
+              // console.log('🤖 Using RAG response with knowledge base');
+              // console.log('📊 Tokens used:', ragData.tokensUsed);
+              // console.log('📚 Context used:', ragData.contextUsed);
               
               let aiResponse = ragData.response;
               
               // Log the AI response to debug language switching
-              console.log('🤖 RAG AI Response:', aiResponse);
-              console.log('🔍 Starts with LANGUAGE_SWITCH?', aiResponse.startsWith('LANGUAGE_SWITCH:'));
+              // console.log('🤖 RAG AI Response:', aiResponse);
+              // console.log('🔍 Starts with LANGUAGE_SWITCH?', aiResponse.startsWith('LANGUAGE_SWITCH:'));
 
               // Check if AI wants to switch language (same logic as standard OpenAI)
               if (aiResponse.startsWith('LANGUAGE_SWITCH:')) {
@@ -815,18 +874,18 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
                 if (match) {
                   const newLanguageCode = match[1].toLowerCase();
                   
-                  console.log(`🔍 Extracted language code: "${newLanguageCode}"`);
+                  // console.log(`🔍 Extracted language code: "${newLanguageCode}"`);
                   
                   if (languageNames[newLanguageCode]) {
-                    console.log(`🌐 Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`);
+                    // console.log(`🌐 Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`);
                     
                     // CRITICAL: Update ref FIRST (synchronous), then state (async)
                     currentLanguageRef.current = newLanguageCode;
                     setSelectedLanguage(newLanguageCode);
                     
-                    console.log(`✅ Language switched!`);
-                    console.log(`  - currentLanguageRef.current: ${currentLanguageRef.current}`);
-                    console.log(`  - selectedLanguage state: updating to "${newLanguageCode}"`);
+                    // console.log(`✅ Language switched!`);
+                    // console.log(`  - currentLanguageRef.current: ${currentLanguageRef.current}`);
+                    // console.log(`  - selectedLanguage state: updating to "${newLanguageCode}"`);
                     
                     // Remove the switch command from response
                     aiResponse = aiResponse.replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, '').trim();
@@ -837,9 +896,10 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
               return aiResponse;
             }
           }
-          console.log('⚠️ RAG failed, falling back to standard OpenAI');
+          // console.log('⚠️ RAG failed, falling back to standard OpenAI');
         } catch (ragError) {
-          console.warn('RAG error, using standard OpenAI:', ragError);
+          // Keep this for debugging production issues
+          console.error('RAG error, using standard OpenAI:', ragError);
         }
       }
 
@@ -879,8 +939,8 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
       let aiResponse = data.choices[0].message.content;
 
       // Log the AI response to debug language switching
-      console.log('🤖 AI Response:', aiResponse);
-      console.log('🔍 Starts with LANGUAGE_SWITCH?', aiResponse.startsWith('LANGUAGE_SWITCH:'));
+      // console.log('🤖 AI Response:', aiResponse);
+      // console.log('🔍 Starts with LANGUAGE_SWITCH?', aiResponse.startsWith('LANGUAGE_SWITCH:'));
 
       // Check if AI wants to switch language
       if (aiResponse.startsWith('LANGUAGE_SWITCH:')) {
@@ -890,29 +950,29 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
         if (match) {
           const newLanguageCode = match[1].toLowerCase();
           
-          console.log(`🔍 Extracted language code: "${newLanguageCode}"`);
-          console.log(`🔍 Language code exists in map?`, languageNames[newLanguageCode]);
+          // console.log(`🔍 Extracted language code: "${newLanguageCode}"`);
+          // console.log(`🔍 Language code exists in map?`, languageNames[newLanguageCode]);
           
           // Update the language
           if (languageNames[newLanguageCode]) {
-            console.log(`🌐 Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`);
+            // console.log(`🌐 Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`);
             
             // CRITICAL: Update ref FIRST (synchronous), then state (async)
             // This ensures the ref has the new value immediately for next recording
             currentLanguageRef.current = newLanguageCode;
             setSelectedLanguage(newLanguageCode);
             
-            console.log(`✅ Language switched!`);
-            console.log(`  - currentLanguageRef.current: ${currentLanguageRef.current} (updated synchronously)`);
-            console.log(`  - selectedLanguage state: will update to "${newLanguageCode}" (async)`);
+            // console.log(`✅ Language switched!`);
+            // console.log(`  - currentLanguageRef.current: ${currentLanguageRef.current} (updated synchronously)`);
+            // console.log(`  - selectedLanguage state: will update to "${newLanguageCode}" (async)`);
             
             // Remove the switch command from response (everything after "LANGUAGE_SWITCH:xx ")
             aiResponse = aiResponse.replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, '').trim();
           } else {
-            console.log(`❌ Language code "${newLanguageCode}" not found in languageNames map`);
+            // console.log(`❌ Language code "${newLanguageCode}" not found in languageNames map`);
           }
         } else {
-          console.log(`❌ Could not extract valid language code from response`);
+          // console.log(`❌ Could not extract valid language code from response`);
         }
       }
 
@@ -1046,7 +1106,7 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
     };
     setCustomerContext(emptyContext);
     localStorage.removeItem('voiceChat_customerContext');
-    console.log('🗑️ Customer context cleared');
+    // console.log('🗑️ Customer context cleared');
   };
 
   /**

@@ -76,7 +76,7 @@ export default function AgentSetupSingle() {
           console.log('📂 Loaded files from localStorage:', parsed);
           
           // Verify files still exist on server
-          const response = await fetch('http://localhost:5000/api/knowledge-files');
+          const response = await fetch(`${import.meta.env.VITE_API_URL}/api/knowledge-files`);
           const data = await response.json();
           
           if (data.success) {
@@ -109,7 +109,7 @@ export default function AgentSetupSingle() {
   // Fetch uploaded files from server
   const fetchUploadedFiles = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/knowledge-files');
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/knowledge-files`);
       const data = await response.json();
       
       if (data.success) {
@@ -327,7 +327,7 @@ export default function AgentSetupSingle() {
         formData.append('files', file);
       });
 
-      const response = await fetch('http://localhost:5000/api/upload-knowledge', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/upload-knowledge`, {
         method: 'POST',
         body: formData,
       });
@@ -361,7 +361,7 @@ export default function AgentSetupSingle() {
 
   const handleRemoveFile = async (index, fileName) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/knowledge-files/${fileName}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/knowledge-files/${fileName}`, {
         method: 'DELETE',
       });
 
@@ -406,7 +406,7 @@ export default function AgentSetupSingle() {
     
     for (const file of uploadedFiles) {
       try {
-        const response = await fetch(`http://localhost:5000/api/knowledge-files/${file.fileName}`, {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/knowledge-files/${file.fileName}`, {
           method: 'DELETE',
         });
         

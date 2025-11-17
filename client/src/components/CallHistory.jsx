@@ -14,7 +14,7 @@ import {
 import axios from 'axios';
 import { showSuccess, showError } from '../utils/toast';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = `${import.meta.env.VITE_API_URL}/api`;
 
 export default function CallHistory() {
   const [calls, setCalls] = useState([]);
