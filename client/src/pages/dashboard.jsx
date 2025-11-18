@@ -370,7 +370,7 @@ function Dashboard() {
                         <option value="past-month">Past month</option>
                       </select>
                     </div>
-                    <button className="w-full sm:w-auto bg-linear-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-4 h-8 mt-0 lg:mt-4 cursor-pointer rounded-lg text-sm font-medium shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105">
+                    <button className="w-full sm:w-auto sm:mt-auto bg-linear-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-4 py-2 cursor-pointer rounded-lg text-sm font-medium shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105">
                       Download Report
                     </button>
                   </div>
