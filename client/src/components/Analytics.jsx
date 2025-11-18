@@ -37,12 +37,12 @@ payment_mode : If user is paying by cash, yield cash. If they are paying by card
           <h2 className="text-2xl font-semibold text-gray-900">Post call tasks</h2>
           <p className="mt-1 text-sm text-gray-500">Choose tasks to get executed after the agent conversation is complete</p>
 
-          <div className="mt-6 grid grid-cols-12 gap-4 items-center">
-            <div className="col-span-9">
+          <div className="mt-6 flex flex-col sm:grid sm:grid-cols-12 gap-4 sm:items-center">
+            <div className="sm:col-span-9">
               <div className="font-medium text-gray-800">Summarization</div>
               <div className="text-sm text-gray-500">Generate a summary of the conversation automatically.</div>
             </div>
-            <div className="col-span-3 flex justify-end">
+            <div className="sm:col-span-3 flex justify-start sm:justify-end">
               <label className="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" className="sr-only" checked={summarization} onChange={(e) => setSummarization(e.target.checked)} />
                 <div className={`w-12 h-6 rounded-full shadow-inner transition ${summarization ? 'bg-blue-400' : 'bg-gray-200'}`}></div>
@@ -50,12 +50,12 @@ payment_mode : If user is paying by cash, yield cash. If they are paying by card
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-12 gap-4 items-start">
-            <div className="col-span-9">
+          <div className="mt-6 flex flex-col sm:grid sm:grid-cols-12 gap-4 sm:items-start">
+            <div className="sm:col-span-9">
               <div className="font-medium text-gray-800">Extraction</div>
               <div className="text-sm text-gray-500">Extract structured information from the conversation according to a custom prompt provided</div>
             </div>
-            <div className="col-span-3 flex justify-end">
+            <div className="sm:col-span-3 flex justify-start sm:justify-end">
               <label className="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" className="sr-only" checked={extraction} onChange={(e) => setExtraction(e.target.checked)} />
                 <div className={`w-12 h-6 rounded-full shadow-inner transition ${extraction ? 'bg-blue-400' : 'bg-gray-200'}`}></div>
@@ -63,8 +63,8 @@ payment_mode : If user is paying by cash, yield cash. If they are paying by card
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-12 gap-4">
-            <div className="col-span-9">
+          <div className="mt-4 flex flex-col sm:grid sm:grid-cols-12 gap-4">
+            <div className="sm:col-span-9">
               <textarea
                 className="w-full rounded-md border border-gray-100 p-4 text-sm text-gray-600 resize-none"
                 rows={4}
@@ -111,8 +111,8 @@ payment_mode : If user is paying by cash, yield cash. If they are paying by card
             )}
 
             {analyticsQuickEnabled && (
-              <div className="mt-4 grid grid-cols-12 gap-4 items-center">
-                <div className="col-span-9">
+              <div className="mt-4 flex flex-col sm:grid sm:grid-cols-12 gap-4 sm:items-center">
+                <div className="sm:col-span-9">
                   <div className="text-sm text-gray-600">Analytics type</div>
                   <select value={analyticsType} onChange={(e) => setAnalyticsType(e.target.value)} className="mt-2 w-full rounded-md border p-3 text-sm">
                     <option>Realtime</option>
@@ -120,20 +120,20 @@ payment_mode : If user is paying by cash, yield cash. If they are paying by card
                     <option>Custom</option>
                   </select>
                 </div>
-                <div className="col-span-3 flex justify-end">
-                  <button className="px-4 py-2 rounded-lg bg-green-50 border text-sm">Add Analytics</button>
+                <div className="sm:col-span-3 flex justify-start sm:justify-end">
+                  <button className="w-full sm:w-auto px-4 py-2 rounded-lg bg-green-50 border text-sm">Add Analytics</button>
                 </div>
               </div>
             )}
 
           </div>
 
-          <div className="mt-8 grid grid-cols-12 gap-4 items-center border-t pt-6">
-            <div className="col-span-9">
+          <div className="mt-8 flex flex-col sm:grid sm:grid-cols-12 gap-4 sm:items-center border-t pt-6">
+            <div className="sm:col-span-9">
               <div className="font-medium text-gray-800">Push all execution data to webhook <a className="text-blue-600 underline">See all events</a></div>
               <div className="text-sm text-gray-500">Automatically receive all execution data for this agent using webhook</div>
             </div>
-            <div className="col-span-3 flex justify-end">
+            <div className="sm:col-span-3 flex justify-start sm:justify-end">
               <input type="text" placeholder="Your webhook URL" className="w-full rounded-md border p-3 text-sm" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} />
             </div>
           </div>

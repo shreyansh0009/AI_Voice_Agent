@@ -49,8 +49,8 @@ export default function Tool() {
           </div>
 
           {/* Controls area */}
-          <div className="mt-6 grid grid-cols-12 gap-4 items-center">
-            <div className="col-span-9 relative" ref={rootRef}>
+          <div className="mt-6 flex flex-col lg:grid lg:grid-cols-12 gap-4 lg:items-center">
+            <div className="lg:col-span-9 relative" ref={rootRef}>
               <label className="sr-only">Choose functions</label>
 
               <div
@@ -137,10 +137,10 @@ export default function Tool() {
               )}
             </div>
 
-            <div className="col-span-3 flex justify-end">
+            <div className="lg:col-span-3 flex lg:justify-end">
               <button
                 type="button"
-                className="ml-2 inline-flex items-center rounded-lg px-5 py-3 bg-blue-400 text-white font-medium shadow-sm hover:opacity-95"
+                className="w-full lg:w-auto inline-flex items-center justify-center rounded-lg px-5 py-3 bg-blue-400 text-white font-medium shadow-sm hover:opacity-95"
                 onClick={() => alert(`Added: ${selected ?? "(no function selected)"}`)}
               >
                 Add function

@@ -1,50 +1,57 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { BiMicrophone, BiStop, BiVolumeFull, BiTrash } from 'react-icons/bi';
-import { createClient } from '@deepgram/sdk';
-import axios from 'axios';
+import React, { useState, useRef, useEffect } from "react";
+import { BiMicrophone, BiStop, BiVolumeFull, BiTrash } from "react-icons/bi";
+import { createClient } from "@deepgram/sdk";
+import axios from "axios";
 
-const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentId = 'default' }) => {
+const VoiceChat = ({
+  systemPrompt,
+  agentName = "AI Agent",
+  useRAG = false,
+  agentId = "default",
+}) => {
   // Initialize language from localStorage or default to 'en'
   const [selectedLanguage, setSelectedLanguage] = useState(() => {
-    const saved = localStorage.getItem('voiceChat_selectedLanguage');
-    return saved || 'en';
+    const saved = localStorage.getItem("voiceChat_selectedLanguage");
+    return saved || "en";
   });
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [transcript, setTranscript] = useState('');
+  const [transcript, setTranscript] = useState("");
   const [conversation, setConversation] = useState([]);
-  const [error, setError] = useState('');
-  const [selectedVoice, setSelectedVoice] = useState('anushka'); // Voice selector
+  const [error, setError] = useState("");
+  const [selectedVoice, setSelectedVoice] = useState("anushka"); // Voice selector
   const [ragEnabled, setRagEnabled] = useState(useRAG); // RAG toggle
-  
+
   // Continuous voice mode (auto-listen after speaking)
   const [continuousMode, setContinuousMode] = useState(() => {
-    const saved = localStorage.getItem('voiceChat_continuousMode');
+    const saved = localStorage.getItem("voiceChat_continuousMode");
     return saved ? JSON.parse(saved) : false;
   });
-  
+
   // Voice sensitivity for continuous mode (1-10 scale, higher = less sensitive)
   const [voiceSensitivity, setVoiceSensitivity] = useState(() => {
-    const saved = localStorage.getItem('voiceChat_sensitivity');
+    const saved = localStorage.getItem("voiceChat_sensitivity");
     return saved ? parseInt(saved) : 5; // Default medium sensitivity
   });
-  
+
   const [isCalibrating, setIsCalibrating] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0); // Current audio level for visualization (0-100)
-  
+
   // Persistent memory for important information (survives beyond chat history)
   const [customerContext, setCustomerContext] = useState(() => {
-    const saved = localStorage.getItem('voiceChat_customerContext');
-    return saved ? JSON.parse(saved) : {
-      name: '',
-      phone: '',
-      email: '',
-      address: '',
-      preferences: {},
-      orderDetails: {},
-      lastUpdated: null
-    };
+    const saved = localStorage.getItem("voiceChat_customerContext");
+    return saved
+      ? JSON.parse(saved)
+      : {
+          name: "",
+          phone: "",
+          email: "",
+          address: "",
+          preferences: {},
+          orderDetails: {},
+          lastUpdated: null,
+        };
   });
   // Synchronous ref for customer context to avoid race conditions when updating then immediately using it
   const customerContextRef = useRef(customerContext);
@@ -58,12 +65,14 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
   const audioLevelIntervalRef = useRef(null); // For updating audio level visualization
   const analyserRef = useRef(null); // Store analyser for audio level updates
   // Initialize continuousModeRef with saved value
-  const savedContinuousMode = localStorage.getItem('voiceChat_continuousMode');
-  const continuousModeRef = useRef(savedContinuousMode ? JSON.parse(savedContinuousMode) : false);
-  
+  const savedContinuousMode = localStorage.getItem("voiceChat_continuousMode");
+  const continuousModeRef = useRef(
+    savedContinuousMode ? JSON.parse(savedContinuousMode) : false
+  );
+
   // Initialize currentLanguageRef from localStorage
-  const savedLanguage = localStorage.getItem('voiceChat_selectedLanguage');
-  const currentLanguageRef = useRef(savedLanguage || 'en');
+  const savedLanguage = localStorage.getItem("voiceChat_selectedLanguage");
+  const currentLanguageRef = useRef(savedLanguage || "en");
 
   // Debug: Log every render with current ref value
   // console.log(`🔄 VoiceChat render - currentLanguageRef.current: ${currentLanguageRef.current}, selectedLanguage state: ${selectedLanguage}`);
@@ -72,9 +81,9 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
   useEffect(() => {
     // console.log(`🔄 useEffect triggered: Syncing currentLanguageRef from "${currentLanguageRef.current}" to "${selectedLanguage}"`);
     currentLanguageRef.current = selectedLanguage;
-    
+
     // Persist to localStorage
-    localStorage.setItem('voiceChat_selectedLanguage', selectedLanguage);
+    localStorage.setItem("voiceChat_selectedLanguage", selectedLanguage);
     // console.log(`✅ useEffect complete: currentLanguageRef.current is now "${currentLanguageRef.current}" and saved to localStorage`);
   }, [selectedLanguage]);
 
@@ -84,20 +93,26 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
     customerContextRef.current = customerContext;
 
     if (customerContext.lastUpdated) {
-      localStorage.setItem('voiceChat_customerContext', JSON.stringify(customerContext));
+      localStorage.setItem(
+        "voiceChat_customerContext",
+        JSON.stringify(customerContext)
+      );
       // console.log('💾 Customer context saved:', customerContext);
     }
   }, [customerContext]);
 
   // Save continuous mode setting to localStorage
   useEffect(() => {
-    localStorage.setItem('voiceChat_continuousMode', JSON.stringify(continuousMode));
+    localStorage.setItem(
+      "voiceChat_continuousMode",
+      JSON.stringify(continuousMode)
+    );
     continuousModeRef.current = continuousMode; // Sync ref
   }, [continuousMode]);
 
   // Save voice sensitivity setting to localStorage
   useEffect(() => {
-    localStorage.setItem('voiceChat_sensitivity', voiceSensitivity.toString());
+    localStorage.setItem("voiceChat_sensitivity", voiceSensitivity.toString());
   }, [voiceSensitivity]);
 
   /**
@@ -120,8 +135,12 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
     // Focus on human voice frequencies for better visualization (85Hz - 3000Hz)
     // This gives better response to speech vs background noise
     const sampleRate = analyserRef.current.context.sampleRate || 48000;
-    const voiceFrequencyStart = Math.floor((85 / (sampleRate / 2)) * bufferLength);
-    const voiceFrequencyEnd = Math.floor((3000 / (sampleRate / 2)) * bufferLength);
+    const voiceFrequencyStart = Math.floor(
+      (85 / (sampleRate / 2)) * bufferLength
+    );
+    const voiceFrequencyEnd = Math.floor(
+      (3000 / (sampleRate / 2)) * bufferLength
+    );
 
     // Calculate average volume in voice frequency range
     let sum = 0;
@@ -129,15 +148,16 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       sum += dataArray[i];
     }
     const average = sum / (voiceFrequencyEnd - voiceFrequencyStart);
-    
+
     // Normalize to 0-100 range and amplify for better visibility
     // Average typically ranges 0-50, so we multiply by 3 to get good visual range
     const normalizedLevel = Math.min(100, (average / 255) * 300);
 
     setAudioLevel(normalizedLevel);
-    
+
     // Debug: Log audio level occasionally
-    if (Math.random() < 0.01) { // Log ~1% of frames (about once per second)
+    if (Math.random() < 0.01) {
+      // Log ~1% of frames (about once per second)
       // console.log('🎵 Audio level:', normalizedLevel.toFixed(1), '| Raw average:', average.toFixed(1));
     }
 
@@ -153,40 +173,43 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
         // Initialize with browser-compatible options
         deepgramRef.current = createClient(apiKey);
         // console.log('✅ Deepgram client initialized with API key:', apiKey.substring(0, 10) + '...');
-        
+
         // Test connection by creating a quick test connection
         const testConnection = () => {
           try {
             const testConn = deepgramRef.current.listen.live({
-              model: 'nova-2',
-              language: 'en',
+              model: "nova-2",
+              language: "en",
               smart_format: true,
               punctuate: true,
             });
-            
-            testConn.on('open', () => {
+
+            testConn.on("open", () => {
               // console.log('✅ Deepgram WebSocket test successful');
               testConn.finish();
             });
-            
-            testConn.on('error', (err) => {
-              console.error('❌ Deepgram WebSocket test failed:', err);
-              setError('Deepgram connection test failed. Please check your API key.');
+
+            testConn.on("error", (err) => {
+              console.error("❌ Deepgram WebSocket test failed:", err);
+              setError(
+                "Deepgram connection test failed. Please check your API key."
+              );
             });
           } catch (err) {
-            console.error('❌ Failed to create test connection:', err);
+            console.error("❌ Failed to create test connection:", err);
           }
         };
-        
+
         // Test after a short delay
         setTimeout(testConnection, 1000);
-        
       } catch (err) {
-        console.error('❌ Failed to initialize Deepgram:', err);
-        setError('Failed to initialize Deepgram client: ' + err.message);
+        console.error("❌ Failed to initialize Deepgram:", err);
+        setError("Failed to initialize Deepgram client: " + err.message);
       }
     } else {
-      setError('Deepgram API key not found. Please add VITE_DEEPGRAM_API_KEY to your .env file');
+      setError(
+        "Deepgram API key not found. Please add VITE_DEEPGRAM_API_KEY to your .env file"
+      );
     }
 
     // Cleanup on unmount
@@ -196,9 +219,12 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
         cancelAnimationFrame(audioLevelIntervalRef.current);
       }
       if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach(track => track.stop());
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      if (
+        mediaRecorderRef.current &&
+        mediaRecorderRef.current.state === "recording"
+      ) {
         mediaRecorderRef.current.stop();
       }
     };
@@ -209,29 +235,30 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
    */
   const startListening = async () => {
     try {
-      setError('');
+      setError("");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
+
       // Store stream reference for cleanup
       mediaStreamRef.current = stream;
-      
+
       // Set up audio analyser for visualization (shared with VAD in continuous mode)
       if (!continuousModeRef.current) {
         // Only create analyser in manual mode (continuous mode will create it in VAD setup)
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const audioContext = new (window.AudioContext ||
+          window.webkitAudioContext)();
         const audioSource = audioContext.createMediaStreamSource(stream);
         const analyser = audioContext.createAnalyser();
         analyser.fftSize = 256;
         analyser.smoothingTimeConstant = 0.8;
         audioSource.connect(analyser);
         analyserRef.current = analyser;
-        
+
         // Start audio level visualization for manual mode
         updateAudioLevel();
       }
-      
+
       // Use audio/webm;codecs=opus for better Deepgram compatibility
-      const mimeType = 'audio/webm;codecs=opus';
+      const mimeType = "audio/webm;codecs=opus";
       mediaRecorderRef.current = new MediaRecorder(stream, {
         mimeType: mimeType,
       });
@@ -246,14 +273,16 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
 
       mediaRecorderRef.current.onstop = async () => {
         isRecordingRef.current = false;
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm;codecs=opus",
+        });
         await processAudio(audioBlob);
-        
+
         // In continuous mode, don't stop the stream - we'll restart listening
         if (!continuousModeRef.current) {
           // Stop all tracks only in manual mode
           if (mediaStreamRef.current) {
-            mediaStreamRef.current.getTracks().forEach(track => track.stop());
+            mediaStreamRef.current.getTracks().forEach((track) => track.stop());
             mediaStreamRef.current = null;
           }
         }
@@ -261,7 +290,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
 
       // Set recording flag BEFORE starting VAD (so VAD doesn't exit immediately)
       isRecordingRef.current = true;
-      
+
       // In continuous mode, use timeslice to collect chunks periodically
       if (continuousModeRef.current) {
         // console.log('🎙️ Starting continuous recording with 100ms timeslice');
@@ -272,14 +301,20 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
         mediaRecorderRef.current.start(); // Collect all at once
       }
       setIsListening(true);
-      setTranscript(continuousModeRef.current ? 'Listening continuously... Speak when ready' : 'Listening...');
-      
+      setTranscript(
+        continuousModeRef.current
+          ? "Listening continuously... Speak when ready"
+          : "Listening..."
+      );
+
       if (continuousModeRef.current) {
         // console.log('✅ Continuous mode active - VAD will detect when you speak');
       }
     } catch (error) {
-      console.error('Error accessing microphone:', error);
-      setError('Microphone access denied. Please allow microphone access in your browser.');
+      console.error("Error accessing microphone:", error);
+      setError(
+        "Microphone access denied. Please allow microphone access in your browser."
+      );
     }
   };
 
@@ -289,7 +324,8 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
    */
   const setupVoiceActivityDetection = (stream) => {
     // Create audio context for analyzing audio levels
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const audioContext = new (window.AudioContext ||
+      window.webkitAudioContext)();
     const audioSource = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 2048; // Increased for better frequency resolution
@@ -298,7 +334,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
 
     // Store analyser for visualization
     analyserRef.current = analyser;
-    
+
     // Start audio level visualization
     updateAudioLevel();
 
@@ -308,13 +344,13 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
     let silenceStart = Date.now();
     let isSpeaking = false;
     let speechStartTime = null;
-    
+
     // Adaptive thresholds based on sensitivity setting (1-10 scale)
     // Higher sensitivity number = less sensitive (higher threshold)
-    const SPEECH_THRESHOLD = 25 + (voiceSensitivity * 5); // Range: 30-75
+    const SPEECH_THRESHOLD = 25 + voiceSensitivity * 5; // Range: 30-75
     const SILENCE_DURATION = 2000; // 2 seconds of silence before stopping
     const MIN_SPEECH_DURATION = 300; // Minimum 300ms of speech to avoid false triggers
-    
+
     // Calibration for background noise
     let backgroundNoiseLevel = 0;
     let calibrationSamples = [];
@@ -328,17 +364,21 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       }
 
       analyser.getByteFrequencyData(dataArray);
-      
+
       // Debug: Log that we're in the loop
       if (!isCalibrated && calibrationSamples.length === 0) {
         // console.log('🔍 First checkAudioLevel call - starting calibration...');
       }
-      
+
       // Focus on human voice frequencies (85Hz - 3000Hz)
       // This helps filter out low-frequency noise (AC, fans) and high-frequency noise
-      const voiceFrequencyStart = Math.floor((85 / (audioContext.sampleRate / 2)) * bufferLength);
-      const voiceFrequencyEnd = Math.floor((3000 / (audioContext.sampleRate / 2)) * bufferLength);
-      
+      const voiceFrequencyStart = Math.floor(
+        (85 / (audioContext.sampleRate / 2)) * bufferLength
+      );
+      const voiceFrequencyEnd = Math.floor(
+        (3000 / (audioContext.sampleRate / 2)) * bufferLength
+      );
+
       // Debug frequency range on first call
       if (!isCalibrated && calibrationSamples.length === 0) {
         // console.log('🎵 Audio analysis setup:');
@@ -346,21 +386,22 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
         // console.log('  - Buffer length:', bufferLength);
         // console.log('  - Voice frequency range:', voiceFrequencyStart, '-', voiceFrequencyEnd, 'bins');
       }
-      
+
       // Calculate average volume in voice frequency range
       let sum = 0;
       for (let i = voiceFrequencyStart; i < voiceFrequencyEnd; i++) {
         sum += dataArray[i];
       }
       const voiceAverage = sum / (voiceFrequencyEnd - voiceFrequencyStart);
-      
+
       // Calibrate background noise level (first 30 samples = ~1 second)
       if (!isCalibrated && calibrationSamples.length < 30) {
         calibrationSamples.push(voiceAverage);
         setIsCalibrating(true);
         // console.log(`🔍 Calibration sample ${calibrationSamples.length}/30: ${voiceAverage.toFixed(2)}`);
         if (calibrationSamples.length === 30) {
-          backgroundNoiseLevel = calibrationSamples.reduce((a, b) => a + b) / 30;
+          backgroundNoiseLevel =
+            calibrationSamples.reduce((a, b) => a + b) / 30;
           isCalibrated = true;
           setIsCalibrating(false);
           // console.log('✅ Background noise calibrated:', backgroundNoiseLevel.toFixed(2));
@@ -368,24 +409,29 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
           // console.log('📊 Ready to detect speech! Speak now...');
         }
       }
-      
+
       // Adaptive threshold based on background noise
-      const adaptiveThreshold = isCalibrated ? backgroundNoiseLevel + SPEECH_THRESHOLD : SPEECH_THRESHOLD;
-      
+      const adaptiveThreshold = isCalibrated
+        ? backgroundNoiseLevel + SPEECH_THRESHOLD
+        : SPEECH_THRESHOLD;
+
       // Debug: Log current levels every 50 frames (~1.5 seconds)
       if (isCalibrated && Math.random() < 0.02) {
         // console.log('📊 Audio level:', voiceAverage.toFixed(2), '| Threshold:', adaptiveThreshold.toFixed(2), '| Speaking:', isSpeaking);
       }
-      
+
       if (voiceAverage > adaptiveThreshold) {
         // Potential voice detected
         if (!isSpeaking && !speechStartTime) {
           speechStartTime = Date.now();
           // console.log('👂 Potential speech detected, waiting for', MIN_SPEECH_DURATION, 'ms confirmation...');
         }
-        
+
         // Confirm as speech only if it lasts longer than MIN_SPEECH_DURATION
-        if (speechStartTime && Date.now() - speechStartTime > MIN_SPEECH_DURATION) {
+        if (
+          speechStartTime &&
+          Date.now() - speechStartTime > MIN_SPEECH_DURATION
+        ) {
           if (!isSpeaking) {
             // console.log('✅ Speech CONFIRMED! (level:', voiceAverage.toFixed(2), ', threshold:', adaptiveThreshold.toFixed(2), ')');
             isSpeaking = true;
@@ -398,17 +444,24 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
           // console.log('❌ False alarm - sound too short (was only', Date.now() - speechStartTime, 'ms)');
         }
         speechStartTime = null; // Reset speech start timer
-        
+
         // Only process if we were actually speaking (not just noise spikes)
         if (isSpeaking && Date.now() - silenceStart > SILENCE_DURATION) {
           // console.log('🔇 Silence detected after', SILENCE_DURATION, 'ms, processing speech...');
           // console.log('📦 Audio chunks collected so far:', audioChunksRef.current.length);
           isSpeaking = false;
-          
+
           // Stop current recording to process (with small delay for final chunks)
-          if (isRecordingRef.current && mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          if (
+            isRecordingRef.current &&
+            mediaRecorderRef.current &&
+            mediaRecorderRef.current.state === "recording"
+          ) {
             setTimeout(() => {
-              if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+              if (
+                mediaRecorderRef.current &&
+                mediaRecorderRef.current.state === "recording"
+              ) {
                 mediaRecorderRef.current.stop();
               }
             }, 150); // Give 150ms for final chunks to arrive
@@ -434,13 +487,17 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
    * Stop listening
    */
   const stopListening = () => {
-    if (isRecordingRef.current && mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+    if (
+      isRecordingRef.current &&
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state === "recording"
+    ) {
       mediaRecorderRef.current.stop();
       isRecordingRef.current = false;
       setIsListening(false);
-      setTranscript('Processing...');
+      setTranscript("Processing...");
     }
-    
+
     // Stop audio level visualization
     if (audioLevelIntervalRef.current) {
       cancelAnimationFrame(audioLevelIntervalRef.current);
@@ -454,32 +511,36 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
    */
   const stopAllRecording = () => {
     // Stop recording
-    if (isRecordingRef.current && mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+    if (
+      isRecordingRef.current &&
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state === "recording"
+    ) {
       mediaRecorderRef.current.stop();
       isRecordingRef.current = false;
     }
-    
+
     // Stop audio level visualization
     if (audioLevelIntervalRef.current) {
       cancelAnimationFrame(audioLevelIntervalRef.current);
       audioLevelIntervalRef.current = null;
     }
-    
+
     // Close media stream
     if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
     }
-    
+
     // Reset analyser
     analyserRef.current = null;
-    
+
     // Reset states
     setIsListening(false);
     setIsProcessing(false);
     setAudioLevel(0);
-    setTranscript('');
-    
+    setTranscript("");
+
     // console.log('⏹️ All recording stopped');
   };
 
@@ -488,7 +549,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
    */
   const toggleContinuousMode = async () => {
     const newMode = !continuousMode;
-    
+
     if (newMode) {
       // Turning ON continuous mode
       // console.log('🔄 Continuous mode enabled');
@@ -508,7 +569,7 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       }
       // Close the media stream
       if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach(track => track.stop());
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
         mediaStreamRef.current = null;
       }
     }
@@ -520,41 +581,50 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
    */
   const extractCustomerInfo = (text) => {
     const updates = {};
-    
+
     // Extract phone numbers (Indian format)
     const phoneMatch = text.match(/\b(\+?91[-\s]?)?[6-9]\d{9}\b/);
     if (phoneMatch) {
       updates.phone = phoneMatch[0];
     }
-    
+
     // Extract email
-    const emailMatch = text.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
+    const emailMatch = text.match(
+      /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/
+    );
     if (emailMatch) {
       updates.email = emailMatch[0];
     }
-    
+
     // Extract name (if someone says "my name is..." or "I am...")
-    const nameMatch = text.match(/(?:my name is|i am|this is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i);
+    const nameMatch = text.match(
+      /(?:my name is|i am|this is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i
+    );
     if (nameMatch) {
       updates.name = nameMatch[1];
     }
-    
+
     // Extract address keywords
-    if (text.toLowerCase().includes('address') || text.toLowerCase().includes('deliver to')) {
+    if (
+      text.toLowerCase().includes("address") ||
+      text.toLowerCase().includes("deliver to")
+    ) {
       // Store the full text if it mentions address (can be refined later)
-      const addressMatch = text.match(/(?:address is|deliver to|ship to)\s+(.+?)(?:\.|$)/i);
+      const addressMatch = text.match(
+        /(?:address is|deliver to|ship to)\s+(.+?)(?:\.|$)/i
+      );
       if (addressMatch) {
         updates.address = addressMatch[1].trim();
       }
     }
-    
+
     // If any updates found, merge with existing context
     if (Object.keys(updates).length > 0) {
       // Build the new context synchronously using the ref so callers can read it immediately
       const newContext = {
         ...customerContextRef.current,
         ...updates,
-        lastUpdated: new Date().toISOString()
+        lastUpdated: new Date().toISOString(),
       };
       // Update state and ref
       setCustomerContext(newContext);
@@ -568,13 +638,13 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
    */
   const processAudio = async (audioBlob) => {
     setIsProcessing(true);
-    
+
     try {
       // Check if we have actual audio data
       if (!audioBlob || audioBlob.size === 0) {
         // console.warn('⚠️ Empty audio blob, skipping processing');
         setIsProcessing(false);
-        
+
         // In continuous mode, restart listening immediately
         if (continuousModeRef.current && mediaStreamRef.current) {
           setTimeout(() => {
@@ -585,18 +655,18 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
         }
         return;
       }
-      
+
       // console.log('🎵 Processing audio blob, size:', audioBlob.size, 'bytes');
-      
+
       // Step 1: Convert speech to text using Deepgram
-      setTranscript('Converting speech to text...');
+      setTranscript("Converting speech to text...");
       const userText = await speechToText(audioBlob);
 
       if (!userText || userText.trim().length === 0) {
-        setTranscript('');
+        setTranscript("");
         // console.warn('⚠️ No speech detected in audio');
         setIsProcessing(false);
-        
+
         // In continuous mode, restart listening
         if (continuousModeRef.current && mediaStreamRef.current) {
           setTimeout(() => {
@@ -609,30 +679,30 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
       }
 
       setTranscript(userText);
-      
+
       // Extract customer information from user message
       extractCustomerInfo(userText);
-      
+
       // Add user message to conversation
-      const userMessage = { role: 'user', content: userText };
-      setConversation(prev => [...prev, userMessage]);
+      const userMessage = { role: "user", content: userText };
+      setConversation((prev) => [...prev, userMessage]);
       conversationHistoryRef.current.push(userMessage);
 
       // Step 2: Get AI response from OpenAI
-      setTranscript('Getting AI response...');
+      setTranscript("Getting AI response...");
       const aiResponse = await getAIResponse();
 
       // Add AI message to conversation
-      const aiMessage = { role: 'assistant', content: aiResponse };
-      setConversation(prev => [...prev, aiMessage]);
+      const aiMessage = { role: "assistant", content: aiResponse };
+      setConversation((prev) => [...prev, aiMessage]);
       conversationHistoryRef.current.push(aiMessage);
 
       // Step 3: Speak the response using Sarvam AI
-      setTranscript('');
+      setTranscript("");
       await speakTextWithSarvam(aiResponse);
 
       setIsProcessing(false);
-      
+
       // In continuous mode, restart listening after AI finishes speaking
       if (continuousModeRef.current && mediaStreamRef.current) {
         // console.log('🔄 Continuous mode: Restarting listening...');
@@ -644,11 +714,11 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
         }, 500);
       }
     } catch (error) {
-      console.error('Error processing audio:', error);
-      setError('Error processing your request: ' + error.message);
+      console.error("Error processing audio:", error);
+      setError("Error processing your request: " + error.message);
       setIsProcessing(false);
-      setTranscript('');
-      
+      setTranscript("");
+
       // In continuous mode, restart listening even after error
       if (continuousModeRef.current && mediaStreamRef.current) {
         setTimeout(() => {
@@ -666,74 +736,78 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
   const speechToText = async (audioBlob) => {
     try {
       if (!deepgramRef.current) {
-        console.error('Deepgram client not initialized');
-        throw new Error('Deepgram not initialized');
+        console.error("Deepgram client not initialized");
+        throw new Error("Deepgram not initialized");
       }
 
       // Convert blob to array buffer
       const arrayBuffer = await audioBlob.arrayBuffer();
 
       return new Promise((resolve, reject) => {
-        let transcriptText = '';
-        
+        let transcriptText = "";
+
         // Use ref to get the most current language (might have been switched)
         const languageToUse = currentLanguageRef.current;
         // console.log('🎤 Deepgram STT STARTING...');
         // console.log('📊 selectedLanguage state:', selectedLanguage);
         // console.log('📊 currentLanguageRef.current:', currentLanguageRef.current);
         // console.log('🎤 Deepgram will use language:', languageToUse);
-        
+
         let connection;
         try {
           connection = deepgramRef.current.listen.live({
-            model: 'nova-2',
+            model: "nova-2",
             smart_format: true,
             punctuate: true,
             language: languageToUse,
           });
         } catch (err) {
-          console.error('❌ Failed to create Deepgram connection:', err);
-          reject(new Error('Failed to connect to speech recognition service. Please check your internet connection and API key.'));
+          console.error("❌ Failed to create Deepgram connection:", err);
+          reject(
+            new Error(
+              "Failed to connect to speech recognition service. Please check your internet connection and API key."
+            )
+          );
           return;
         }
 
-        connection.on('open', () => {
+        connection.on("open", () => {
           // console.log('✅ Deepgram WebSocket opened');
           // Send the audio data
           try {
             connection.send(arrayBuffer);
             // console.log('📤 Audio data sent to Deepgram');
           } catch (err) {
-            console.error('❌ Failed to send audio:', err);
+            console.error("❌ Failed to send audio:", err);
             reject(err);
             return;
           }
-          
+
           // Close connection after sending (give it time to process)
           setTimeout(() => {
             try {
               connection.finish();
             } catch (err) {
-              console.error('Error finishing connection:', err);
+              console.error("Error finishing connection:", err);
             }
           }, 1500);
         });
 
-        connection.on('Results', (data) => {
+        connection.on("Results", (data) => {
           // Try multiple ways to extract transcript
           let transcript = null;
-          
+
           // Method 1: Check channel.alternatives[0].transcript
           if (data.channel?.alternatives?.[0]?.transcript) {
             transcript = data.channel.alternatives[0].transcript;
           }
-          
+
           if (transcript && transcript.trim().length > 0) {
-            transcriptText += transcript + ' ';
+            transcriptText += transcript + " ";
           }
         });
 
-        connection.on('close', () => {
+        connection.on("close", () => {
           // console.log('🔌 Deepgram WebSocket closed');
           const finalTranscript = transcriptText.trim();
           if (finalTranscript) {
@@ -741,38 +815,61 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
             resolve(finalTranscript);
           } else {
             const languageNames = {
-              'en': 'English', 'hi': 'Hindi', 'ta': 'Tamil', 'te': 'Telugu',
-              'kn': 'Kannada', 'ml': 'Malayalam', 'bn': 'Bengali', 'mr': 'Marathi',
-              'gu': 'Gujarati', 'pa': 'Punjabi', 'es': 'Spanish', 'fr': 'French',
-              'de': 'German', 'zh': 'Chinese', 'ja': 'Japanese', 'ko': 'Korean'
+              en: "English",
+              hi: "Hindi",
+              ta: "Tamil",
+              te: "Telugu",
+              kn: "Kannada",
+              ml: "Malayalam",
+              bn: "Bengali",
+              mr: "Marathi",
+              gu: "Gujarati",
+              pa: "Punjabi",
+              es: "Spanish",
+              fr: "French",
+              de: "German",
+              zh: "Chinese",
+              ja: "Japanese",
+              ko: "Korean",
             };
-            const currentLangName = languageNames[languageToUse] || languageToUse;
-            reject(new Error(`No speech detected. Please speak in ${currentLangName} or select a different language.`));
+            const currentLangName =
+              languageNames[languageToUse] || languageToUse;
+            reject(
+              new Error(
+                `No speech detected. Please speak in ${currentLangName} or select a different language.`
+              )
+            );
           }
         });
 
-        connection.on('error', (error) => {
-          console.error('❌ Deepgram streaming error:', error);
-          console.error('Error details:', {
+        connection.on("error", (error) => {
+          console.error("❌ Deepgram streaming error:", error);
+          console.error("Error details:", {
             message: error.message,
             url: error.url,
             readyState: error.readyState,
-            statusCode: error.statusCode
+            statusCode: error.statusCode,
           });
-          reject(new Error(`Speech recognition error: ${error.message || 'Connection failed'}. Please check your API key and internet connection.`));
+          reject(
+            new Error(
+              `Speech recognition error: ${
+                error.message || "Connection failed"
+              }. Please check your API key and internet connection.`
+            )
+          );
         });
 
         // Timeout after 15 seconds
         setTimeout(() => {
           if (!transcriptText.trim()) {
             connection.finish();
-            reject(new Error('Transcription timeout - no speech detected'));
+            reject(new Error("Transcription timeout - no speech detected"));
           }
         }, 15000);
       });
     } catch (error) {
-      console.error('Speech-to-text error:', error);
-      throw new Error('Failed to convert speech to text: ' + error.message);
+      console.error("Speech-to-text error:", error);
+      throw new Error("Failed to convert speech to text: " + error.message);
     }
   };
 
@@ -783,48 +880,59 @@ const VoiceChat = ({ systemPrompt, agentName = "AI Agent", useRAG = true, agentI
     try {
       const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
       if (!apiKey) {
-        throw new Error('OpenAI API key not found');
+        throw new Error("OpenAI API key not found");
       }
 
       // Language mapping
       const languageNames = {
-        'en': 'English',
-        'hi': 'Hindi',
-        'ta': 'Tamil',
-        'te': 'Telugu',
-        'kn': 'Kannada',
-        'ml': 'Malayalam',
-        'bn': 'Bengali',
-        'mr': 'Marathi',
-        'gu': 'Gujarati',
-        'pa': 'Punjabi',
-        'es': 'Spanish',
-        'fr': 'French',
-        'de': 'German',
-        'zh': 'Chinese',
-        'ja': 'Japanese',
-        'ko': 'Korean'
+        en: "English",
+        hi: "Hindi",
+        ta: "Tamil",
+        te: "Telugu",
+        kn: "Kannada",
+        ml: "Malayalam",
+        bn: "Bengali",
+        mr: "Marathi",
+        gu: "Gujarati",
+        pa: "Punjabi",
+        es: "Spanish",
+        fr: "French",
+        de: "German",
+        zh: "Chinese",
+        ja: "Japanese",
+        ko: "Korean",
       };
 
-      const currentLanguageName = languageNames[selectedLanguage] || 'English';
+      const currentLanguageName = languageNames[selectedLanguage] || "English";
 
       // Build customer context summary for the prompt (use ref for latest data)
       const latestCustomerContext = customerContextRef.current || {};
       const contextSummary = [];
-      if (latestCustomerContext.name) contextSummary.push(`Name: ${latestCustomerContext.name}`);
-      if (latestCustomerContext.phone) contextSummary.push(`Phone: ${latestCustomerContext.phone}`);
-      if (latestCustomerContext.email) contextSummary.push(`Email: ${latestCustomerContext.email}`);
-      if (latestCustomerContext.address) contextSummary.push(`Address: ${latestCustomerContext.address}`);
+      if (latestCustomerContext.name)
+        contextSummary.push(`Name: ${latestCustomerContext.name}`);
+      if (latestCustomerContext.phone)
+        contextSummary.push(`Phone: ${latestCustomerContext.phone}`);
+      if (latestCustomerContext.email)
+        contextSummary.push(`Email: ${latestCustomerContext.email}`);
+      if (latestCustomerContext.address)
+        contextSummary.push(`Address: ${latestCustomerContext.address}`);
       if (Object.keys(latestCustomerContext.orderDetails || {}).length > 0) {
-        contextSummary.push(`Order: ${JSON.stringify(latestCustomerContext.orderDetails)}`);
+        contextSummary.push(
+          `Order: ${JSON.stringify(latestCustomerContext.orderDetails)}`
+        );
       }
-      
-      const customerContextString = contextSummary.length > 0 
-        ? `\n\nCUSTOMER INFORMATION (Remember this throughout the conversation):\n${contextSummary.join('\n')}\n`
-        : '';
+
+      const customerContextString =
+        contextSummary.length > 0
+          ? `\n\nCUSTOMER INFORMATION (Remember this throughout the conversation):\n${contextSummary.join(
+              "\n"
+            )}\n`
+          : "";
 
       // Build enhanced system prompt with language instructions AND customer context
-      const enhancedSystemPrompt = `${systemPrompt || 'You are a helpful AI assistant.'}
+      const enhancedSystemPrompt = `${
+        systemPrompt || "You are a helpful AI assistant."
+      }
 ${customerContextString}
 Current language: ${currentLanguageName}. Keep responses brief for voice chat.
 To switch language, respond with "LANGUAGE_SWITCH:[code]" then your message.
@@ -833,26 +941,32 @@ Codes: en, hi, ta, te, kn, ml, bn, mr, gu, pa, es, fr, de, zh, ja, ko
 IMPORTANT: If customer provides personal details (name, address, phone, email, order info), acknowledge them and remember them for the entire conversation.`;
 
       // Get the last user message
-      const lastUserMessage = conversationHistoryRef.current[conversationHistoryRef.current.length - 1]?.content || '';
+      const lastUserMessage =
+        conversationHistoryRef.current[
+          conversationHistoryRef.current.length - 1
+        ]?.content || "";
 
       // If RAG is enabled, use the RAG endpoint
       if (ragEnabled && lastUserMessage) {
         try {
-          const ragResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/rag/chat`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              query: lastUserMessage,
-              conversationHistory: conversationHistoryRef.current.slice(-6),
-              systemPrompt: enhancedSystemPrompt, // Pass full prompt with language instructions
-              options: {
-                temperature: 0.7,
-                max_tokens: 500,
-              }
-            }),
-          });
+          const ragResponse = await fetch(
+            `${import.meta.env.VITE_API_URL}/api/rag/chat`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                query: lastUserMessage,
+                conversationHistory: conversationHistoryRef.current.slice(-6),
+                systemPrompt: enhancedSystemPrompt, // Pass full prompt with language instructions
+                options: {
+                  temperature: 0.7,
+                  max_tokens: 500,
+                },
+              }),
+            }
+          );
 
           if (ragResponse.ok) {
             const ragData = await ragResponse.json();
@@ -860,46 +974,50 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
               // console.log('🤖 Using RAG response with knowledge base');
               // console.log('📊 Tokens used:', ragData.tokensUsed);
               // console.log('📚 Context used:', ragData.contextUsed);
-              
+
               let aiResponse = ragData.response;
-              
+
               // Log the AI response to debug language switching
               // console.log('🤖 RAG AI Response:', aiResponse);
               // console.log('🔍 Starts with LANGUAGE_SWITCH?', aiResponse.startsWith('LANGUAGE_SWITCH:'));
 
               // Check if AI wants to switch language (same logic as standard OpenAI)
-              if (aiResponse.startsWith('LANGUAGE_SWITCH:')) {
-                const match = aiResponse.match(/^LANGUAGE_SWITCH:([a-z]{2})[\s\n]/i);
-                
+              if (aiResponse.startsWith("LANGUAGE_SWITCH:")) {
+                const match = aiResponse.match(
+                  /^LANGUAGE_SWITCH:([a-z]{2})[\s\n]/i
+                );
+
                 if (match) {
                   const newLanguageCode = match[1].toLowerCase();
-                  
+
                   // console.log(`🔍 Extracted language code: "${newLanguageCode}"`);
-                  
+
                   if (languageNames[newLanguageCode]) {
                     // console.log(`🌐 Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`);
-                    
+
                     // CRITICAL: Update ref FIRST (synchronous), then state (async)
                     currentLanguageRef.current = newLanguageCode;
                     setSelectedLanguage(newLanguageCode);
-                    
+
                     // console.log(`✅ Language switched!`);
                     // console.log(`  - currentLanguageRef.current: ${currentLanguageRef.current}`);
                     // console.log(`  - selectedLanguage state: updating to "${newLanguageCode}"`);
-                    
+
                     // Remove the switch command from response
-                    aiResponse = aiResponse.replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, '').trim();
+                    aiResponse = aiResponse
+                      .replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, "")
+                      .trim();
                   }
                 }
               }
-              
+
               return aiResponse;
             }
           }
           // console.log('⚠️ RAG failed, falling back to standard OpenAI');
         } catch (ragError) {
           // Keep this for debugging production issues
-          console.error('RAG error, using standard OpenAI:', ragError);
+          console.error("RAG error, using standard OpenAI:", ragError);
         }
       }
 
@@ -910,29 +1028,32 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
       const recentHistory = conversationHistoryRef.current.slice(-6);
       const messages = [
         {
-          role: 'system',
+          role: "system",
           content: enhancedSystemPrompt,
         },
         ...recentHistory,
       ];
 
       // Call OpenAI API
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini', // Much cheaper than gpt-4 (15x cheaper!) and faster
-          messages: messages,
-          temperature: 0.7,
-          max_tokens: 100, // Reduced from 150 - shorter responses for voice
-        }),
-      });
+      const response = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini", // Much cheaper than gpt-4 (15x cheaper!) and faster
+            messages: messages,
+            temperature: 0.7,
+            max_tokens: 100, // Reduced from 150 - shorter responses for voice
+          }),
+        }
+      );
 
       if (!response.ok) {
-        throw new Error('OpenAI API request failed');
+        throw new Error("OpenAI API request failed");
       }
 
       const data = await response.json();
@@ -943,31 +1064,33 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
       // console.log('🔍 Starts with LANGUAGE_SWITCH?', aiResponse.startsWith('LANGUAGE_SWITCH:'));
 
       // Check if AI wants to switch language
-      if (aiResponse.startsWith('LANGUAGE_SWITCH:')) {
+      if (aiResponse.startsWith("LANGUAGE_SWITCH:")) {
         // Extract language code - it should be right after "LANGUAGE_SWITCH:" and before space or newline
         const match = aiResponse.match(/^LANGUAGE_SWITCH:([a-z]{2})[\s\n]/i);
-        
+
         if (match) {
           const newLanguageCode = match[1].toLowerCase();
-          
+
           // console.log(`🔍 Extracted language code: "${newLanguageCode}"`);
           // console.log(`🔍 Language code exists in map?`, languageNames[newLanguageCode]);
-          
+
           // Update the language
           if (languageNames[newLanguageCode]) {
             // console.log(`🌐 Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`);
-            
+
             // CRITICAL: Update ref FIRST (synchronous), then state (async)
             // This ensures the ref has the new value immediately for next recording
             currentLanguageRef.current = newLanguageCode;
             setSelectedLanguage(newLanguageCode);
-            
+
             // console.log(`✅ Language switched!`);
             // console.log(`  - currentLanguageRef.current: ${currentLanguageRef.current} (updated synchronously)`);
             // console.log(`  - selectedLanguage state: will update to "${newLanguageCode}" (async)`);
-            
+
             // Remove the switch command from response (everything after "LANGUAGE_SWITCH:xx ")
-            aiResponse = aiResponse.replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, '').trim();
+            aiResponse = aiResponse
+              .replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, "")
+              .trim();
           } else {
             // console.log(`❌ Language code "${newLanguageCode}" not found in languageNames map`);
           }
@@ -978,8 +1101,8 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
 
       return aiResponse;
     } catch (error) {
-      console.error('OpenAI error:', error);
-      throw new Error('Failed to get AI response');
+      console.error("OpenAI error:", error);
+      throw new Error("Failed to get AI response");
     }
   };
 
@@ -992,57 +1115,59 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
 
       const apiKey = import.meta.env.VITE_SARVAM_API_KEY;
       if (!apiKey) {
-        console.error('Sarvam API key not found');
-        throw new Error('Sarvam API key not configured. Please add VITE_SARVAM_API_KEY to .env.local');
+        console.error("Sarvam API key not found");
+        throw new Error(
+          "Sarvam API key not configured. Please add VITE_SARVAM_API_KEY to .env.local"
+        );
       }
 
       // Map our language codes to Sarvam's format
       const languageMap = {
-        'en': 'en-IN',
-        'hi': 'hi-IN',
-        'ta': 'ta-IN',
-        'te': 'te-IN',
-        'kn': 'kn-IN',
-        'ml': 'ml-IN',
-        'bn': 'bn-IN',
-        'mr': 'mr-IN',
-        'gu': 'gu-IN',
-        'pa': 'pa-IN',
+        en: "en-IN",
+        hi: "hi-IN",
+        ta: "ta-IN",
+        te: "te-IN",
+        kn: "kn-IN",
+        ml: "ml-IN",
+        bn: "bn-IN",
+        mr: "mr-IN",
+        gu: "gu-IN",
+        pa: "pa-IN",
       };
 
-      const sarvamLanguage = languageMap[currentLanguageRef.current] || 'en-IN';
-      
+      const sarvamLanguage = languageMap[currentLanguageRef.current] || "en-IN";
+
       const response = await axios.post(
-        'https://api.sarvam.ai/text-to-speech',
+        "https://api.sarvam.ai/text-to-speech",
         {
           inputs: [text],
           target_language_code: sarvamLanguage,
           speaker: selectedVoice,
-          model: 'bulbul:v2'
+          model: "bulbul:v2",
         },
         {
           headers: {
-            'Content-Type': 'application/json',
-            'api-subscription-key': apiKey // Try lowercase header
-          }
+            "Content-Type": "application/json",
+            "api-subscription-key": apiKey, // Try lowercase header
+          },
         }
       );
 
       // Get the base64 audio from response
       const audioBase64 = response.data.audios[0];
-      
+
       // Convert base64 to blob
       const audioData = atob(audioBase64);
       const arrayBuffer = new Uint8Array(audioData.length);
       for (let i = 0; i < audioData.length; i++) {
         arrayBuffer[i] = audioData.charCodeAt(i);
       }
-      const audioBlob = new Blob([arrayBuffer], { type: 'audio/wav' });
-      
+      const audioBlob = new Blob([arrayBuffer], { type: "audio/wav" });
+
       // Create audio URL and play
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
-      
+
       return new Promise((resolve, reject) => {
         audio.onended = () => {
           setIsSpeaking(false);
@@ -1051,32 +1176,37 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
         };
 
         audio.onerror = (error) => {
-          console.error('Audio playback error:', error);
+          console.error("Audio playback error:", error);
           setIsSpeaking(false);
           URL.revokeObjectURL(audioUrl);
           reject(error);
         };
 
-        audio.play().catch(error => {
-          console.error('Error playing audio:', error);
+        audio.play().catch((error) => {
+          console.error("Error playing audio:", error);
           setIsSpeaking(false);
           reject(error);
         });
       });
-
     } catch (error) {
-      console.error('Sarvam TTS error:', error);
+      console.error("Sarvam TTS error:", error);
       setIsSpeaking(false);
-      
+
       // Show user-friendly error
       if (error.response) {
-        console.error('Sarvam API error response:', error.response.data);
-        console.error('Full error object:', JSON.stringify(error.response.data, null, 2));
-        
-        const errorMsg = error.response.data?.error?.message || error.response.data?.message || error.response.statusText;
+        console.error("Sarvam API error response:", error.response.data);
+        console.error(
+          "Full error object:",
+          JSON.stringify(error.response.data, null, 2)
+        );
+
+        const errorMsg =
+          error.response.data?.error?.message ||
+          error.response.data?.message ||
+          error.response.statusText;
         throw new Error(`Sarvam TTS failed: ${errorMsg}`);
       } else {
-        throw new Error('Failed to generate speech: ' + error.message);
+        throw new Error("Failed to generate speech: " + error.message);
       }
     }
   };
@@ -1087,8 +1217,8 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
   const clearConversation = () => {
     setConversation([]);
     conversationHistoryRef.current = [];
-    setTranscript('');
-    setError('');
+    setTranscript("");
+    setError("");
   };
 
   /**
@@ -1096,16 +1226,16 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
    */
   const clearCustomerContext = () => {
     const emptyContext = {
-      name: '',
-      phone: '',
-      email: '',
-      address: '',
+      name: "",
+      phone: "",
+      email: "",
+      address: "",
       preferences: {},
       orderDetails: {},
-      lastUpdated: null
+      lastUpdated: null,
     };
     setCustomerContext(emptyContext);
-    localStorage.removeItem('voiceChat_customerContext');
+    localStorage.removeItem("voiceChat_customerContext");
     // console.log('🗑️ Customer context cleared');
   };
 
@@ -1114,8 +1244,8 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
    */
   const stopSpeaking = () => {
     // Stop any playing audio
-    const audioElements = document.querySelectorAll('audio');
-    audioElements.forEach(audio => {
+    const audioElements = document.querySelectorAll("audio");
+    audioElements.forEach((audio) => {
       audio.pause();
       audio.currentTime = 0;
     });
@@ -1127,20 +1257,32 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
       <div className="mb-6">
         <h2 className="text-2xl font-bold mb-2">Voice Chat with {agentName}</h2>
         <p className="text-sm text-slate-600">
-          {continuousMode 
-            ? '🎤 Continuous mode is ON! Just speak naturally - the system will automatically detect when you start and stop talking. The AI will respond and then wait for you to speak again.'
-            : 'Click the microphone to start speaking. Your conversation will be transcribed and the agent will respond with voice. Try saying "Switch to Hindi" or "Talk in Tamil" to change languages!'
-          }
+          {continuousMode
+            ? "🎤 Continuous mode is ON! Just speak naturally - the system will automatically detect when you start and stop talking. The AI will respond and then wait for you to speak again."
+            : 'Click the microphone to start speaking. Your conversation will be transcribed and the agent will respond with voice. Try saying "Switch to Hindi" or "Talk in Tamil" to change languages!'}
         </p>
       </div>
 
       {/* Customer Context Display */}
-      {(customerContext.name || customerContext.phone || customerContext.email || customerContext.address) && (
+      {(customerContext.name ||
+        customerContext.phone ||
+        customerContext.email ||
+        customerContext.address) && (
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-blue-900 flex items-center gap-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                />
               </svg>
               Remembered Customer Information
             </h3>
@@ -1179,7 +1321,8 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
             )}
           </div>
           <p className="text-xs text-blue-600 mt-2">
-            💡 This information is remembered throughout the entire conversation, even after 10+ messages!
+            💡 This information is remembered throughout the entire
+            conversation, even after 10+ messages!
           </p>
         </div>
       )}
@@ -1187,9 +1330,11 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
       {/* Language and Voice Selectors */}
       <div className="mb-6 grid grid-cols-2 gap-4">
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium text-slate-700">Language:</label>
-          <select 
-            value={selectedLanguage} 
+          <label className="text-sm font-medium text-slate-700">
+            Language:
+          </label>
+          <select
+            value={selectedLanguage}
             onChange={(e) => setSelectedLanguage(e.target.value)}
             disabled={isListening || isProcessing}
             className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:cursor-not-allowed"
@@ -1215,8 +1360,8 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
 
         <div className="flex flex-col gap-2">
           <label className="text-sm font-medium text-slate-700">Voice:</label>
-          <select 
-            value={selectedVoice} 
+          <select
+            value={selectedVoice}
             onChange={(e) => setSelectedVoice(e.target.value)}
             disabled={isListening || isProcessing}
             className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:cursor-not-allowed"
@@ -1272,7 +1417,9 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
             </span>
           </label>
           <span className="text-xs text-slate-500">
-            {ragEnabled ? '✓ Enhanced with uploaded documents' : '⚠ Basic mode only'}
+            {ragEnabled
+              ? "✓ Enhanced with uploaded documents"
+              : "⚠ Basic mode only"}
           </span>
         </div>
 
@@ -1291,7 +1438,7 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
             </span>
           </label>
           <span className="text-xs text-slate-500">
-            {continuousMode ? '🎤 Auto-detect speech' : '⏸️ Manual mode'}
+            {continuousMode ? "🎤 Auto-detect speech" : "⏸️ Manual mode"}
           </span>
         </div>
       </div>
@@ -1303,7 +1450,9 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
             <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
               🎚️ Noise Filtering
               {isCalibrating && (
-                <span className="text-xs text-orange-600 animate-pulse">(Calibrating...)</span>
+                <span className="text-xs text-orange-600 animate-pulse">
+                  (Calibrating...)
+                </span>
               )}
             </label>
             <span className="text-xs font-medium text-slate-600 bg-white px-2 py-1 rounded">
@@ -1320,13 +1469,26 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
             className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-600 disabled:cursor-not-allowed disabled:opacity-50"
           />
           <div className="flex justify-between text-xs text-slate-500 mt-1">
-            <span>🔊 More Sensitive<br/>(picks up quieter sounds)</span>
-            <span className="text-center">⚖️ Balanced<br/>(recommended for office)</span>
-            <span className="text-right">🔇 Less Sensitive<br/>(ignores background noise)</span>
+            <span>
+              🔊 More Sensitive
+              <br />
+              (picks up quieter sounds)
+            </span>
+            <span className="text-center">
+              ⚖️ Balanced
+              <br />
+              (recommended for office)
+            </span>
+            <span className="text-right">
+              🔇 Less Sensitive
+              <br />
+              (ignores background noise)
+            </span>
           </div>
           <p className="text-xs text-slate-600 mt-3 bg-white p-2 rounded border border-slate-200">
-            💡 <strong>Tip:</strong> If background noise triggers false detections, increase the level. 
-            If your voice isn't being detected, decrease the level. The system auto-calibrates on startup!
+            💡 <strong>Tip:</strong> If background noise triggers false
+            detections, increase the level. If your voice isn't being detected,
+            decrease the level. The system auto-calibrates on startup!
           </p>
         </div>
       )}
@@ -1344,27 +1506,29 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
         <div className="relative">
           {/* Animated outer ring that syncs with audio */}
           {isListening && audioLevel > 0 && (
-            <div 
+            <div
               className="absolute inset-0 rounded-full opacity-30 pointer-events-none transition-all duration-100"
               style={{
                 transform: `scale(${1 + (audioLevel / 100) * 0.5})`,
-                backgroundColor: continuousMode 
-                  ? (isCalibrating ? '#f97316' : '#22c55e')
-                  : '#ef4444'
+                backgroundColor: continuousMode
+                  ? isCalibrating
+                    ? "#f97316"
+                    : "#22c55e"
+                  : "#ef4444",
               }}
             ></div>
           )}
-          
+
           {/* Main microphone button */}
           <button
             onClick={(e) => {
               e.stopPropagation();
-              
+
               // Don't do anything if processing or speaking
               if (isProcessing || isSpeaking) {
                 return;
               }
-              
+
               if (isRecordingRef.current) {
                 stopListening();
               } else {
@@ -1374,23 +1538,36 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
             disabled={isProcessing || isSpeaking}
             className={`w-32 h-32 rounded-full flex items-center justify-center text-white text-5xl shadow-lg cursor-pointer transition-all duration-200 ${
               isListening
-                ? (continuousMode 
-                    ? (isCalibrating ? 'bg-orange-500' : 'bg-green-500') 
-                    : 'bg-red-500 hover:bg-red-600')
+                ? continuousMode
+                  ? isCalibrating
+                    ? "bg-orange-500"
+                    : "bg-green-500"
+                  : "bg-red-500 hover:bg-red-600"
                 : isProcessing
-                ? 'bg-gray-400 cursor-not-allowed'
+                ? "bg-gray-400 cursor-not-allowed"
                 : isSpeaking
-                ? 'bg-blue-500'
-                : 'bg-blue-500 hover:bg-blue-600'
-            } ${(isProcessing || isSpeaking) ? 'opacity-75' : ''}`}
+                ? "bg-blue-500"
+                : "bg-blue-500 hover:bg-blue-600"
+            } ${isProcessing || isSpeaking ? "opacity-75" : ""}`}
             style={{
-              transform: isListening && audioLevel > 0 
-                ? `scale(${1 + (audioLevel / 100) * 0.2})` 
-                : 'scale(1)'
+              transform:
+                isListening && audioLevel > 0
+                  ? `scale(${1 + (audioLevel / 100) * 0.2})`
+                  : "scale(1)",
             }}
-            title={isListening ? 'Listening...' : 'Start speaking'}
+            title={isListening ? "Listening..." : "Start speaking"}
           >
-            {isCalibrating ? '🔧' : isListening ? <BiMicrophone /> : isSpeaking ? <BiVolumeFull /> : isProcessing ? '⏳' : <BiMicrophone />}
+            {isCalibrating ? (
+              "🔧"
+            ) : isListening ? (
+              <BiMicrophone />
+            ) : isSpeaking ? (
+              <BiVolumeFull />
+            ) : isProcessing ? (
+              "⏳"
+            ) : (
+              <BiMicrophone />
+            )}
           </button>
         </div>
 
@@ -1398,22 +1575,25 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
         <div className="text-center">
           <p className="text-lg font-medium text-slate-700">
             {isCalibrating
-              ? '🔧 Calibrating noise levels...'
+              ? "🔧 Calibrating noise levels..."
               : isListening
-              ? (continuousMode ? '🎤 Listening... Speak naturally' : '🎤 Listening... Click stop when done')
+              ? continuousMode
+                ? "🎤 Listening... Speak naturally"
+                : "🎤 Listening... Click stop when done"
               : isProcessing
-              ? '⏳ Processing your request...'
+              ? "⏳ Processing your request..."
               : isSpeaking
-              ? '🔊 AI is responding...'
-              : (continuousMode ? '💤 Click microphone to start' : '🎙️ Click microphone to start speaking')}
+              ? "🔊 AI is responding..."
+              : continuousMode
+              ? "💤 Click microphone to start"
+              : "🎙️ Click microphone to start speaking"}
           </p>
           <p className="text-xs text-slate-500 mt-1">
-            {isCalibrating 
-              ? 'Please wait while we measure background noise...'
+            {isCalibrating
+              ? "Please wait while we measure background noise..."
               : continuousMode
-              ? 'Continuous mode - Auto-detects when you speak'
-              : 'Manual mode - Click mic to start, stop when done'
-            }
+              ? "Continuous mode - Auto-detects when you speak"
+              : "Manual mode - Click mic to start, stop when done"}
           </p>
           {transcript && !isListening && !isProcessing && (
             <p className="text-sm text-slate-500 mt-2">"{transcript}"</p>
@@ -1432,7 +1612,7 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
               <BiStop className="text-lg" /> Stop Listening
             </button>
           )}
-          
+
           {isSpeaking && (
             <button
               onClick={stopSpeaking}
@@ -1455,23 +1635,25 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
       {/* Conversation History */}
       {conversation.length > 0 && (
         <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-slate-700 mb-3">Conversation</h3>
+          <h3 className="text-lg font-semibold text-slate-700 mb-3">
+            Conversation
+          </h3>
           {conversation.map((msg, idx) => (
             <div
               key={idx}
               className={`p-4 rounded-lg ${
-                msg.role === 'user'
-                  ? 'bg-blue-50 border border-blue-200'
-                  : 'bg-green-50 border border-green-200'
+                msg.role === "user"
+                  ? "bg-blue-50 border border-blue-200"
+                  : "bg-green-50 border border-green-200"
               }`}
             >
               <div className="flex items-start gap-3">
                 <div className="text-2xl">
-                  {msg.role === 'user' ? '👤' : '🤖'}
+                  {msg.role === "user" ? "👤" : "🤖"}
                 </div>
                 <div className="flex-1">
                   <p className="text-xs font-medium text-slate-500 mb-1">
-                    {msg.role === 'user' ? 'You' : agentName}
+                    {msg.role === "user" ? "You" : agentName}
                   </p>
                   <p className="text-slate-800">{msg.content}</p>
                 </div>
@@ -1484,9 +1666,13 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
       {/* Setup Instructions */}
       {!deepgramRef.current && (
         <div className="mt-8 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <h4 className="font-semibold text-yellow-800 mb-2">Setup Required:</h4>
+          <h4 className="font-semibold text-yellow-800 mb-2">
+            Setup Required:
+          </h4>
           <ol className="text-sm text-yellow-700 space-y-1 list-decimal list-inside">
-            <li>Get your Deepgram API key from: https://console.deepgram.com/</li>
+            <li>
+              Get your Deepgram API key from: https://console.deepgram.com/
+            </li>
             <li>Add to your .env file: VITE_DEEPGRAM_API_KEY=your_key_here</li>
             <li>Restart the dev server</li>
           </ol>

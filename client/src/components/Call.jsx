@@ -51,7 +51,7 @@ export default function Call() {
 
         {/* Voicemail detection */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
               <h3 className="text-lg font-semibold">Voicemail detection</h3>
               <p className="mt-1 text-sm text-slate-500 max-w-xl">
@@ -59,7 +59,7 @@ export default function Call() {
               </p>
             </div>
 
-            <div className="flex items-center gap-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
               {/* toggle */}
               <div className="flex items-center gap-3">
                 <span className="text-sm text-slate-600">Enable</span>
@@ -75,9 +75,9 @@ export default function Call() {
               </div>
 
               {/* time slider */}
-              <div className="flex items-center gap-4">
-                <div className="text-sm font-medium">Time (seconds)</div>
-                <div className="w-48 flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto">
+                <div className="text-sm font-medium whitespace-nowrap">Time (seconds)</div>
+                <div className="flex-1 sm:w-48 flex items-center gap-3">
                   <input
                     type="range"
                     min="0.5"
@@ -103,7 +103,7 @@ export default function Call() {
           <h3 className="text-lg font-semibold">Call hangup modes</h3>
 
           {/* Hangup on user silence */}
-          <div className="flex items-start justify-between gap-6">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 lg:gap-6">
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <div className="font-medium">Hangup calls on user silence</div>
@@ -111,7 +111,7 @@ export default function Call() {
               <div className="text-sm text-slate-500 mt-1">Call will hangup if the user is not speaking</div>
             </div>
 
-            <div className="flex items-center gap-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
               {/* toggle */}
               <button
                 onClick={() => setHangupOnSilence((s) => !s)}
@@ -122,9 +122,9 @@ export default function Call() {
               </button>
 
               {/* slider */}
-              <div className="flex items-center gap-3">
-                <div className="text-sm font-medium">Time (seconds)</div>
-                <div className="w-60">
+              <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                <div className="text-sm font-medium whitespace-nowrap">Time (seconds)</div>
+                <div className="flex-1 sm:w-60">
                   <input
                     type="range"
                     min="1"
@@ -143,14 +143,14 @@ export default function Call() {
           </div>
 
           {/* Hangup using prompt */}
-          <div className="flex items-start justify-between gap-6">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 lg:gap-6">
             <div className="flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="font-medium">Hangup calls using a prompt</div>
                 <a
                   href="#"
                   onClick={(e) => e.preventDefault()}
-                  className="text-sm text-sky-600 underline ml-2"
+                  className="text-sm text-sky-600 underline"
                 >
                   See examples
                 </a>
@@ -158,8 +158,8 @@ export default function Call() {
               <div className="text-sm text-slate-500 mt-1">Call will hangup as per the provided prompt</div>
             </div>
 
-            <div className="w-2/5">
-              <div className="flex items-center justify-between mb-2">
+            <div className="w-full lg:w-2/5">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                 <button
                   onClick={() => setHangupByPrompt((s) => !s)}
                   className={`w-11 h-6 rounded-full p-1 transition-colors ${hangupByPrompt ? "bg-blue-600" : "bg-slate-200"}`}
@@ -168,20 +168,22 @@ export default function Call() {
                   <span className={`block w-4 h-4 rounded-full bg-white shadow transform transition-transform ${hangupByPrompt ? "translate-x-5" : "translate-x-0"}`} />
                 </button>
                 <div className="text-sm font-medium">Time (seconds)</div>
-                <div className="w-28">
-                  <input
-                    type="range"
-                    min="1"
-                    max="60"
-                    step="1"
-                    value={hangupByPrompt ? 5 : 0}
-                    onChange={() => {}}
-                    disabled
-                    className="w-full accent-slate-300"
-                    aria-hidden
-                  />
+                <div className="flex items-center gap-2">
+                  <div className="w-20 sm:w-28">
+                    <input
+                      type="range"
+                      min="1"
+                      max="60"
+                      step="1"
+                      value={hangupByPrompt ? 5 : 0}
+                      onChange={() => {}}
+                      disabled
+                      className="w-full accent-slate-300"
+                      aria-hidden
+                    />
+                  </div>
+                  <div className="w-10 text-sm text-slate-600 text-right">{hangupByPrompt ? 5 : 0}</div>
                 </div>
-                <div className="w-10 text-sm text-slate-600 text-right">{hangupByPrompt ? 5 : 0}</div>
               </div>
 
               <textarea
@@ -212,7 +214,7 @@ export default function Call() {
         <div className="border-t" />
 
         {/* Call Termination */}
-        <div className="flex items-start justify-between gap-6">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 lg:gap-6">
           <div className="flex-1">
             <h3 className="text-lg font-semibold">Call Termination</h3>
             <p className="text-sm text-slate-500 mt-1 max-w-xl">
@@ -235,9 +237,9 @@ export default function Call() {
             </select>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="text-sm font-medium">Time (seconds)</div>
-            <div className="w-72">
+          <div className="flex items-center gap-2 sm:gap-4 w-full lg:w-auto">
+            <div className="text-sm font-medium whitespace-nowrap">Time (seconds)</div>
+            <div className="flex-1 sm:w-72">
               <input
                 type="range"
                 min="30"
