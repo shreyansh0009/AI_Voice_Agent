@@ -75,21 +75,21 @@ payment_mode : If user is paying by cash, yield cash. If they are paying by card
           </div>
 
           <div className="mt-8">
-            <h3 className="text-lg font-semibold text-gray-900">Custom Analytics <span className="text-sm text-gray-400">Post call tasks to extract data from the call</span></h3>
+            <h3 className="text-lg font-semibold text-gray-900">Custom Analytics <span className="text-sm text-gray-400 block sm:inline">Post call tasks to extract data from the call</span></h3>
 
-            <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="flex items-center gap-2">
+            <div className="mt-4 flex flex-col lg:flex-row lg:items-center gap-4">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1">
                 <input
                   type="text"
                   placeholder="New analytics name"
                   value={newAnalyticsName}
                   onChange={(e) => setNewAnalyticsName(e.target.value)}
-                  className="rounded-md border p-2 text-sm w-64"
+                  className="rounded-md border p-2 text-sm w-full sm:flex-1 sm:max-w-xs"
                 />
-                <button onClick={addCustomAnalytics} className="px-4 py-2 rounded-md border bg-white text-sm">+ Add</button>
+                <button onClick={addCustomAnalytics} className="px-4 py-2 rounded-md border bg-white text-sm whitespace-nowrap">+ Add</button>
               </div>
 
-              <div className="ml-auto flex items-center gap-3">
+              <div className="flex items-center gap-3">
                 <label className="inline-flex items-center text-sm text-gray-700 gap-2">
                   <input type="checkbox" checked={analyticsQuickEnabled} onChange={(e) => setAnalyticsQuickEnabled(e.target.checked)} />
                   Enable Analytics
