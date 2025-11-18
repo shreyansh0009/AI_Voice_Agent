@@ -6,7 +6,6 @@ import PostCallSurveyCard from "../components/PostCallSurveyCard";
 import PostCallSurveyAnalyticsCard from "../components/PostCallSurveyAnalyticsCard";
 import CallDispositionAnalyticsCard from "../components/CallDispositionAnalyticsCard";
 import BusyHoursCard from "../components/BusyHoursCard";
-import AITestComponent from "../components/AITestComponent";
 import CallDialer from "../components/CallDialer";
 import CallHistory from "../components/CallHistory";
 import { MdOutlineSpeed } from "react-icons/md";
@@ -430,14 +429,18 @@ function Dashboard() {
                     </div>
                   </div>
 
-                  <div className="ml-8 mt-2 flex justify-around text-[10px] sm:text-xs text-gray-500 font-medium overflow-hidden">
-                    <span className="truncate">2025-10-22</span>
-                    <span className="truncate">2025-10-23</span>
-                    <span className="truncate">2025-10-24</span>
-                    <span className="truncate">2025-10-25</span>
-                    <span className="truncate">2025-10-26</span>
-                    <span className="truncate">2025-10-27</span>
-                    <span className="truncate">2025-10-28</span>
+                  <div className="ml-8 mt-2 flex justify-around text-[10px] sm:text-xs text-gray-500 font-medium">
+                    {chartData.map((point, idx) => {
+                      const date = new Date(point.date);
+                      const month = String(date.getMonth() + 1).padStart(2, '0');
+                      const day = String(date.getDate()).padStart(2, '0');
+                      return (
+                        <span key={idx} className="text-center">
+                          <span className="hidden sm:inline">{point.date}</span>
+                          <span className="sm:hidden">{`${month}/${day}`}</span>
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -633,14 +636,18 @@ function Dashboard() {
                     </div>
                   </div>
 
-                  <div className="ml-8 mt-2 flex justify-around text-[10px] sm:text-xs text-gray-500 font-medium overflow-hidden">
-                    <span className="truncate">2025-10-22</span>
-                    <span className="truncate">2025-10-23</span>
-                    <span className="truncate">2025-10-24</span>
-                    <span className="truncate">2025-10-25</span>
-                    <span className="truncate">2025-10-26</span>
-                    <span className="truncate">2025-10-27</span>
-                    <span className="truncate">2025-10-28</span>
+                  <div className="ml-8 mt-2 flex justify-around text-[10px] sm:text-xs text-gray-500 font-medium">
+                    {chartData.map((point, idx) => {
+                      const date = new Date(point.date);
+                      const month = String(date.getMonth() + 1).padStart(2, '0');
+                      const day = String(date.getDate()).padStart(2, '0');
+                      return (
+                        <span key={idx} className="text-center">
+                          <span className="hidden sm:inline">{point.date}</span>
+                          <span className="sm:hidden">{`${month}/${day}`}</span>
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -694,11 +701,6 @@ function Dashboard() {
 
         <div className="p-3 lg:p-6">
           <BusyHoursCard />
-        </div>
-
-        {/* AI Testing Section */}
-        <div className="p-3 lg:p-6">
-          <AITestComponent />
         </div>
         
       </div>

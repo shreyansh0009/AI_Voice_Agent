@@ -82,38 +82,39 @@ function BusyHoursCard({ defaultNumber, defaultTeamMember, defaultCallType }) {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
         {/* Hours Header */}
-        <div className="flex mb-2 w-full lg:w-4/5 mx-auto min-w-[600px]" role="row" aria-label="Time slots">
-          <div className="w-12"></div>
+        <div className="flex mb-2 w-full lg:w-4/5 mx-auto min-w-[800px]" role="row" aria-label="Time slots">
+          <div className="w-8 sm:w-12 shrink-0"></div>
           <div className="flex-1 flex">
             {HOURS.map((hour, index) => (
               <div
                 key={hour}
-                className={`flex-1 text-center text-xs ${
+                className={`flex-1 text-center text-[9px] sm:text-xs ${
                   index >= 7 && index <= 16 ? "text-gray-900 font-medium" : "text-gray-400"
                 }`}
               >
-                {hour}
+                <span className="hidden sm:inline">{hour}</span>
+                <span className="sm:hidden">{hour.replace(/am|pm/, '')}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Heatmap Grid */}
-        <div className="w-full lg:w-4/5 mx-auto min-w-[600px]">
+        <div className="w-full lg:w-4/5 mx-auto min-w-[800px]">
           {DAYS.map((day, dayIndex) => (
             <div key={day} className="flex mb-1">
-              <div className={`w-12 text-xs flex items-center ${
+              <div className={`w-8 sm:w-12 text-[10px] sm:text-xs flex items-center shrink-0 ${
                 dayIndex >= 5 ? "text-gray-300" : "text-gray-900"
               }`}>
                 {day}
               </div>
-              <div className="flex-1 flex gap-2">
+              <div className="flex-1 flex gap-0.5 sm:gap-1 md:gap-2">
                 {HOURS.map((hour) => (
                   <div
                     key={`${day}-${hour}`}
-                    className="flex-1 h-6 lg:h-8 rounded-sm bg-cyan-50 hover:bg-cyan-100 transition-colors cursor-pointer"
+                    className="flex-1 h-5 sm:h-6 lg:h-8 rounded-sm bg-cyan-50 hover:bg-cyan-100 transition-colors cursor-pointer"
                   >
                   </div>
                 ))}
@@ -124,19 +125,19 @@ function BusyHoursCard({ defaultNumber, defaultTeamMember, defaultCallType }) {
 
         {/* Legend */}
         <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4">
-          <span className="text-xs text-gray-400">Less Calls</span>
-          <div className="flex gap-1">
+          <span className="text-[10px] sm:text-xs text-gray-400">Less Calls</span>
+          <div className="flex gap-0.5 sm:gap-1">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((level) => (
               <div
                 key={level}
-                className="w-6 lg:w-8 h-3 lg:h-4 rounded-sm"
+                className="w-4 sm:w-6 lg:w-8 h-2.5 sm:h-3 lg:h-4 rounded-sm"
                 style={{
                   backgroundColor: `rgba(6, 182, 212, ${level * 0.1 + 0.1})`,
                 }}
               ></div>
             ))}
           </div>
-          <span className="text-xs text-gray-400">More Calls</span>
+          <span className="text-[10px] sm:text-xs text-gray-400">More Calls</span>
         </div>
       </div>
     </div>
