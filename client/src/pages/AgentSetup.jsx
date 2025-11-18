@@ -19,7 +19,6 @@ const TABS = [
   "Call",
   "Tools",
   "Analytics",
-  "Inbound",
 ];
 
 export default function AgentSetupSingle() {
@@ -509,65 +508,175 @@ export default function AgentSetupSingle() {
 
         {/* Center */}
         <main className="flex-1 bg-white rounded-lg shadow-sm p-3 sm:p-4 md:p-6 min-w-0 xl:min-w-[600px]">
-          <div className="flex flex-col lg:flex-row items-start justify-between mb-4 gap-3 lg:gap-4">
-            <div className="flex-1 w-full min-w-0">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 flex-wrap">
+          {/* Agent Header Section */}
+          <div className="mb-4">
+            {/* Title and Buttons Row */}
+            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 lg:gap-4 mb-3">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 flex-wrap">
                 <input
                   value={agentName}
                   onChange={(e) => setAgentName(e.target.value)}
-                  className="text-lg sm:text-xl md:text-2xl font-semibold border-b border-transparent focus:border-blue-500 focus:outline-none w-full sm:w-auto min-w-0 max-w-full sm:max-w-xs"
+                  className="text-sm sm:text-base font-semibold border-b border-transparent focus:border-blue-500 focus:outline-none w-full sm:w-auto min-w-0 max-w-full sm:max-w-xs"
                   placeholder="Enter agent name"
                 />
                 {isNewAgent && (
-                  <span className="text-xs sm:text-sm bg-blue-100 text-blue-700 px-2 py-1 rounded whitespace-nowrap">Unsaved</span>
+                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded whitespace-nowrap">Unsaved</span>
                 )}
-                <div className="text-xs sm:text-sm text-slate-500 whitespace-nowrap">
-                  Cost per min: <span className="font-medium">~ $0.094</span>
+              </div>
+
+              <div className="flex flex-col items-stretch gap-2 w-full lg:w-auto shrink-0">
+                <div className="flex gap-2">
+                  <button className="flex-1 lg:flex-none px-3 py-1.5 rounded-md border bg-white text-xs sm:text-sm whitespace-nowrap hover:bg-slate-50 transition-colors flex items-center justify-center gap-1">
+                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                    Agent ID
+                  </button>
+                  <button className="flex-1 lg:flex-none px-3 py-1.5 rounded-md border bg-white text-xs sm:text-sm hover:bg-slate-50 transition-colors flex items-center justify-center gap-1">
+                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                    </svg>
+                    Share
+                  </button>
                 </div>
-              </div>
-
-              <div className="mt-3 w-full max-w-2xl h-3 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-3 w-3/4 bg-linear-to-r from-orange-400 via-blue-500 to-sky-600" />
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-2 text-xs text-slate-400">
-                <span>Transcriber</span>
-                <span className="hidden sm:inline">•</span>
-                <span>LLM</span>
-                <span className="hidden sm:inline">•</span>
-                <span>Voice</span>
-                <span className="hidden sm:inline">•</span>
-                <span>Telephony</span>
-                <span className="hidden sm:inline">•</span>
-                <span>Platform</span>
+                <button className="w-full px-4 py-1.5 bg-blue-600 text-white rounded-md text-xs sm:text-sm whitespace-nowrap hover:bg-blue-700 transition-colors flex items-center justify-center gap-1">
+                  <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                  </svg>
+                  Get call from agent
+                </button>
               </div>
             </div>
 
-            <div className="flex flex-col items-start lg:items-end gap-2 w-full lg:w-auto shrink-0">
-              <div className="flex gap-2 w-full lg:w-auto">
-                <button className="flex-1 lg:flex-none px-3 py-1 rounded-md border text-xs sm:text-sm whitespace-nowrap">Agent ID</button>
-                <button className="flex-1 lg:flex-none px-3 py-1 rounded-md border text-xs sm:text-sm">Share</button>
+            {/* Cost Info Badge */}
+            <div className="flex items-center gap-2 mb-3">
+              <div className="inline-flex items-center gap-1 text-xs text-slate-500">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Cost per min: <span className="font-medium text-slate-700">~ $0.056</span></span>
               </div>
-              <div className="w-full lg:w-auto">
-                <button className="w-full px-4 py-2 bg-sky-600 text-white rounded-md text-xs sm:text-sm whitespace-nowrap hover:bg-sky-700 transition-colors">Get call from agent</button>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="w-full max-w-md mb-2">
+              <div className="h-2 bg-slate-200 rounded-full overflow-hidden flex">
+                <div className="h-2 bg-teal-500" style={{ width: '15%' }}></div>
+                <div className="h-2 bg-orange-500" style={{ width: '10%' }}></div>
+                <div className="h-2 bg-slate-700" style={{ width: '15%' }}></div>
+                <div className="h-2 bg-orange-300" style={{ width: '10%' }}></div>
+                <div className="h-2 bg-blue-500" style={{ width: '50%' }}></div>
+              </div>
+            </div>
+
+            {/* Legend */}
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-teal-500"></div>
+                <span>Transcriber</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                <span>LLM</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-slate-700"></div>
+                <span>Voice</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-orange-300"></div>
+                <span>Telephony</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                <span>Platform</span>
               </div>
             </div>
           </div>
 
           {/* Tabs */}
-          <div className="mb-6 border-b overflow-x-auto">
-            <nav className="flex gap-2 sm:gap-4 pb-2 min-w-max">
+          <div className="mb-6">
+            <nav className="flex justify-between gap-1 bg-slate-100 rounded-lg p-1 overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
               {TABS.map((t) => {
                 const active = t === activeTab;
+                
+                // Icon mapping for each tab
+                const getIcon = () => {
+                  switch(t) {
+                    case "Agent":
+                      return (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      );
+                    case "LLM":
+                      return (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      );
+                    case "Audio":
+                      return (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                        </svg>
+                      );
+                    case "Voice":
+                      return (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                        </svg>
+                      );
+                    case "Engine":
+                      return (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      );
+                    case "Call":
+                      return (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                        </svg>
+                      );
+                    case "Tools":
+                      return (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+                        </svg>
+                      );
+                    case "Analytics":
+                      return (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                      );
+                    case "Inbound":
+                      return (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                      );
+                    default:
+                      return null;
+                  }
+                };
+                
                 return (
                   <button
                     key={t}
                     onClick={() => setActiveTab(t)}
-                    className={`relative pb-2 text-xs sm:text-sm whitespace-nowrap ${active ? "text-sky-600 font-semibold" : "text-slate-600"}`}
+                    className={`flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 sm:px-3 sm:py-2 rounded-md transition-colors shrink-0 min-w-[60px] sm:min-w-0 ${
+                      active 
+                        ? "bg-white text-blue-600 shadow-sm" 
+                        : "text-slate-500 hover:text-slate-700 hover:bg-slate-200"
+                    }`}
                     aria-current={active ? "page" : undefined}
                   >
-                    {t}
-                    {active && <span className="absolute left-0 -bottom-2 w-full h-0.5 bg-sky-600 rounded" />}
+                    <span className="hidden sm:inline">{getIcon()}</span>
+                    <span className="text-[10px] sm:text-xs whitespace-nowrap">{t}</span>
                   </button>
                 );
               })}
@@ -581,11 +690,11 @@ export default function AgentSetupSingle() {
               <section>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs sm:text-sm font-semibold mb-1">Agent Welcome Message</label>
+                    <label className="block text-xs font-semibold mb-1">Agent Welcome Message</label>
                     <input
                       value={welcome}
                       onChange={(e) => setWelcome(e.target.value)}
-                      className="w-full border border-slate-200 rounded-md px-3 py-2 text-xs sm:text-sm"
+                      className="w-full border border-slate-200 rounded-md px-3 py-2 text-xs"
                     />
                     <p className="text-xs text-slate-400 mt-1">
                       This will be the initial message from the agent. You can use variables here using{" "}
@@ -594,31 +703,18 @@ export default function AgentSetupSingle() {
                   </div>
 
                   <div>
-                    <label className="block text-xs sm:text-sm font-semibold mb-1">Agent Prompt</label>
+                    <label className="block text-xs font-semibold mb-1">Agent Prompt</label>
                     <textarea
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
                       rows={8}
-                      className="w-full border border-slate-200 rounded-md px-3 py-2 text-xs sm:text-sm font-mono"
+                      className="w-full border border-slate-200 rounded-md px-3 py-2 text-xs font-mono"
                       placeholder="Enter your agent's system prompt here..."
                     />
-                    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
-                      <p className="text-xs text-blue-800 font-medium mb-1">💡 Pro Tip:</p>
-                      <p className="text-xs text-blue-700">
-                        The agent will follow this prompt exactly. You can include:
-                      </p>
-                      <ul className="text-xs text-blue-700 mt-1 ml-3 space-y-0.5">
-                        <li>• Conversation flows & sections</li>
-                        <li>• Product knowledge & troubleshooting</li>
-                        <li>• Language preferences (English/Hindi)</li>
-                        <li>• Personality & tone guidelines</li>
-                        <li>• Guardrails & boundaries</li>
-                      </ul>
-                    </div>
                   </div>
 
                   <div>
-                    <h3 className="text-xs sm:text-sm font-semibold">You can fill in your following prompt variables for testing</h3>
+                    <h3 className="text-xs font-semibold">You can fill in your following prompt variables for testing</h3>
                     <div className="mt-2 text-xs text-slate-500">(variables UI placeholder)</div>
                   </div>
                 </div>
@@ -641,10 +737,10 @@ export default function AgentSetupSingle() {
               <section>
                 {/* Knowledge Base Section */}
                 <div className="mb-6 bg-white rounded-lg border border-slate-200 p-3 sm:p-4 md:p-6">
-                  <h3 className="text-base sm:text-lg font-semibold mb-4">Knowledge Base</h3>
+                  <h3 className="text-sm font-semibold mb-4">Knowledge Base</h3>
                   
                   <div className="mb-4">
-                    <label className="block text-xs sm:text-sm font-medium text-slate-700 mb-2">
+                    <label className="block text-xs font-medium text-slate-700 mb-2">
                       Upload Documents (PDF, Word)
                     </label>
                     <p className="text-xs text-slate-500 mb-3">
@@ -829,17 +925,6 @@ export default function AgentSetupSingle() {
                       </div>
                     </div>
                   )}
-
-                  {/* Info Box */}
-                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-                    <p className="text-xs text-blue-800 font-medium mb-1">💡 How it works:</p>
-                    <ul className="text-xs text-blue-700 space-y-0.5 ml-3">
-                      <li>• Upload product manuals, FAQs, or company documents</li>
-                      <li>• The agent will extract and learn from the content</li>
-                      <li>• Use this knowledge to answer customer questions accurately</li>
-                      <li>• Maximum file size: 10MB per file</li>
-                    </ul>
-                  </div>
                 </div>
 
                 {/* Voice Chat Component */}

@@ -1662,22 +1662,6 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
           ))}
         </div>
       )}
-
-      {/* Setup Instructions */}
-      {!deepgramRef.current && (
-        <div className="mt-8 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <h4 className="font-semibold text-yellow-800 mb-2">
-            Setup Required:
-          </h4>
-          <ol className="text-sm text-yellow-700 space-y-1 list-decimal list-inside">
-            <li>
-              Get your Deepgram API key from: https://console.deepgram.com/
-            </li>
-            <li>Add to your .env file: VITE_DEEPGRAM_API_KEY=your_key_here</li>
-            <li>Restart the dev server</li>
-          </ol>
-        </div>
-      )}
     </div>
   );
 };

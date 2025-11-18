@@ -9,7 +9,7 @@ import React, { useState } from "react";
 
 const SelectField = ({ label, value, onChange, options = [], className = "" }) => (
   <div className={`mb-4 ${className}`}>
-    <label className="block text-sm font-medium mb-2">{label}</label>
+    <label className="block text-xs font-medium mb-2">{label}</label>
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -27,8 +27,8 @@ const SelectField = ({ label, value, onChange, options = [], className = "" }) =
 const SliderField = ({ label, value, onChange, min = 0, max = 2, step = 0.1, info = "" }) => (
   <div className="mb-6">
     <div className="flex items-center justify-between mb-2">
-      <label className="block text-sm font-medium">{label}</label>
-      <span className="text-sm font-medium text-slate-700">{value}</span>
+      <label className="block text-xs font-medium">{label}</label>
+      <span className="text-xs font-medium text-slate-700">{value}</span>
     </div>
     <input
       type="range"

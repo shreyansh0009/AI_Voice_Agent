@@ -20,164 +20,198 @@ export default function Engine() {
   }, [invokeAfter]);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8 flex items-start justify-center">
-      <div className="w-full max-w-5xl bg-white rounded-2xl border border-gray-100 shadow-lg p-6">
-        <h2 className="text-2xl font-semibold text-gray-900 mb-6">Transcription & interruptions</h2>
+    <div className="w-full">
+      <div className="space-y-6">
+        {/* Transcription & interruptions Section */}
+        <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
+          <h2 className="text-sm sm:text-base font-semibold text-gray-900 mb-6">Transcription & interruptions</h2>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left big card */}
-          <div className="lg:col-span-2 bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Generate precise transcript</h3>
-                <p className="text-sm text-gray-500 mt-1">Agent will try to generate more precise transcripts during interruptions</p>
-                <a className="text-sm text-blue-600 mt-3 inline-block hover:underline" href="#">Learn more</a>
-              </div>
-
-              {/* Toggle aligned to top-right like the image */}
-              <div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="sr-only"
-                    checked={generatePrecise}
-                    onChange={() => setGeneratePrecise(v => !v)}
-                  />
-                  <div className={`w-14 h-8 rounded-full transition-colors ${generatePrecise ? 'bg-blue-600' : 'bg-gray-200'}`} />
-                  <span className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow transform transition-transform ${generatePrecise ? 'translate-x-6' : 'translate-x-0'}`} />
-                </label>
-              </div>
-            </div>
-
-            <hr className="my-5 border-gray-100" />
-
-            <div>
-              <h4 className="text-sm font-medium text-gray-800">Number of words to wait for before interrupting</h4>
-              <div className="mt-3 flex items-center gap-4">
-                <input
-                  aria-label="words to wait"
-                  type="range"
-                  min={0}
-                  max={20}
-                  value={wordsToWait}
-                  onChange={(e) => setWordsToWait(Number(e.target.value))}
-                  className="slider h-2 rounded-full appearance-none"
-                  style={wordsBg}
-                />
-
-                {/* number bubble to the right like screenshot */}
-                <div className="w-10 h-10 flex items-center justify-center rounded-full bg-blue-50 border border-blue-100 text-blue-700 font-semibold">{wordsToWait}</div>
-              </div>
-
-              <p className="text-sm text-gray-500 mt-3">Agent will not consider interruptions until these many words are spoken. If recipient says stopwords such as "Stop", "Wait", "Hold On", agent will pause by default.</p>
-            </div>
-          </div>
-
-          {/* Right column */}
-          <div className="space-y-6">
-            <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-              <h4 className="text-base font-semibold text-gray-900">Voice Response Rate Configuration</h4>
-              <label className="block text-sm text-gray-600 mt-4">Response Rate</label>
-
-              <div className="mt-3">
-                <select
-                  value={responseRate}
-                  onChange={(e) => setResponseRate(e.target.value)}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 bg-white text-gray-800 shadow-sm"
-                >
-                  <option>Rapid</option>
-                  <option>Normal</option>
-                  <option>Slow</option>
-                </select>
-
-                <div className="mt-4 rounded-md bg-gray-50 p-3 text-gray-700 text-sm">Agent will try to answer with minimum latency, often interrupting humans if they are speaking with pauses</div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-              <h4 className="text-base font-semibold text-gray-900 mb-4">User Online Detection</h4>
-
-              <div className="flex items-start justify-between">
-                <div>
-                  <h5 className="font-medium text-gray-900">Check if user is online</h5>
-                  <p className="text-sm text-gray-500">Agent will check if the user is online if there's no reply from the user</p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Generate precise transcript */}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-gray-900">Generate precise transcript</h3>
+                  <p className="text-xs text-gray-500 mt-1">Agent will try to generate more precise transcripts during interruptions</p>
+                  <a className="text-xs text-blue-600 mt-2 inline-block hover:underline" href="#">Learn more ↗</a>
                 </div>
 
-                <div>
+                <div className="shrink-0">
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
                       className="sr-only"
-                      checked={checkUserOnline}
-                      onChange={() => setCheckUserOnline(v => !v)}
+                      checked={generatePrecise}
+                      onChange={() => setGeneratePrecise(v => !v)}
                     />
-                    <div className={`w-14 h-8 rounded-full transition-colors ${checkUserOnline ? 'bg-blue-600' : 'bg-gray-200'}`} />
-                    <span className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow transform transition-transform ${checkUserOnline ? 'translate-x-6' : 'translate-x-0'}`} />
+                    <div className={`w-11 h-6 rounded-full transition-colors ${generatePrecise ? 'bg-blue-600' : 'bg-gray-300'}`} />
+                    <span className={`absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transform transition-transform ${generatePrecise ? 'translate-x-5' : 'translate-x-0'}`} />
                   </label>
                 </div>
               </div>
+            </div>
 
-              <div className="mt-5 bg-gray-50 rounded-lg border border-gray-100 p-4">
-                <div className="grid grid-cols-1 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">User is online message</label>
-                    <input
-                      type="text"
-                      value={userOnlineMessage}
-                      onChange={(e) => setUserOnlineMessage(e.target.value)}
-                      className="mt-2 block w-full rounded-md border border-gray-200 px-3 py-2 bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Invoke message after (seconds)</label>
-                    <div className="mt-2 flex items-center gap-3">
-                      <input
-                        aria-label="invoke after"
-                        type="range"
-                        min={0}
-                        max={60}
-                        value={invokeAfter}
-                        onChange={(e) => setInvokeAfter(Number(e.target.value))}
-                        className="slider h-2 rounded-full appearance-none"
-                        style={invokeBg}
-                      />
-                      <div className="w-12 text-right font-semibold text-gray-700">{invokeAfter}</div>
-                    </div>
-                  </div>
-                </div>
+            {/* Number of words to wait */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-medium text-gray-800">Number of words to wait for before interrupting</h4>
+                <div className="w-8 h-8 flex items-center justify-center rounded bg-gray-100 text-gray-700 font-semibold text-xs">{wordsToWait}</div>
               </div>
+              
+              <input
+                aria-label="words to wait"
+                type="range"
+                min={0}
+                max={20}
+                value={wordsToWait}
+                onChange={(e) => setWordsToWait(Number(e.target.value))}
+                className="slider w-full h-2 rounded-full appearance-none"
+                style={wordsBg}
+              />
+
+              <p className="text-xs text-gray-500">Agent will not consider interruptions until 3 words are spoken (if recipient says "Stopwords" such as Stop, Wait, Hold On, agent will pause by default)</p>
             </div>
           </div>
         </div>
 
-        <div className="mt-8 flex items-center justify-end gap-3">
-          <button className="px-4 py-2 rounded-lg bg-white border border-gray-200 text-gray-700">Cancel</button>
-          <button className="px-4 py-2 rounded-lg bg-blue-600 text-white">Save settings</button>
+        {/* Voice Response Rate Configuration */}
+        <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
+          <h2 className="text-sm sm:text-base font-semibold text-gray-900 mb-6">Voice Response Rate Configuration</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Response Rate */}
+            <div className="space-y-3">
+              <label className="block text-xs font-medium text-gray-800">Response Rate</label>
+              <select
+                value={responseRate}
+                onChange={(e) => setResponseRate(e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 bg-white text-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option>Custom</option>
+                <option>Rapid</option>
+                <option>Normal</option>
+                <option>Slow</option>
+              </select>
+            </div>
+
+            {/* Endpointing (in ms) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-gray-800">Endpointing (in ms)</label>
+                <span className="text-xs font-semibold text-gray-700">250</span>
+              </div>
+              <input
+                aria-label="endpointing"
+                type="range"
+                min={0}
+                max={1000}
+                defaultValue={250}
+                className="slider w-full h-2 rounded-full appearance-none"
+                style={{ background: 'linear-gradient(90deg, #2563eb 25%, #e6eefc 25%)' }}
+              />
+              <p className="text-xs text-gray-500">Number of milliseconds your agent will wait before generating response.</p>
+            </div>
+
+            {/* Linear delay (in ms) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-gray-800">Linear delay (in ms)</label>
+                <span className="text-xs font-semibold text-gray-700">500</span>
+              </div>
+              <input
+                aria-label="linear delay"
+                type="range"
+                min={0}
+                max={1000}
+                defaultValue={500}
+                className="slider w-full h-2 rounded-full appearance-none"
+                style={{ background: 'linear-gradient(90deg, #2563eb 50%, #e6eefc 50%)' }}
+              />
+              <p className="text-xs text-gray-500">Linear delay accounts for long pauses mid-sentence.</p>
+            </div>
+          </div>
         </div>
 
-        {/* component-scoped styles to better match the screenshot's sliders and toggles */}
-        <style>{`
-          .slider::-webkit-slider-runnable-track {
-            height: 6px;
-            border-radius: 999px;
-          }
-          .slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            background: white;
-            border: 3px solid #2563eb;
-            margin-top: -6px; /* center thumb */
-            box-shadow: 0 1px 2px rgba(0,0,0,0.08);
-          }
-          .slider:focus { outline: none; }
-          /* Firefox */
-          .slider::-moz-range-track { height: 6px; border-radius: 999px; }
-          .slider::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: white; border: 3px solid #2563eb; }
-        `}</style>
+        {/* User Online Detection */}
+        <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
+          <h2 className="text-sm sm:text-base font-semibold text-gray-900 mb-6">User Online Detection</h2>
+
+          <div className="space-y-6">
+            {/* Check if user is online */}
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 border-b border-gray-200">
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-gray-900">Check if user is online</h3>
+                <p className="text-xs text-gray-500 mt-1">Agent will check if the user is online if there's no reply from the user</p>
+              </div>
+
+              <div className="shrink-0">
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={checkUserOnline}
+                    onChange={() => setCheckUserOnline(v => !v)}
+                  />
+                  <div className={`w-11 h-6 rounded-full transition-colors ${checkUserOnline ? 'bg-blue-600' : 'bg-gray-300'}`} />
+                  <span className={`absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transform transition-transform ${checkUserOnline ? 'translate-x-5' : 'translate-x-0'}`} />
+                </label>
+              </div>
+            </div>
+
+            {/* User is online message and invoke after */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-gray-800">User is online message</label>
+                <input
+                  type="text"
+                  value={userOnlineMessage}
+                  onChange={(e) => setUserOnlineMessage(e.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-gray-800">Invoke message after (seconds)</label>
+                  <span className="text-xs font-semibold text-gray-700">{invokeAfter}</span>
+                </div>
+                <input
+                  aria-label="invoke after"
+                  type="range"
+                  min={0}
+                  max={60}
+                  value={invokeAfter}
+                  onChange={(e) => setInvokeAfter(Number(e.target.value))}
+                  className="slider w-full h-2 rounded-full appearance-none"
+                  style={invokeBg}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+
+      {/* component-scoped styles to better match the screenshot's sliders and toggles */}
+      <style>{`
+        .slider::-webkit-slider-runnable-track {
+          height: 6px;
+          border-radius: 999px;
+        }
+        .slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          background: white;
+          border: 2px solid #2563eb;
+          margin-top: -5px;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+          cursor: pointer;
+        }
+        .slider:focus { outline: none; }
+        .slider::-moz-range-track { height: 6px; border-radius: 999px; }
+        .slider::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: white; border: 2px solid #2563eb; cursor: pointer; }
+      `}</style>
     </div>
   );
 }
