@@ -391,7 +391,7 @@ function Dashboard() {
                   </div>
 
                   {/* Chart area with grid lines and content */}
-                  <div className="ml-2 lg:ml-0 h-full relative">
+                  <div className="ml- lg:ml-0 h-full relative">
                     {/* Grid lines */}
                     <div className="absolute inset-y-0 right-0 left-6 lg:left-8 flex flex-col justify-between z-0">
                       {[0, 1, 2, 3, 4].map((i) => (
@@ -407,7 +407,7 @@ function Dashboard() {
                       {chartData.map((point, index) => (
                         <div
                           key={index}
-                          className="flex flex-col items-center relative cursor-pointer lg:justify-self-center"
+                          className="flex flex-col items-center relative cursor-pointer lg:justify-self-center flex-1 sm:flex-none"
                           onMouseEnter={() => setHoveredPoint(index)}
                           onMouseLeave={() => setHoveredPoint(null)}
                         >
@@ -449,7 +449,10 @@ function Dashboard() {
                       const month = String(date.getMonth() + 1).padStart(2, '0');
                       const day = String(date.getDate()).padStart(2, '0');
                       return (
-                        <span key={idx} className="text-center shrink-0 lg:justify-self-center">
+                        <span
+                          key={idx}
+                          className="text-center shrink-0 lg:justify-self-center flex-1 sm:flex-none"
+                        >
                           <span className="hidden sm:inline">{point.date}</span>
                           <span className="sm:hidden">{`${month}/${day}`}</span>
                         </span>
@@ -600,7 +603,7 @@ function Dashboard() {
                       {chartData.map((point, index) => (
                         <div
                           key={index}
-                          className="flex flex-col items-center relative cursor-pointer lg:justify-self-center"
+                          className={`flex flex-col items-center relative cursor-pointer lg:justify-self-center flex-1 sm:flex-none ${index === 0 ? '-ml-2 sm:ml-0' : ''} ${index === 1 ? '-ml-1 sm:ml-0' : ''}`}
                           onMouseEnter={() => setHoveredPoint(index)}
                           onMouseLeave={() => setHoveredPoint(null)}
                         >
@@ -662,7 +665,10 @@ function Dashboard() {
                       const month = String(date.getMonth() + 1).padStart(2, '0');
                       const day = String(date.getDate()).padStart(2, '0');
                       return (
-                        <span key={idx} className="text-center shrink-0 lg:justify-self-center">
+                        <span
+                          key={idx}
+                          className="text-center shrink-0 lg:justify-self-center flex-1 sm:flex-none"
+                        >
                           <span className="hidden sm:inline">{point.date}</span>
                           <span className="sm:hidden">{`${month}/${day}`}</span>
                         </span>
