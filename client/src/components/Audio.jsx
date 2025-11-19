@@ -101,7 +101,7 @@ export default function Audio() {
     <div className="max-w-5xl">
       <div className="mb-8">
         <h2 className="text-lg font-semibold mb-4">Select language and transcriber</h2>
-        <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
           <SelectField label="Language" value={language} onChange={setLanguage} options={languageOptions} />
           <SelectField label="Provider" value={transcriberProvider} onChange={setTranscriberProvider} options={transcriberProviderOptions} />
           <SelectField label="Model" value={transcriberModel} onChange={setTranscriberModel} options={transcriberModelOptions} />
@@ -122,7 +122,7 @@ export default function Audio() {
       </div>
       <div className="mb-8">
         <h2 className="text-lg font-semibold mb-4">Select voice</h2>
-        <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
           <SelectField label="Provider" value={voiceProvider} onChange={setVoiceProvider} options={voiceProviderOptions} />
           <SelectField label="Model" value={voiceModel} onChange={setVoiceModel} options={voiceModelOptions} />
           <div>
@@ -144,7 +144,7 @@ export default function Audio() {
             <button className="text-xs text-blue-600 hover:text-blue-700 mt-2 flex items-center gap-1">More voices →</button>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
           <SliderField label="Buffer Size" value={bufferSize} onChange={setBufferSize} min={50} max={500} step={1} info="Increasing buffer size enables agent to speak long responses fluently, but increases latency" />
           <SliderField label="Speed rate" value={speedRate} onChange={setSpeedRate} min={0.5} max={2.0} step={0.1} info="The speed control feature lets you adjust how fast or slow your agent speaks." />
         </div>
