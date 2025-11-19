@@ -381,7 +381,8 @@ function Dashboard() {
                 </div>
 
                 <div className="relative h-64 border-b-2 border-blue-500 rounded-b-lg mb-8 sm:mb-2">
-                  <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500 pr-2 font-medium">
+                  {/* Y-axis labels */}
+                  <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500 pr-2 font-medium z-10 bg-white">
                     <span>1</span>
                     <span>0.75</span>
                     <span>0.5</span>
@@ -389,16 +390,19 @@ function Dashboard() {
                     <span>0</span>
                   </div>
 
+                  {/* Chart area with grid lines and content */}
                   <div className="ml-2 lg:ml-0 h-full relative">
-                    <div className="absolute inset-0 flex flex-col justify-between">
+                    {/* Grid lines */}
+                    <div className="absolute inset-y-0 right-0 left-6 lg:left-8 flex flex-col justify-between z-0">
                       {[0, 1, 2, 3, 4].map((i) => (
                         <div key={i} className="border-t border-gray-100"></div>
                       ))}
                     </div>
 
+                    {/* Chart content */}
                     <AxisLayout
                       count={chartData.length}
-                      className="absolute inset-0 px-4 lg:px-3 ml-6 lg:ml-8 items-end justify-between lg:justify-normal"
+                      className="absolute inset-0 px-3 ml-6 lg:ml-8 items-end justify-between lg:justify-normal"
                     >
                       {chartData.map((point, index) => (
                         <div
@@ -416,7 +420,7 @@ function Dashboard() {
                           ></div>
 
                           {hoveredPoint === index && (
-                            <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-white border border-gray-200 rounded-lg shadow-xl p-3 text-xs whitespace-nowrap z-10 animate-fadeIn">
+                            <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-white border border-gray-200 shadow-xl p-3 rounded-lg text-center text-xs whitespace-nowrap z-10 animate-fadeIn">
                               <div className="font-semibold mb-2">
                                 {point.date}
                               </div>
@@ -574,7 +578,7 @@ function Dashboard() {
                       : "border-blue-500"
                   }`}
                 >
-                  <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500 pr-2 font-medium">
+                  <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500 pr-2 font-medium z-10 bg-white">
                     <span>1</span>
                     <span>0.75</span>
                     <span>0.5</span>
@@ -583,7 +587,7 @@ function Dashboard() {
                   </div>
 
                   <div className="ml-2 lg:ml-0 h-full relative">
-                    <div className="absolute inset-0 flex flex-col justify-between">
+                    <div className="absolute inset-y-0 right-0 left-6 lg:left-8 flex flex-col justify-between z-0">
                       {[0, 1, 2, 3, 4].map((i) => (
                         <div key={i} className="border-t border-gray-100"></div>
                       ))}
