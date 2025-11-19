@@ -391,7 +391,7 @@ function Dashboard() {
                   </div>
 
                   {/* Chart area with grid lines and content */}
-                  <div className="ml- lg:ml-0 h-full relative">
+                  <div className="lg:ml-0 h-full relative">
                     {/* Grid lines */}
                     <div className="absolute inset-y-0 right-0 left-6 lg:left-8 flex flex-col justify-between z-0">
                       {[0, 1, 2, 3, 4].map((i) => (
