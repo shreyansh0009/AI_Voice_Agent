@@ -13,6 +13,7 @@ import { BiPhone, BiPhoneCall, BiPhoneIncoming, BiPhoneOff, BiChevronDown } from
 import { AiOutlineClockCircle, AiOutlineClose } from "react-icons/ai";
 import { IoIosInformationCircleOutline } from "react-icons/io";
 import { HiBolt, HiArrowUp } from "react-icons/hi2";
+import AxisLayout from "../components/AxisLayout";
 
 function Dashboard() {
   const [activeTab, setActiveTab] = useState("live");
@@ -388,18 +389,21 @@ function Dashboard() {
                     <span>0</span>
                   </div>
 
-                  <div className="ml-2 h-full relative">
+                  <div className="ml-2 lg:ml-0 h-full relative">
                     <div className="absolute inset-0 flex flex-col justify-between">
                       {[0, 1, 2, 3, 4].map((i) => (
                         <div key={i} className="border-t border-gray-100"></div>
                       ))}
                     </div>
 
-                    <div className="absolute inset-0 flex items-end justify-between px-4 ml-6">
+                    <AxisLayout
+                      count={chartData.length}
+                      className="absolute inset-0 px-4 lg:px-3 ml-6 lg:ml-8 items-end justify-between lg:justify-normal"
+                    >
                       {chartData.map((point, index) => (
                         <div
                           key={index}
-                          className="flex flex-col items-center relative cursor-pointer"
+                          className="flex flex-col items-center relative cursor-pointer lg:justify-self-center"
                           onMouseEnter={() => setHoveredPoint(index)}
                           onMouseLeave={() => setHoveredPoint(null)}
                         >
@@ -429,22 +433,25 @@ function Dashboard() {
                           )}
                         </div>
                       ))}
-                    </div>
+                    </AxisLayout>
                   </div>
 
-                  <div className="ml-6 mt-2 flex justify-between text-[10px] sm:text-xs text-gray-500 font-medium px-3">
+                  <AxisLayout
+                    count={chartData.length}
+                    className="ml-6 lg:ml-8 mt-2 px-3 justify-between lg:justify-normal text-[10px] sm:text-xs text-gray-500 font-medium"
+                  >
                     {chartData.map((point, idx) => {
                       const date = new Date(point.date);
                       const month = String(date.getMonth() + 1).padStart(2, '0');
                       const day = String(date.getDate()).padStart(2, '0');
                       return (
-                        <span key={idx} className="text-center shrink-0">
+                        <span key={idx} className="text-center shrink-0 lg:justify-self-center">
                           <span className="hidden sm:inline">{point.date}</span>
                           <span className="sm:hidden">{`${month}/${day}`}</span>
                         </span>
                       );
                     })}
-                  </div>
+                  </AxisLayout>
                 </div>
               </div>
             </div>
@@ -575,18 +582,21 @@ function Dashboard() {
                     <span>0</span>
                   </div>
 
-                  <div className="ml-2 h-full relative">
+                  <div className="ml-2 lg:ml-0 h-full relative">
                     <div className="absolute inset-0 flex flex-col justify-between">
                       {[0, 1, 2, 3, 4].map((i) => (
                         <div key={i} className="border-t border-gray-100"></div>
                       ))}
                     </div>
 
-                    <div className="absolute inset-0 flex items-end justify-between px-3 ml-6">
+                    <AxisLayout
+                      count={chartData.length}
+                      className="absolute inset-0 px-3 ml-6 lg:ml-8 items-end justify-between lg:justify-normal"
+                    >
                       {chartData.map((point, index) => (
                         <div
                           key={index}
-                          className="flex flex-col items-center relative cursor-pointer"
+                          className="flex flex-col items-center relative cursor-pointer lg:justify-self-center"
                           onMouseEnter={() => setHoveredPoint(index)}
                           onMouseLeave={() => setHoveredPoint(null)}
                         >
@@ -636,22 +646,25 @@ function Dashboard() {
                           )}
                         </div>
                       ))}
-                    </div>
+                    </AxisLayout>
                   </div>
 
-                  <div className="ml-6 mt-2 flex justify-between text-[10px] sm:text-xs text-gray-500 font-medium px-3">
+                  <AxisLayout
+                    count={chartData.length}
+                    className="ml-6 lg:ml-8 mt-2 px-3 justify-between lg:justify-normal text-[10px] sm:text-xs text-gray-500 font-medium"
+                  >
                     {chartData.map((point, idx) => {
                       const date = new Date(point.date);
                       const month = String(date.getMonth() + 1).padStart(2, '0');
                       const day = String(date.getDate()).padStart(2, '0');
                       return (
-                        <span key={idx} className="text-center shrink-0">
+                        <span key={idx} className="text-center shrink-0 lg:justify-self-center">
                           <span className="hidden sm:inline">{point.date}</span>
                           <span className="sm:hidden">{`${month}/${day}`}</span>
                         </span>
                       );
                     })}
-                  </div>
+                  </AxisLayout>
                 </div>
               </div>
             </div>
