@@ -253,20 +253,21 @@ function Dashboard() {
 
             <div className="flex-1">
               <div className="border-b border-gray-200 px-4 lg:px-6 bg-white">
-                <div className="flex space-x-4 lg:space-x-8 overflow-x-auto">
+                <div className="flex justify-between lg:justify-start lg:space-x-8 overflow-x-auto lg:overflow-x-visible">
                   <button
                     onClick={() => setActiveTab("live")}
-                    className={`py-4 px-1 border-b-2 font-medium text-xs lg:text-sm whitespace-nowrap transition-all duration-200 ${
+                    className={`py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-[10px] sm:text-xs lg:text-sm whitespace-nowrap transition-all duration-200 ${
                       activeTab === "live"
                         ? "border-blue-500 text-blue-600"
                         : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                     }`}
                   >
-                    Live Calls
+                    <span className="hidden sm:inline">Live Calls</span>
+                    <span className="sm:hidden">Live</span>
                   </button>
                   <button
                     onClick={() => setActiveTab("recent")}
-                    className={`py-4 px-1 border-b-2 font-medium text-xs lg:text-sm whitespace-nowrap transition-all duration-200 ${
+                    className={`py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-[10px] sm:text-xs lg:text-sm whitespace-nowrap transition-all duration-200 ${
                       activeTab === "recent"
                         ? "border-blue-500 text-blue-600"
                         : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
@@ -276,23 +277,25 @@ function Dashboard() {
                   </button>
                   <button
                     onClick={() => setActiveTab("queue")}
-                    className={`py-4 px-1 border-b-2 font-medium text-xs lg:text-sm whitespace-nowrap transition-all duration-200 ${
+                    className={`py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-[10px] sm:text-xs lg:text-sm whitespace-nowrap transition-all duration-200 ${
                       activeTab === "queue"
                         ? "border-blue-500 text-blue-600"
                         : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                     }`}
                   >
-                    Callers in Queue
+                    <span className="hidden sm:inline">Callers in Queue</span>
+                    <span className="sm:hidden">Queue</span>
                   </button>
                   <button
                     onClick={() => setActiveTab("phoneCalls")}
-                    className={`py-4 px-1 border-b-2 font-medium text-xs lg:text-sm whitespace-nowrap transition-all duration-200 ${
+                    className={`py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-[10px] sm:text-xs lg:text-sm whitespace-nowrap transition-all duration-200 ${
                       activeTab === "phoneCalls"
                         ? "border-blue-500 text-blue-600"
                         : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                     }`}
                   >
-                    📞 Phone Calls
+                    <span className="hidden sm:inline">📞 Phone Calls</span>
+                    <span className="sm:hidden">📞 Calls</span>
                   </button>
                 </div>
               </div>
@@ -338,7 +341,7 @@ function Dashboard() {
                 </div>
               </div>
 
-              <div className="flex-1 p-4 lg:p-6">
+              <div className="flex-1 p-4 lg:p-6 pb-6 sm:pb-4">
                 <div className="flex flex-col lg:flex-row justify-end items-start lg:items-center mb-6 gap-3 lg:gap-0">
                   <div className="flex flex-col sm:flex-row gap-3 lg:gap-4 w-full lg:w-auto">
                     <div className="w-full sm:w-auto">
@@ -376,7 +379,7 @@ function Dashboard() {
                   </div>
                 </div>
 
-                <div className="relative h-64 border-b-2 border-blue-500 rounded-b-lg">
+                <div className="relative h-64 border-b-2 border-blue-500 rounded-b-lg mb-8 sm:mb-2">
                   <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500 pr-2 font-medium">
                     <span>1</span>
                     <span>0.75</span>
@@ -385,14 +388,14 @@ function Dashboard() {
                     <span>0</span>
                   </div>
 
-                  <div className="ml-8 h-full relative">
+                  <div className="ml-2 h-full relative">
                     <div className="absolute inset-0 flex flex-col justify-between">
                       {[0, 1, 2, 3, 4].map((i) => (
                         <div key={i} className="border-t border-gray-100"></div>
                       ))}
                     </div>
 
-                    <div className="absolute inset-0 flex items-end justify-around px-2">
+                    <div className="absolute inset-0 flex items-end justify-between px-4 ml-6">
                       {chartData.map((point, index) => (
                         <div
                           key={index}
@@ -429,13 +432,13 @@ function Dashboard() {
                     </div>
                   </div>
 
-                  <div className="ml-8 mt-2 flex justify-around text-[10px] sm:text-xs text-gray-500 font-medium">
+                  <div className="ml-6 mt-2 flex justify-between text-[10px] sm:text-xs text-gray-500 font-medium px-3">
                     {chartData.map((point, idx) => {
                       const date = new Date(point.date);
                       const month = String(date.getMonth() + 1).padStart(2, '0');
                       const day = String(date.getDate()).padStart(2, '0');
                       return (
-                        <span key={idx} className="text-center">
+                        <span key={idx} className="text-center shrink-0">
                           <span className="hidden sm:inline">{point.date}</span>
                           <span className="sm:hidden">{`${month}/${day}`}</span>
                         </span>
@@ -556,9 +559,9 @@ function Dashboard() {
                 </div>
               </div>
 
-              <div className="flex-1 p-4 lg:p-6">
+              <div className="flex-1 p-4 lg:p-6 pb-6 sm:pb-4">
                 <div
-                  className={`relative h-64  border-b-2 rounded-b-lg ${
+                  className={`relative h-64  border-b-2 rounded-b-lg mb-8 sm:mb-0 ${
                     analyticsTab === "missed"
                       ? "border-red-500"
                       : "border-blue-500"
@@ -572,14 +575,14 @@ function Dashboard() {
                     <span>0</span>
                   </div>
 
-                  <div className="ml-8 h-full relative">
+                  <div className="ml-2 h-full relative">
                     <div className="absolute inset-0 flex flex-col justify-between">
                       {[0, 1, 2, 3, 4].map((i) => (
                         <div key={i} className="border-t border-gray-100"></div>
                       ))}
                     </div>
 
-                    <div className="absolute inset-0 flex items-end justify-around px-2">
+                    <div className="absolute inset-0 flex items-end justify-between px-3 ml-6">
                       {chartData.map((point, index) => (
                         <div
                           key={index}
@@ -636,13 +639,13 @@ function Dashboard() {
                     </div>
                   </div>
 
-                  <div className="ml-8 mt-2 flex justify-around text-[10px] sm:text-xs text-gray-500 font-medium">
+                  <div className="ml-6 mt-2 flex justify-between text-[10px] sm:text-xs text-gray-500 font-medium px-3">
                     {chartData.map((point, idx) => {
                       const date = new Date(point.date);
                       const month = String(date.getMonth() + 1).padStart(2, '0');
                       const day = String(date.getDate()).padStart(2, '0');
                       return (
-                        <span key={idx} className="text-center">
+                        <span key={idx} className="text-center shrink-0">
                           <span className="hidden sm:inline">{point.date}</span>
                           <span className="sm:hidden">{`${month}/${day}`}</span>
                         </span>

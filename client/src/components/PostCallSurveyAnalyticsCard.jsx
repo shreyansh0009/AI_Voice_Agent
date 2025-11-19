@@ -118,10 +118,18 @@ function PostCallSurveyAnalyticsCard() {
               </div>
             </div>
 
-            <div className="ml-8 mt-2 flex justify-around text-xs text-gray-500 overflow-x-auto">
-              {chartData.map((point, index) => (
-                <span key={index} className="whitespace-nowrap">{point.date}</span>
-              ))}
+            <div className="ml-8 mt-2 flex justify-around text-[10px] sm:text-xs text-gray-500 overflow-x-auto">
+              {chartData.map((point, index) => {
+                const date = new Date(point.date);
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return (
+                  <span key={index} className="whitespace-nowrap">
+                    <span className="hidden sm:inline">{point.date}</span>
+                    <span className="sm:hidden">{`${month}/${day}`}</span>
+                  </span>
+                );
+              })}
             </div>
           </div>
         </div>
