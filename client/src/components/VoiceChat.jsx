@@ -681,7 +681,7 @@ const VoiceChat = ({
       setTranscript(userText);
 
       // Extract customer information from user message
-      extractCustomerInfo(userText);
+      // extractCustomerInfo(userText); // DEPRECATED: Now handled by AI response parsing for better robustness
 
       // Add user message to conversation
       const userMessage = { role: "user", content: userText };
@@ -938,7 +938,16 @@ Current language: ${currentLanguageName}. Keep responses brief for voice chat.
 To switch language, respond with "LANGUAGE_SWITCH:[code]" then your message.
 Codes: en, hi, ta, te, kn, ml, bn, mr, gu, pa, es, fr, de, zh, ja, ko
 
-IMPORTANT: If customer provides personal details (name, address, phone, email, order info), acknowledge them and remember them for the entire conversation.`;
+IMPORTANT: If customer provides personal details (name, address, phone, email, order info), acknowledge them.
+    
+    CRITICAL: If the user provides or updates any personal details:
+    1. You MUST output them in a JSON block at the very end of your response like this:
+    [MEMORY: {"name": "John Doe", "phone": "+919999999999", "email": "john@example.com", "address": "123 Main St"}]
+    2. You MUST verbally confirm the details you just captured in your response (e.g., "I've updated your email to john@example.com, is that correct?").
+    
+    If the user corrects you (e.g., "No, it's .net not .com"), update the JSON block with the CORRECTED value and confirm again.
+    
+    Only include fields that were explicitly provided or updated in this turn. Do not speak the JSON block itself.`;
 
       // Get the last user message
       const lastUserMessage =
@@ -1071,31 +1080,46 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
         if (match) {
           const newLanguageCode = match[1].toLowerCase();
 
-          // console.log(`🔍 Extracted language code: "${newLanguageCode}"`);
-          // console.log(`🔍 Language code exists in map?`, languageNames[newLanguageCode]);
-
           // Update the language
           if (languageNames[newLanguageCode]) {
-            // console.log(`🌐 Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`);
-
             // CRITICAL: Update ref FIRST (synchronous), then state (async)
-            // This ensures the ref has the new value immediately for next recording
             currentLanguageRef.current = newLanguageCode;
             setSelectedLanguage(newLanguageCode);
 
-            // console.log(`✅ Language switched!`);
-            // console.log(`  - currentLanguageRef.current: ${currentLanguageRef.current} (updated synchronously)`);
-            // console.log(`  - selectedLanguage state: will update to "${newLanguageCode}" (async)`);
-
-            // Remove the switch command from response (everything after "LANGUAGE_SWITCH:xx ")
+            // Remove the switch command from response
             aiResponse = aiResponse
               .replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, "")
               .trim();
-          } else {
-            // console.log(`❌ Language code "${newLanguageCode}" not found in languageNames map`);
           }
-        } else {
-          // console.log(`❌ Could not extract valid language code from response`);
+        }
+      }
+
+      // 🧠 ROBUST MEMORY EXTRACTION
+      // Check for [MEMORY: {...}] block at the end of response
+      const memoryMatch = aiResponse.match(/\[MEMORY:\s*({[\s\S]*?})\]/);
+      if (memoryMatch) {
+        try {
+          const updates = JSON.parse(memoryMatch[1]);
+          
+          // Only update if we have valid data
+          if (Object.keys(updates).length > 0) {
+            // console.log('🧠 AI extracted memory updates:', updates);
+            
+            // Update context synchronously
+            const newContext = {
+              ...customerContextRef.current,
+              ...updates,
+              lastUpdated: new Date().toISOString(),
+            };
+            
+            setCustomerContext(newContext);
+            customerContextRef.current = newContext;
+          }
+          
+          // Remove the memory block from the text so it's not spoken
+          aiResponse = aiResponse.replace(memoryMatch[0], "").trim();
+        } catch (e) {
+          console.error("❌ Failed to parse AI memory block:", e);
         }
       }
 

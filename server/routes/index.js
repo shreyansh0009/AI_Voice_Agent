@@ -1,6 +1,7 @@
 import express from 'express';
 import knowledgeRoutes from './knowledgeRoutes.js';
 import ragRoutes from './ragRoutes.js';
+import callRoutes from './call.routes.js';
 import agentRoutes from './agentRoutes.js';
 import mongoose from 'mongoose';
 import { connectDB } from '../config/database.js';
@@ -49,5 +50,6 @@ router.get('/health/db', async (req, res) => {
 router.use('/', knowledgeRoutes);
 router.use('/rag', ragRoutes);
 router.use('/agents', agentRoutes);
+router.use('/call', callRoutes);
 
 export default router;
