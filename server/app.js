@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import fs from 'fs';
+import cookieParser from 'cookie-parser';
 
 // Load environment variables FIRST
 dotenv.config();
@@ -11,7 +12,9 @@ import { config } from './config/index.js';
 import { requestLogger } from './middleware/logger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import routes from './routes/index.js';
+import authRoutes from './routes/authRoutes.js';
 import ragService from './services/ragService.js';
+import { connectDB } from './config/database.js';
 
 const app = express();
 
@@ -25,6 +28,7 @@ app.use(cors({
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 // Request logging
 if (config.env === 'development') {
@@ -39,6 +43,7 @@ if (config.env === 'development') {
 });
 
 // API routes
+app.use('/api/auth', authRoutes);
 app.use('/api', routes);
 
 // 404 handler
@@ -50,8 +55,14 @@ app.use(errorHandler);
 // Start server
 // Initialize RAG service at module load time so serverless functions
 // have the vector store warmed up (best-effort, runs in background)
+// Connect to MongoDB and initialize RAG service on startup
 (async () => {
   try {
+    const dbConn = await connectDB();
+    if (!dbConn) {
+      console.warn('⚠️  Database not connected. Some features may be disabled.');
+    }
+
     const ragInitialized = await ragService.initialize();
     if (ragInitialized) {
       console.log('🤖 RAG Service ready for vector search');
@@ -59,7 +70,7 @@ app.use(errorHandler);
       console.log('⚠️  RAG Service running in basic mode (no vector search)');
     }
   } catch (err) {
-    console.error('Error initializing RAG service:', err);
+    console.error('Error during startup initialization:', err);
   }
 })();
 

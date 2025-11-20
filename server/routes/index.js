@@ -1,12 +1,21 @@
 import express from 'express';
+
 import knowledgeRoutes from './knowledgeRoutes.js';
 import ragRoutes from './ragRoutes.js';
 import callRoutes from './call.routes.js';
 import agentRoutes from './agentRoutes.js';
+import authRoutes from './authRoutes.js';
 import mongoose from 'mongoose';
 import { connectDB } from '../config/database.js';
+import { authenticate } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
+
+
+// Home route (login info)
+router.get('/', (req, res) => {
+  res.json({ message: 'Welcome! Please log in at /api/auth/login.' });
+});
 
 // Health check
 router.get('/health', (req, res) => {
@@ -29,7 +38,6 @@ router.get('/health/db', async (req, res) => {
       2: 'connecting',
       3: 'disconnecting'
     };
-    
     res.json({
       success: dbStatus === 1,
       status: statusMap[dbStatus],
@@ -46,10 +54,12 @@ router.get('/health/db', async (req, res) => {
   }
 });
 
-// Mount routes
-router.use('/', knowledgeRoutes);
-router.use('/rag', ragRoutes);
-router.use('/agents', agentRoutes);
-router.use('/call', callRoutes);
+
+// Protect all routes below (except /auth and health checks)
+router.use('/rag', authenticate, ragRoutes);
+router.use('/agents', authenticate, agentRoutes);
+router.use('/call', authenticate, callRoutes);
+router.use('/', authenticate, knowledgeRoutes);
+router.use('/auth', authRoutes);
 
 export default router;
