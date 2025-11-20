@@ -18,12 +18,25 @@ import { connectDB } from './config/database.js';
 
 const app = express();
 
-// CORS Configuration - Allow all origins
+// CORS Configuration
+// Use CLIENT_ORIGINS (comma-separated) or CLIENT_ORIGIN env var to whitelist allowed origins
+// Example: CLIENT_ORIGINS=https://app.vercel.app,https://api.example.com,http://localhost:5173
+const rawClientOrigins = process.env.CLIENT_ORIGINS || process.env.CLIENT_ORIGIN || 'http://localhost:5173';
+const CLIENT_ORIGINS = rawClientOrigins.split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({
-  origin: '*', // Allow all origins
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. server-to-server or Postman)
+    if (!origin) return callback(null, true);
+    // If origin is in our whitelist, allow it
+    if (CLIENT_ORIGINS.includes(origin)) return callback(null, true);
+    // For local development allow localhost variants if explicitly included in env
+    const isLocalhost = CLIENT_ORIGINS.some(o => o.includes('localhost')) && origin.includes('localhost');
+    if (isLocalhost) return callback(null, true);
+    return callback(new Error('CORS policy: This origin is not allowed'), false);
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: false, // Set to false when using origin: '*'
+  credentials: true,
 }));
 
 app.use(express.json());

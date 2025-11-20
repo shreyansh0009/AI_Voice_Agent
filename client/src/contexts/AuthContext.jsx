@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 
 const AuthContext = createContext(null);
 
@@ -14,7 +14,7 @@ export function AuthProvider({ children }) {
     const init = async () => {
       try {
         // server exposes POST /api/auth/refresh-token (refresh handling)
-        const res = await axios.post('/api/auth/refresh-token', {}, { withCredentials: true });
+        const res = await api.post('/api/auth/refresh-token');
         if (!mounted) return;
         if (res.data?.accessToken) {
           setAccessToken(res.data.accessToken);
@@ -37,7 +37,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async (email, password) => {
-    const res = await axios.post('/api/auth/login', { email, password }, { withCredentials: true });
+    const res = await api.post('/api/auth/login', { email, password });
     if (res.data?.accessToken) {
       setAccessToken(res.data.accessToken);
       setRole(res.data.role || null);

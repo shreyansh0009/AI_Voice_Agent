@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-
-const API_URL = `${import.meta.env.VITE_API_URL}/api`;
+import api from '../utils/api';
 
 /**
  * Custom hook for making API calls with loading and error states
@@ -20,7 +18,9 @@ export const useApi = (url, options = {}) => {
     try {
       setLoading(true);
       setError(null);
-      const response = await axios(`${API_URL}${url}`, JSON.parse(optionsString));
+      // Ensure hooks use the same API base as the rest of the app.
+      const endpoint = url.startsWith('/api') ? url : `/api${url}`;
+      const response = await api.request({ url: endpoint, ...JSON.parse(optionsString) });
       setData(response.data);
       return response.data;
     } catch (err) {
@@ -93,8 +93,7 @@ export const useInitiateCall = () => {
       setLoading(true);
       setError(null);
 
-      const response = await axios.post(
-        `${API_URL}/call/initiate`,
+      const response = await api.post(`/api/call/initiate`,
         {
           phoneNumber,
           agentId,
@@ -134,7 +133,7 @@ export const useHangupCall = () => {
       setLoading(true);
       setError(null);
 
-      const response = await axios.post(`${API_URL}/call/${callId}/hangup`);
+      const response = await api.post(`/api/call/${callId}/hangup`);
 
       if (response.data.success) {
         return response.data;
@@ -172,7 +171,7 @@ export const useSaveAgent = () => {
         : '/agent/create';
       const method = agentData.id ? 'put' : 'post';
 
-      const response = await axios[method](`${API_URL}${endpoint}`, agentData);
+      const response = await api[method](`/api${endpoint}`, agentData);
 
       if (response.data.success) {
         return response.data;
@@ -205,7 +204,7 @@ export const useDeleteAgent = () => {
       setLoading(true);
       setError(null);
 
-      const response = await axios.delete(`${API_URL}/agent/${agentId}`);
+      const response = await api.delete(`/api/agent/${agentId}`);
 
       if (response.data.success) {
         return response.data;
@@ -258,7 +257,7 @@ export const useCallStatusPolling = (callId, interval = 2000) => {
 
     const pollStatus = async () => {
       try {
-        const response = await axios.get(`${API_URL}/call/${callId}`);
+        const response = await api.get(`/api/call/${callId}`);
         if (response.data.success) {
           setCall(response.data.call);
           setError(null);

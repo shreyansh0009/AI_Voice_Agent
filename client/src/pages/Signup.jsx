@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 import { Link, useNavigate } from 'react-router-dom';
 
 const Signup = () => {
@@ -15,7 +15,7 @@ const Signup = () => {
     setError('');
     setLoading(true);
     try {
-      await axios.post('/api/auth/signup', { email, password });
+      await api.post('/api/auth/signup', { email, password });
       setLoading(false);
       navigate('/login');
     } catch (err) {
