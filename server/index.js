@@ -9,6 +9,8 @@ import mammoth from 'mammoth';
 import dotenv from 'dotenv';
 import ragService from './services/ragService.js';
 import fileManagementService from './services/fileManagementService.js';
+import { authenticate } from './middleware/authMiddleware.js';
+import authRoutes from './routes/authRoutes.js';
 
 dotenv.config();
 
@@ -18,9 +20,31 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// CORS Configuration
+app.use(cors({
+  origin: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}));
+
+console.log('🔓 CORS: Allowing all origins (DEBUG MODE)');
+
 // Middleware
-app.use(cors());
 app.use(express.json());
+
+// Request logging
+app.use((req, res, next) => {
+  console.log(`📥 ${req.method} ${req.path}`, {
+    body: req.body,
+    headers: req.headers,
+    query: req.query
+  });
+  next();
+});
+
+// Auth routes (public)
+app.use('/api/auth', authRoutes);
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -86,20 +110,34 @@ async function extractTextFromWord(filePath) {
 
 // API Routes
 
-// Health check
+// Health check (public)
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
 
-// Upload files endpoint
-app.post('/api/upload-knowledge', upload.array('files', 10), async (req, res) => {
+// Upload files endpoint - PROTECTED
+app.post('/api/upload-knowledge', authenticate, upload.array('files', 10), async (req, res) => {
+  console.log('🔵 UPLOAD: Handler started', { 
+    userId: req.user?.id,
+    filesCount: req.files?.length 
+  });
+  
   try {
     if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: 'No files uploaded' });
+      console.log('🔴 UPLOAD: No files uploaded');
+      return res.status(400).json({ success: false, error: 'No files uploaded' });
     }
 
     const { agentId = 'default', tags = [] } = req.body;
     const parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+    const userId = req.user.id;
+
+    console.log('🔵 UPLOAD: Processing files', { 
+      agentId, 
+      tagsCount: parsedTags.length,
+      userId 
+    });
+
     const processedFiles = [];
 
     for (const file of req.files) {
@@ -109,11 +147,17 @@ app.post('/api/upload-knowledge', upload.array('files', 10), async (req, res) =>
         size: file.size,
         mimetype: file.mimetype,
         uploadedAt: new Date(),
+        uploadedBy: userId,
         extractedText: null,
         error: null
       };
 
       try {
+        console.log('🔵 UPLOAD: Processing file', { 
+          fileName: file.originalname,
+          mimetype: file.mimetype 
+        });
+
         // Extract text based on file type
         if (file.mimetype === 'application/pdf') {
           fileInfo.extractedText = await extractTextFromPDF(file.path);
@@ -124,21 +168,32 @@ app.post('/api/upload-knowledge', upload.array('files', 10), async (req, res) =>
           fileInfo.extractedText = await extractTextFromWord(file.path);
         }
 
-        // Store metadata (you can save this to a database)
         fileInfo.textLength = fileInfo.extractedText?.length || 0;
         fileInfo.status = 'processed';
+
+        console.log('🔵 UPLOAD: Text extracted', { 
+          fileName: file.originalname,
+          textLength: fileInfo.textLength 
+        });
 
         // Store in vector database
         if (fileInfo.extractedText) {
           const vectorResult = await ragService.storeDocument(fileInfo, fileInfo.extractedText);
           fileInfo.vectorStored = vectorResult?.success || false;
           fileInfo.chunksStored = vectorResult?.chunksStored || 0;
+          console.log('🔵 UPLOAD: Stored in vector DB', { 
+            fileName: file.originalname,
+            chunksStored: fileInfo.chunksStored 
+          });
         }
 
-        // Add to file management system
         fileManagementService.addFile(fileInfo, agentId, parsedTags);
 
       } catch (error) {
+        console.error('❌ UPLOAD: File processing error', {
+          fileName: file.originalname,
+          error: error.message
+        });
         fileInfo.error = error.message;
         fileInfo.status = 'failed';
       }
@@ -146,13 +201,22 @@ app.post('/api/upload-knowledge', upload.array('files', 10), async (req, res) =>
       processedFiles.push(fileInfo);
     }
 
+    console.log('✅ UPLOAD: Success', { 
+      filesProcessed: processedFiles.length,
+      userId 
+    });
+
     res.json({
       success: true,
-      message: `${processedFiles.length} file(s) uploaded successfully`,
+      message: `${processedFiles.length} file(s) processed`,
+      file: processedFiles[0],
       files: processedFiles
     });
   } catch (error) {
-    console.error('Upload error:', error);
+    console.error('❌ UPLOAD: Error', {
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to upload files'
@@ -160,17 +224,28 @@ app.post('/api/upload-knowledge', upload.array('files', 10), async (req, res) =>
   }
 });
 
-// Get all uploaded files
-app.get('/api/knowledge-files', (req, res) => {
+// Get all uploaded files - PROTECTED
+app.get('/api/knowledge-files', authenticate, (req, res) => {
+  console.log('🔵 GET FILES: Handler started', { 
+    userId: req.user?.id,
+    query: req.query 
+  });
+  
   try {
     const { agentId } = req.query;
     const files = fileManagementService.getAllFiles(agentId);
+
+    console.log('✅ GET FILES: Success', { 
+      filesCount: files.length,
+      userId: req.user.id 
+    });
 
     res.json({
       success: true,
       files: files
     });
   } catch (error) {
+    console.error('❌ GET FILES: Error', error);
     res.status(500).json({
       success: false,
       error: 'Failed to retrieve files'
@@ -178,33 +253,43 @@ app.get('/api/knowledge-files', (req, res) => {
   }
 });
 
-// Delete a file
-app.delete('/api/knowledge-files/:filename', async (req, res) => {
+// Delete a file - PROTECTED
+app.delete('/api/knowledge-files/:filename', authenticate, async (req, res) => {
+  console.log('🔵 DELETE FILE: Handler started', { 
+    userId: req.user?.id,
+    filename: req.params.filename 
+  });
+  
   try {
     const filename = req.params.filename;
     const filePath = path.join(uploadsDir, filename);
 
     if (fs.existsSync(filePath)) {
-      // Delete from vector database
       await ragService.deleteFileVectors(filename);
-      
-      // Delete from file system
       fs.unlinkSync(filePath);
-      
-      // Delete metadata
       fileManagementService.deleteFile(filename);
+      
+      console.log('✅ DELETE FILE: Success', { 
+        filename,
+        userId: req.user.id 
+      });
       
       res.json({
         success: true,
         message: 'File deleted successfully'
       });
     } else {
+      console.log('🔴 DELETE FILE: File not found', { filename });
       res.status(404).json({
         success: false,
         error: 'File not found'
       });
     }
   } catch (error) {
+    console.error('❌ DELETE FILE: Error', {
+      filename: req.params.filename,
+      error: error.message
+    });
     res.status(500).json({
       success: false,
       error: 'Failed to delete file'
@@ -212,12 +297,18 @@ app.delete('/api/knowledge-files/:filename', async (req, res) => {
   }
 });
 
-// RAG Query endpoint - retrieve context for a query
-app.post('/api/rag/query', async (req, res) => {
+// RAG Query endpoint - PROTECTED
+app.post('/api/rag/query', authenticate, async (req, res) => {
+  console.log('🔵 RAG QUERY: Handler started', { 
+    userId: req.user?.id,
+    hasQuery: !!req.body.query 
+  });
+  
   try {
     const { query, topK = 5 } = req.body;
 
     if (!query) {
+      console.log('🔴 RAG QUERY: Query is required');
       return res.status(400).json({
         success: false,
         error: 'Query is required'
@@ -225,8 +316,15 @@ app.post('/api/rag/query', async (req, res) => {
     }
 
     const result = await ragService.retrieveContext(query, topK);
+    
+    console.log('✅ RAG QUERY: Success', { 
+      userId: req.user.id,
+      resultsCount: result.results?.length 
+    });
+    
     res.json(result);
   } catch (error) {
+    console.error('❌ RAG QUERY: Error', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -234,12 +332,18 @@ app.post('/api/rag/query', async (req, res) => {
   }
 });
 
-// RAG Chat endpoint - get AI response with knowledge base context
-app.post('/api/rag/chat', async (req, res) => {
+// RAG Chat endpoint - PROTECTED
+app.post('/api/rag/chat', authenticate, async (req, res) => {
+  console.log('🔵 RAG CHAT: Handler started', { 
+    userId: req.user?.id,
+    hasQuery: !!req.body.query 
+  });
+  
   try {
     const { query, conversationHistory = [], systemPrompt = '' } = req.body;
 
     if (!query) {
+      console.log('🔴 RAG CHAT: Query is required');
       return res.status(400).json({
         success: false,
         error: 'Query is required'
@@ -252,8 +356,11 @@ app.post('/api/rag/chat', async (req, res) => {
       systemPrompt
     );
     
+    console.log('✅ RAG CHAT: Success', { userId: req.user.id });
+    
     res.json(result);
   } catch (error) {
+    console.error('❌ RAG CHAT: Error', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -261,8 +368,13 @@ app.post('/api/rag/chat', async (req, res) => {
   }
 });
 
-// Search files endpoint
-app.get('/api/knowledge-files/search', (req, res) => {
+// Search files endpoint - PROTECTED
+app.get('/api/knowledge-files/search', authenticate, (req, res) => {
+  console.log('🔵 SEARCH FILES: Handler started', { 
+    userId: req.user?.id,
+    query: req.query.q 
+  });
+  
   try {
     const { q, agentId } = req.query;
 
@@ -274,12 +386,19 @@ app.get('/api/knowledge-files/search', (req, res) => {
     }
 
     const results = fileManagementService.searchFiles(q, agentId);
+    
+    console.log('✅ SEARCH FILES: Success', { 
+      userId: req.user.id,
+      resultsCount: results.length 
+    });
+    
     res.json({
       success: true,
       results,
       count: results.length
     });
   } catch (error) {
+    console.error('❌ SEARCH FILES: Error', error);
     res.status(500).json({
       success: false,
       error: 'Search failed'
@@ -287,8 +406,13 @@ app.get('/api/knowledge-files/search', (req, res) => {
   }
 });
 
-// Update file tags
-app.patch('/api/knowledge-files/:filename/tags', (req, res) => {
+// Update file tags - PROTECTED
+app.patch('/api/knowledge-files/:filename/tags', authenticate, (req, res) => {
+  console.log('🔵 UPDATE TAGS: Handler started', { 
+    userId: req.user?.id,
+    filename: req.params.filename 
+  });
+  
   try {
     const { filename } = req.params;
     const { tags } = req.body;
@@ -296,17 +420,23 @@ app.patch('/api/knowledge-files/:filename/tags', (req, res) => {
     const updatedFile = fileManagementService.updateFileTags(filename, tags);
     
     if (updatedFile) {
+      console.log('✅ UPDATE TAGS: Success', { 
+        userId: req.user.id,
+        filename 
+      });
       res.json({
         success: true,
         file: updatedFile
       });
     } else {
+      console.log('🔴 UPDATE TAGS: File not found', { filename });
       res.status(404).json({
         success: false,
         error: 'File not found'
       });
     }
   } catch (error) {
+    console.error('❌ UPDATE TAGS: Error', error);
     res.status(500).json({
       success: false,
       error: 'Failed to update tags'
@@ -314,8 +444,13 @@ app.patch('/api/knowledge-files/:filename/tags', (req, res) => {
   }
 });
 
-// Update file agent
-app.patch('/api/knowledge-files/:filename/agent', (req, res) => {
+// Update file agent - PROTECTED
+app.patch('/api/knowledge-files/:filename/agent', authenticate, (req, res) => {
+  console.log('🔵 UPDATE AGENT: Handler started', { 
+    userId: req.user?.id,
+    filename: req.params.filename 
+  });
+  
   try {
     const { filename } = req.params;
     const { agentId } = req.body;
@@ -323,17 +458,23 @@ app.patch('/api/knowledge-files/:filename/agent', (req, res) => {
     const updatedFile = fileManagementService.updateFileAgent(filename, agentId);
     
     if (updatedFile) {
+      console.log('✅ UPDATE AGENT: Success', { 
+        userId: req.user.id,
+        filename 
+      });
       res.json({
         success: true,
         file: updatedFile
       });
     } else {
+      console.log('🔴 UPDATE AGENT: File not found', { filename });
       res.status(404).json({
         success: false,
         error: 'File not found'
       });
     }
   } catch (error) {
+    console.error('❌ UPDATE AGENT: Error', error);
     res.status(500).json({
       success: false,
       error: 'Failed to update agent'
@@ -341,17 +482,28 @@ app.patch('/api/knowledge-files/:filename/agent', (req, res) => {
   }
 });
 
-// Get agent statistics
-app.get('/api/agents/:agentId/stats', (req, res) => {
+// Get agent statistics - PROTECTED
+app.get('/api/agents/:agentId/stats', authenticate, (req, res) => {
+  console.log('🔵 AGENT STATS: Handler started', { 
+    userId: req.user?.id,
+    agentId: req.params.agentId 
+  });
+  
   try {
     const { agentId } = req.params;
     const stats = fileManagementService.getAgentStats(agentId);
+    
+    console.log('✅ AGENT STATS: Success', { 
+      userId: req.user.id,
+      agentId 
+    });
     
     res.json({
       success: true,
       stats
     });
   } catch (error) {
+    console.error('❌ AGENT STATS: Error', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get stats'
@@ -359,15 +511,24 @@ app.get('/api/agents/:agentId/stats', (req, res) => {
   }
 });
 
-// Get all agents
-app.get('/api/agents', (req, res) => {
+// Get all agents - PROTECTED
+app.get('/api/agents', authenticate, (req, res) => {
+  console.log('🔵 GET AGENTS: Handler started', { userId: req.user?.id });
+  
   try {
     const agentIds = fileManagementService.getAllAgentIds();
+    
+    console.log('✅ GET AGENTS: Success', { 
+      userId: req.user.id,
+      agentsCount: agentIds.length 
+    });
+    
     res.json({
       success: true,
       agents: agentIds
     });
   } catch (error) {
+    console.error('❌ GET AGENTS: Error', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get agents'
@@ -377,6 +538,12 @@ app.get('/api/agents', (req, res) => {
 
 // Error handling middleware
 app.use((error, req, res, next) => {
+  console.error('❌ ERROR HANDLER:', {
+    message: error.message,
+    stack: error.stack,
+    path: req.path
+  });
+  
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({
@@ -385,15 +552,20 @@ app.use((error, req, res, next) => {
       });
     }
   }
-  res.status(500).json({
-    success: false,
-    error: error.message || 'Internal server error'
-  });
+  
+  if (!res.headersSent) {
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error'
+    });
+  }
 });
 
 app.listen(PORT, async () => {
+  console.log('='.repeat(50));
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📁 Uploads directory: ${uploadsDir}`);
+  console.log('='.repeat(50));
   
   // Initialize RAG service
   const ragInitialized = await ragService.initialize();
@@ -403,3 +575,5 @@ app.listen(PORT, async () => {
     console.log('⚠️  RAG Service running in basic mode (no vector search)');
   }
 });
+
+export default app;
