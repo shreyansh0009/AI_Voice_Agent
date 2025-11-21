@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import fs from 'fs';
-import cookieParser from 'cookie-parser';
 
 // Load environment variables FIRST
 dotenv.config();
@@ -19,8 +18,6 @@ import { connectDB } from './config/database.js';
 const app = express();
 
 // CORS Configuration
-// Use CLIENT_ORIGINS (comma-separated) or CLIENT_ORIGIN env var to whitelist allowed origins
-// Example: CLIENT_ORIGINS=https://app.vercel.app,https://api.example.com,http://localhost:5173
 const CLIENT_ORIGINS = [
   'http://localhost:5173',
   'https://ai-voice-agent-frcm.vercel.app'
@@ -28,7 +25,6 @@ const CLIENT_ORIGINS = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (e.g. server-to-server or Postman)
     if (!origin) return callback(null, true);
     if (CLIENT_ORIGINS.includes(origin)) return callback(null, true);
     return callback(new Error('CORS policy: This origin is not allowed'), false);
@@ -40,7 +36,6 @@ app.use(cors({
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
 
 // Request logging
 if (config.env === 'development') {

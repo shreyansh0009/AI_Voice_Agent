@@ -9,14 +9,22 @@ import { ToastContainer } from "./components/Toast";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
-
 function PrivateRoute({ children }) {
   const location = useLocation();
   const { loading, isAuthenticated } = useAuth();
-  if (loading) return null; // or a spinner
+  
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    );
+  }
+  
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
+  
   return children;
 }
 

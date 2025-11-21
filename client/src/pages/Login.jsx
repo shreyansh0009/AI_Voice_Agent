@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-const Login = ({ onLogin }) => {
+const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -17,12 +17,9 @@ const Login = ({ onLogin }) => {
     setError('');
     setLoading(true);
     try {
-      const data = await auth.login(email, password);
+      await auth.login(email, password);
       setLoading(false);
-      if (data?.accessToken) {
-        if (onLogin) onLogin();
-        navigate(from, { replace: true });
-      }
+      navigate(from, { replace: true });
     } catch (err) {
       setLoading(false);
       setError(err.response?.data?.message || 'Login failed');
