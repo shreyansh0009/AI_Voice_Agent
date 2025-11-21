@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import { connectDB } from "../config/database.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d'; // 7 days default
@@ -10,6 +11,11 @@ export const signup = async (req, res) => {
   console.log('🔵 SIGNUP: Handler started', { body: req.body });
   
   try {
+    // Ensure database connection before any DB operations
+    console.log('🔵 SIGNUP: Ensuring database connection...');
+    await connectDB();
+    console.log('✅ SIGNUP: Database connected');
+    
     const { email, password } = req.body;
     console.log('🔵 SIGNUP: Extracted credentials', { email: email ? 'present' : 'missing', password: password ? 'present' : 'missing' });
     
@@ -75,6 +81,11 @@ export const login = async (req, res) => {
   });
   
   try {
+    // Ensure database connection before any DB operations
+    console.log('🔵 LOGIN: Ensuring database connection...');
+    await connectDB();
+    console.log('✅ LOGIN: Database connected');
+    
     const { email, password } = req.body;
     console.log('🔵 LOGIN: Extracted credentials', { 
       email: email ? email : 'missing', 
@@ -165,6 +176,9 @@ export const verifyToken = async (req, res) => {
   });
   
   try {
+    // Ensure database connection
+    await connectDB();
+    
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     

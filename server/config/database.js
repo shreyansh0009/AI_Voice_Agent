@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 
 // Cache the connection for serverless environments
 let cachedConnection = null;
+let isConnecting = false;
+let connectionPromise = null;
 
 export async function connectDB() {
   // If we have a cached connection and it's connected, reuse it
@@ -10,28 +12,42 @@ export async function connectDB() {
     return cachedConnection;
   }
 
+  // If we're already connecting, wait for that connection
+  if (isConnecting && connectionPromise) {
+    console.log('⏳ Waiting for existing connection attempt...');
+    return connectionPromise;
+  }
+
   try {
-    // Set mongoose to not buffer commands if not connected
-    mongoose.set('bufferCommands', false);
+    isConnecting = true;
+    
+    // IMPORTANT: Set bufferCommands to true for serverless
+    mongoose.set('bufferCommands', true);
     
     // Set strict query mode
     mongoose.set('strictQuery', true);
 
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
-      socketTimeoutMS: 45000, // Close sockets after 45s
-      maxPoolSize: 10, // Maintain up to 10 socket connections
-      minPoolSize: 1, // Maintain at least 1 socket connection
+    console.log('🔄 Connecting to MongoDB...');
+    
+    connectionPromise = mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 10000, // 10 seconds
+      socketTimeoutMS: 45000,
+      maxPoolSize: 10,
+      minPoolSize: 1,
     });
 
+    const conn = await connectionPromise;
+
     cachedConnection = conn;
+    isConnecting = false;
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
     return conn;
   } catch (error) {
-    console.error('❌ MongoDB connection error:', error.message);
-    // Don't throw in serverless - allow graceful degradation
+    isConnecting = false;
+    connectionPromise = null;
     cachedConnection = null;
-    return null;
+    console.error('❌ MongoDB connection error:', error.message);
+    throw error; // Throw in auth routes so they return proper errors
   }
 }
 
