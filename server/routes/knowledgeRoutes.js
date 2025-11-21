@@ -1,5 +1,6 @@
 import express from 'express';
 import { upload } from '../config/multer.js';
+import { authenticate } from '../middleware/authMiddleware.js';
 import {
   uploadKnowledgeFiles,
   getKnowledgeFiles,
@@ -10,6 +11,9 @@ import {
 } from '../controllers/knowledgeController.js';
 
 const router = express.Router();
+
+// All routes require authentication
+router.use(authenticate);
 
 // Upload single file only
 router.post('/upload-knowledge', upload.single('files'), uploadKnowledgeFiles);

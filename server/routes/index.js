@@ -2,8 +2,8 @@ import express from 'express';
 
 import knowledgeRoutes from './knowledgeRoutes.js';
 import ragRoutes from './ragRoutes.js';
-import callRoutes from './call.routes.js';
 import agentRoutes from './agentRoutes.js';
+import callRoutes from './call.routes.js';
 import authRoutes from './authRoutes.js';
 import mongoose from 'mongoose';
 import { connectDB } from '../config/database.js';
@@ -54,6 +54,11 @@ router.get('/health/db', async (req, res) => {
   }
 });
 
+// Mount route modules
+router.use('/knowledge', knowledgeRoutes);
+router.use('/rag', ragRoutes);
+router.use('/agent', agentRoutes);
+router.use('/call', callRoutes);
 
 // Protect all routes below (except /auth and health checks)
 router.use('/rag', authenticate, ragRoutes);

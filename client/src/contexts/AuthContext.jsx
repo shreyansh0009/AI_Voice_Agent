@@ -4,33 +4,42 @@ import api from '../utils/api';
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [accessToken, setAccessToken] = useState(null);
-  const [role, setRole] = useState(null);
+  const [accessToken, setAccessToken] = useState(localStorage.getItem('accessToken'));
+  const [role, setRole] = useState(localStorage.getItem('role'));
   const [loading, setLoading] = useState(true);
 
-  // Try to refresh session on mount (uses httpOnly refresh cookie)
+  // Verify token on mount
   useEffect(() => {
     let mounted = true;
-    const init = async () => {
+    const verifyToken = async () => {
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        if (mounted) setLoading(false);
+        return;
+      }
+      
       try {
-        // server exposes POST /api/auth/refresh-token (refresh handling)
-        const res = await api.post('/api/auth/refresh-token');
-        if (!mounted) return;
-        if (res.data?.accessToken) {
-          setAccessToken(res.data.accessToken);
-          setRole(res.data.role || null);
+        const res = await api.get('/api/auth/verify');
+        if (mounted && res.data?.valid) {
+          setAccessToken(token);
+          setRole(res.data.role);
         } else {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('role');
           setAccessToken(null);
           setRole(null);
         }
       } catch (err) {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('role');
         setAccessToken(null);
         setRole(null);
       } finally {
         if (mounted) setLoading(false);
       }
     };
-    init();
+    
+    verifyToken();
     return () => {
       mounted = false;
     };
@@ -39,16 +48,20 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     const res = await api.post('/api/auth/login', { email, password });
     if (res.data?.accessToken) {
+      localStorage.setItem('accessToken', res.data.accessToken);
+      localStorage.setItem('role', res.data.role);
       setAccessToken(res.data.accessToken);
-      setRole(res.data.role || null);
+      setRole(res.data.role);
     }
     return res.data;
   };
 
   const logout = async () => {
     try {
-      await axios.post('/api/auth/logout', {}, { withCredentials: true });
+      await api.post('/api/auth/logout');
     } finally {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('role');
       setAccessToken(null);
       setRole(null);
     }

@@ -2,9 +2,9 @@ import mongoose from 'mongoose';
 
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
-  password: { type: String, required: true }, // hashed with bcrypt
-  role: { type: String, enum: ['admin', 'user'], default: 'user' },
-  refreshToken: { type: String },
+  password: { type: String, required: true },
+  role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  createdAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
 export default mongoose.model('User', userSchema);

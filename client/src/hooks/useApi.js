@@ -18,9 +18,7 @@ export const useApi = (url, options = {}) => {
     try {
       setLoading(true);
       setError(null);
-      // Ensure hooks use the same API base as the rest of the app.
-      const endpoint = url.startsWith('/api') ? url : `/api${url}`;
-      const response = await api.request({ url: endpoint, ...JSON.parse(optionsString) });
+      const response = await api.request({ url, ...JSON.parse(optionsString) });
       setData(response.data);
       return response.data;
     } catch (err) {
@@ -43,7 +41,7 @@ export const useApi = (url, options = {}) => {
  * @returns {object} { agents, loading, error, refetch }
  */
 export const useAgents = () => {
-  const { data, loading, error, refetch } = useApi('/agent/list');
+  const { data, loading, error, refetch } = useApi('/api/agent/list');
 
   return {
     agents: data?.agents || [],
@@ -68,7 +66,7 @@ export const useCallHistory = (filters = {}) => {
   }
 
   const queryString = params.toString();
-  const url = queryString ? `/call/history?${queryString}` : '/call/history';
+  const url = queryString ? `/api/call/history?${queryString}` : '/api/call/history';
 
   const { data, loading, error, refetch } = useApi(url);
 
@@ -93,12 +91,8 @@ export const useInitiateCall = () => {
       setLoading(true);
       setError(null);
 
-      const response = await api.post(`/api/call/initiate`,
-        {
-          phoneNumber,
-          agentId,
-          customerContext,
-        },
+      const response = await api.post('/api/call/initiate',
+        { phoneNumber, agentId, customerContext },
         { timeout: 10000 }
       );
 
@@ -108,8 +102,7 @@ export const useInitiateCall = () => {
         throw new Error(response.data.error || 'Failed to initiate call');
       }
     } catch (err) {
-      const errorMsg =
-        err.response?.data?.error || err.message || 'Failed to initiate call';
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to initiate call';
       setError(errorMsg);
       throw new Error(errorMsg);
     } finally {
@@ -166,12 +159,10 @@ export const useSaveAgent = () => {
       setLoading(true);
       setError(null);
 
-      const endpoint = agentData.id
-        ? `/agent/${agentData.id}`
-        : '/agent/create';
+      const endpoint = agentData.id ? `/api/agent/${agentData.id}` : '/api/agent/create';
       const method = agentData.id ? 'put' : 'post';
 
-      const response = await api[method](`/api${endpoint}`, agentData);
+      const response = await api[method](endpoint, agentData);
 
       if (response.data.success) {
         return response.data;
@@ -230,7 +221,7 @@ export const useDeleteAgent = () => {
  * @returns {object} { call, loading, error, refetch }
  */
 export const useCallDetails = (callId) => {
-  const { data, loading, error, refetch } = useApi(`/call/${callId}`);
+  const { data, loading, error, refetch } = useApi(`/api/call/${callId}`);
 
   return {
     call: data?.call || null,
