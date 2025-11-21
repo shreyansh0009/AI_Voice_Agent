@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 import MetricCard from "../components/MetricCard";
 import NumbersAnalyticsCard from "../components/NumbersAnalyticsCard";
 import VoicemailAnalyticsCard from "../components/VoicemailAnalyticsCard";
@@ -9,7 +11,14 @@ import BusyHoursCard from "../components/BusyHoursCard";
 import CallDialer from "../components/CallDialer";
 import CallHistory from "../components/CallHistory";
 import { MdOutlineSpeed } from "react-icons/md";
-import { BiPhone, BiPhoneCall, BiPhoneIncoming, BiPhoneOff, BiChevronDown } from "react-icons/bi";
+import {
+  BiPhone,
+  BiPhoneCall,
+  BiPhoneIncoming,
+  BiPhoneOff,
+  BiChevronDown,
+  BiLogOut,
+} from "react-icons/bi";
 import { AiOutlineClockCircle, AiOutlineClose } from "react-icons/ai";
 import { IoIosInformationCircleOutline } from "react-icons/io";
 import { HiBolt, HiArrowUp } from "react-icons/hi2";
@@ -22,6 +31,18 @@ function Dashboard() {
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [number, setNumber] = useState(null);
   const [analyticsTab, setAnalyticsTab] = useState("call");
+
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate("/login");
+    } catch (error) {
+      console.error("Logout failed", error);
+    }
+  };
 
   const chartData = [
     { date: "2025-10-22", outbound: 0, inbound: 0, missed: 0 },
@@ -178,7 +199,9 @@ function Dashboard() {
     {
       header: "Available time",
       key: "availableTime",
-      render: (row) => <div className="whitespace-nowrap">{row.availableTime}</div>,
+      render: (row) => (
+        <div className="whitespace-nowrap">{row.availableTime}</div>
+      ),
     },
   ];
 
@@ -219,7 +242,27 @@ function Dashboard() {
   return (
     <>
       <div className="h-full overflow-auto">
-        <div className="bg-linear-to-br from-white to-gray-50 shadow-lg rounded-xl border border-gray-100 m-3 lg:m-6 overflow-hidden hover:shadow-xl transition-shadow duration-300">
+        {/* Header with Greeting and Logout */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 px-3 lg:px-6 pt-4 gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
+            <p className="text-gray-500 text-sm">
+              Welcome back,{" "}
+              <span className="font-medium text-blue-600">
+                {user?.email || "User"}
+              </span>
+            </p>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-red-500 rounded-lg hover:bg-red-50 hover:border-red-200 transition-all duration-200 font-medium shadow-xs text-sm"
+          >
+            <BiLogOut className="text-lg" />
+            Logout
+          </button>
+        </div>
+
+        <div className="bg-linear-to-br from-white to-gray-50 shadow-lg rounded-xl border border-gray-100 m-3 lg:m-6 mt-0 overflow-hidden hover:shadow-xl transition-shadow duration-300">
           <div className="flex flex-col lg:flex-row h-full">
             <div className="w-full lg:w-1/3 border-b lg:border-b-0 lg:border-r border-gray-200 p-4 lg:p-6 bg-linear-to-br from-blue-50 to-white">
               <div className="flex items-center mb-4">
@@ -237,15 +280,21 @@ function Dashboard() {
               </div>
 
               <div className="text-center">
-                <div className="text-6xl font-light mb-6 bg-linear-to-br from-blue-600 to-blue-400 bg-clip-text text-transparent">0</div>
+                <div className="text-6xl font-light mb-6 bg-linear-to-br from-blue-600 to-blue-400 bg-clip-text text-transparent">
+                  0
+                </div>
 
                 <div className="flex justify-between text-center">
                   <div className="flex-1 border-r border-gray-200">
-                    <div className="text-sm text-cyan-500 mb-1 font-medium">Outbound</div>
+                    <div className="text-sm text-cyan-500 mb-1 font-medium">
+                      Outbound
+                    </div>
                     <div className="text-3xl font-light text-gray-800">0</div>
                   </div>
                   <div className="flex-1">
-                    <div className="text-sm text-cyan-500 mb-1 font-medium">Answered</div>
+                    <div className="text-sm text-cyan-500 mb-1 font-medium">
+                      Answered
+                    </div>
                     <div className="text-3xl font-light text-gray-800">0</div>
                   </div>
                 </div>
@@ -304,11 +353,13 @@ function Dashboard() {
               <div className="p-6 lg:p-12 min-h-[200px] lg:min-h-[300px]">
                 {activeTab === "phoneCalls" ? (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <CallDialer agents={[
-                      { id: 'default', name: 'Default Agent' },
-                      { id: 'sales', name: 'Sales Agent' },
-                      { id: 'support', name: 'Support Agent' }
-                    ]} />
+                    <CallDialer
+                      agents={[
+                        { id: "default", name: "Default Agent" },
+                        { id: "sales", name: "Sales Agent" },
+                        { id: "support", name: "Support Agent" },
+                      ]}
+                    />
                     <CallHistory />
                   </div>
                 ) : (
@@ -446,8 +497,11 @@ function Dashboard() {
                   >
                     {chartData.map((point, idx) => {
                       const date = new Date(point.date);
-                      const month = String(date.getMonth() + 1).padStart(2, '0');
-                      const day = String(date.getDate()).padStart(2, '0');
+                      const month = String(date.getMonth() + 1).padStart(
+                        2,
+                        "0"
+                      );
+                      const day = String(date.getDate()).padStart(2, "0");
                       return (
                         <span
                           key={idx}
@@ -603,7 +657,9 @@ function Dashboard() {
                       {chartData.map((point, index) => (
                         <div
                           key={index}
-                          className={`flex flex-col items-center relative cursor-pointer lg:justify-self-center flex-1 sm:flex-none ${index === 0 ? '-ml-2 sm:ml-0' : ''} ${index === 1 ? '-ml-1 sm:ml-0' : ''}`}
+                          className={`flex flex-col items-center relative cursor-pointer lg:justify-self-center flex-1 sm:flex-none ${
+                            index === 0 ? "-ml-2 sm:ml-0" : ""
+                          } ${index === 1 ? "-ml-1 sm:ml-0" : ""}`}
                           onMouseEnter={() => setHoveredPoint(index)}
                           onMouseLeave={() => setHoveredPoint(null)}
                         >
@@ -662,8 +718,11 @@ function Dashboard() {
                   >
                     {chartData.map((point, idx) => {
                       const date = new Date(point.date);
-                      const month = String(date.getMonth() + 1).padStart(2, '0');
-                      const day = String(date.getDate()).padStart(2, '0');
+                      const month = String(date.getMonth() + 1).padStart(
+                        2,
+                        "0"
+                      );
+                      const day = String(date.getDate()).padStart(2, "0");
                       return (
                         <span
                           key={idx}
@@ -681,12 +740,12 @@ function Dashboard() {
 
             <div className="text-center mt-6 border-t border-gray-200 pt-4">
               <button className="text-blue-500 text-sm inline-flex items-center gap-1 hover:text-blue-600 font-medium transition-colors duration-200 hover:gap-2">
-                View Details <BiChevronDown className="transition-transform duration-200" />
+                View Details{" "}
+                <BiChevronDown className="transition-transform duration-200" />
               </button>
             </div>
           </div>
         </div>
-
 
         <div className="p-3 lg:p-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
@@ -728,7 +787,6 @@ function Dashboard() {
         <div className="p-3 lg:p-6">
           <BusyHoursCard />
         </div>
-        
       </div>
     </>
   );
