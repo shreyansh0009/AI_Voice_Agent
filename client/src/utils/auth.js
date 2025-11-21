@@ -1,3 +1,3 @@
 export function isLoggedIn() {
-  return !!localStorage.getItem('accessToken');
+  return !!localStorage.getItem('token');
 }

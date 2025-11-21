@@ -23,16 +23,15 @@ const CLIENT_ORIGINS = [
   'https://ai-voice-agent-frcm.vercel.app'
 ];
 
+// TEMPORARILY ALLOW ALL ORIGINS FOR DEBUGGING
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (CLIENT_ORIGINS.includes(origin)) return callback(null, true);
-    return callback(new Error('CORS policy: This origin is not allowed'), false);
-  },
+  origin: true, // Allow all origins
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
 }));
+
+console.log('🔓 CORS: Allowing all origins (DEBUG MODE)');
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -41,6 +40,16 @@ app.use(express.urlencoded({ extended: true }));
 if (config.env === 'development') {
   app.use(requestLogger);
 }
+
+// Add logging for ALL requests in production too
+app.use((req, res, next) => {
+  console.log(`📥 ${req.method} ${req.path}`, {
+    body: req.body,
+    headers: req.headers,
+    query: req.query
+  });
+  next();
+});
 
 // Create required directories
 [config.uploadsDir, config.dataDir].forEach(dir => {
@@ -58,6 +67,23 @@ app.use(notFoundHandler);
 
 // Error handler (must be last)
 app.use(errorHandler);
+
+// Add catch-all error logger
+app.use((err, req, res, next) => {
+  console.error('❌ UNHANDLED ERROR:', {
+    message: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method
+  });
+  if (!res.headersSent) {
+    res.status(500).json({ 
+      message: 'Internal server error', 
+      error: err.message,
+      path: req.path 
+    });
+  }
+});
 
 // Start server
 // Initialize RAG service at module load time so serverless functions

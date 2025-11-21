@@ -16,11 +16,24 @@ const Login = () => {
     e.preventDefault();
     setError('');
     setLoading(true);
+    
+    console.log('🔵 LOGIN FORM: Submitting', { 
+      email, 
+      passwordLength: password.length,
+      passwordSample: password.substring(0, 3) + '***'
+    });
+    
     try {
       await auth.login(email, password);
+      console.log('✅ LOGIN FORM: Success');
       setLoading(false);
       navigate(from, { replace: true });
     } catch (err) {
+      console.error('❌ LOGIN FORM: Error', {
+        status: err.response?.status,
+        message: err.response?.data?.message,
+        error: err.message
+      });
       setLoading(false);
       setError(err.response?.data?.message || 'Login failed');
     }
