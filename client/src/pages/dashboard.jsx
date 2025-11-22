@@ -23,6 +23,7 @@ import { AiOutlineClockCircle, AiOutlineClose } from "react-icons/ai";
 import { IoIosInformationCircleOutline } from "react-icons/io";
 import { HiBolt, HiArrowUp } from "react-icons/hi2";
 import AxisLayout from "../components/AxisLayout";
+import { LogOut, LayoutDashboard, UserCircle } from 'lucide-react';
 
 function Dashboard() {
   const [activeTab, setActiveTab] = useState("live");
@@ -243,24 +244,65 @@ function Dashboard() {
     <>
       <div className="h-full overflow-auto">
         {/* Header with Greeting and Logout */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 px-3 lg:px-6 pt-4 gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
-            <p className="text-gray-500 text-sm">
+        <div className="
+        relative overflow-hidden
+        flex flex-col sm:flex-row justify-between items-start sm:items-center 
+        gap-4 sm:gap-0
+        bg-white rounded-2xl shadow-sm border border-gray-100 
+        p-5 lg:p-6 mb-6 lg:ml-6 lg:mr-6
+        animate-fade-in-down transition-all duration-300 hover:shadow-md
+      ">
+        
+        {/* Decorative background element (Optional "Beautiful" touch) */}
+        <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-blue-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
+
+        {/* LEFT SECTION: Title & Welcome */}
+        <div className="z-10 w-full sm:w-auto">
+          <div className="flex items-center gap-3 mb-1">
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+              <LayoutDashboard size={20} />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-800 tracking-tight">
+              Dashboard
+            </h1>
+          </div>
+          
+          <div className="flex items-center gap-2 pl-1">
+             {/* Small status dot animation */}
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+            </span>
+            <p className="text-gray-500 text-sm font-medium">
               Welcome back,{" "}
-              <span className="font-medium text-blue-600">
+              <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent font-bold">
                 {user?.email || "User"}
               </span>
             </p>
           </div>
+        </div>
+
+        {/* RIGHT SECTION: Logout Button */}
+        <div className="z-10 w-full sm:w-auto flex sm:justify-end">
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-red-500 rounded-lg hover:bg-red-50 hover:border-red-200 transition-all duration-200 font-medium shadow-xs text-sm"
+            className="
+              group w-full sm:w-auto
+              flex items-center justify-center gap-2 cursor-pointer
+              px-5 py-2.5 
+              bg-white text-gray-600 border border-gray-200 rounded-xl
+              hover:bg-red-50 hover:text-red-600 hover:border-red-100 
+              active:scale-95
+              transition-all duration-200 ease-out
+              font-semibold text-sm shadow-sm hover:shadow-md
+            "
           >
-            <BiLogOut className="text-lg" />
-            Logout
+            <LogOut className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
+            <span>Logout</span>
           </button>
         </div>
+
+      </div>
 
         <div className="bg-linear-to-br from-white to-gray-50 shadow-lg rounded-xl border border-gray-100 m-3 lg:m-6 mt-0 overflow-hidden hover:shadow-xl transition-shadow duration-300">
           <div className="flex flex-col lg:flex-row h-full">
