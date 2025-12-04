@@ -5,10 +5,10 @@ import VoiceChat from "../components/VoiceChat.jsx";
 import Engine from "../components/Engine.jsx";
 import Call from "../components/Call.jsx";
 import Tool from "../components/Tool.jsx";
-import Analytics from '../components/Analytics.jsx'
+import Analytics from "../components/Analytics.jsx";
 import AgentModal from "../components/models/AgentModal.jsx";
-import { generateAgentResponseWithHistory } from '../config/openai.js';
-import { BiTrash } from 'react-icons/bi';
+import { generateAgentResponseWithHistory } from "../config/openai.js";
+import { BiTrash } from "react-icons/bi";
 
 const TABS = [
   "Agent",
@@ -29,20 +29,32 @@ export default function AgentSetupSingle() {
   const [prompt, setPrompt] = useState(
     "You are a helpful agent. You will help the customer with their queries and doubts. You will never speak more than 2 sentences. Keep your responses concise."
   );
-  
+
   // State to store all created agents
   const [savedAgents, setSavedAgents] = useState([
-    { id: 1, name: "Sales Assistant", status: "active", welcome: "Hi! I'm here to help with sales.", prompt: "You are a sales assistant." },
-    { id: 2, name: "Support Agent", status: "active", welcome: "Hello! How can I support you?", prompt: "You are a support agent." }
+    {
+      id: 1,
+      name: "Sales Assistant",
+      status: "active",
+      welcome: "Hi! I'm here to help with sales.",
+      prompt: "You are a sales assistant.",
+    },
+    {
+      id: 2,
+      name: "Support Agent",
+      status: "active",
+      welcome: "Hello! How can I support you?",
+      prompt: "You are a support agent.",
+    },
   ]);
-  
+
   // State to track currently selected agent
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [isNewAgent, setIsNewAgent] = useState(true);
-  
+
   // Chat testing state
   const [chatMessages, setChatMessages] = useState([]);
-  const [userMessage, setUserMessage] = useState('');
+  const [userMessage, setUserMessage] = useState("");
   const [isLoadingResponse, setIsLoadingResponse] = useState(false);
   const [showChat, setShowChat] = useState(false);
 
@@ -54,13 +66,13 @@ export default function AgentSetupSingle() {
 
   // Load chat history from localStorage on mount
   useEffect(() => {
-    const savedChatHistory = localStorage.getItem('agent_chat_history');
+    const savedChatHistory = localStorage.getItem("agent_chat_history");
     if (savedChatHistory) {
       try {
         const parsed = JSON.parse(savedChatHistory);
         setChatMessages(parsed);
       } catch (error) {
-        console.error('Failed to load chat history:', error);
+        console.error("Failed to load chat history:", error);
       }
     }
   }, []);
@@ -68,66 +80,95 @@ export default function AgentSetupSingle() {
   // Load uploaded files from localStorage on mount
   useEffect(() => {
     const loadUploadedFiles = async () => {
-      const savedFiles = localStorage.getItem('uploaded_knowledge_files');
+      const savedFiles = localStorage.getItem("uploaded_knowledge_files");
       if (savedFiles) {
         try {
           const parsed = JSON.parse(savedFiles);
-          console.log('📂 Loaded files from localStorage:', parsed);
-          
+          console.log("📂 Loaded files from localStorage:", parsed);
+
           // Verify files still exist on server
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/api/knowledge-files`);
+          const token = localStorage.getItem("token");
+          const response = await fetch(
+            `${import.meta.env.VITE_API_URL}/api/knowledge-files`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
           const data = await response.json();
-          
+
           if (data.success) {
             // Match localStorage files with server files
-            const serverFileNames = data.files.map(f => f.fileName);
-            const validFiles = parsed.filter(file => serverFileNames.includes(file.fileName));
-            
+            const serverFileNames = data.files.map((f) => f.fileName);
+            const validFiles = parsed.filter((file) =>
+              serverFileNames.includes(file.fileName)
+            );
+
             if (validFiles.length !== parsed.length) {
-              console.log('⚠️ Some files no longer exist on server, cleaning up...');
-              localStorage.setItem('uploaded_knowledge_files', JSON.stringify(validFiles));
+              console.log(
+                "⚠️ Some files no longer exist on server, cleaning up..."
+              );
+              localStorage.setItem(
+                "uploaded_knowledge_files",
+                JSON.stringify(validFiles)
+              );
             }
-            
+
             setUploadedFiles(validFiles);
           } else {
             setUploadedFiles(parsed);
           }
         } catch (error) {
-          console.error('Failed to load uploaded files:', error);
-          localStorage.removeItem('uploaded_knowledge_files');
+          console.error("Failed to load uploaded files:", error);
+          localStorage.removeItem("uploaded_knowledge_files");
         }
       } else {
         // If no localStorage, fetch from server
         fetchUploadedFiles();
       }
     };
-    
+
     loadUploadedFiles();
   }, []);
 
   // Fetch uploaded files from server
   const fetchUploadedFiles = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/knowledge-files`);
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/knowledge-files`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
       const data = await response.json();
-      
+
       if (data.success) {
-        console.log('📂 Loaded files from server:', data.files);
+        console.log("📂 Loaded files from server:", data.files);
         setUploadedFiles(data.files);
-        localStorage.setItem('uploaded_knowledge_files', JSON.stringify(data.files));
+        localStorage.setItem(
+          "uploaded_knowledge_files",
+          JSON.stringify(data.files)
+        );
       }
     } catch (error) {
-      console.error('Failed to fetch files:', error);
+      console.error("Failed to fetch files:", error);
     }
   };
 
   // Save uploaded files to localStorage whenever they change
   useEffect(() => {
     if (uploadedFiles.length > 0) {
-      localStorage.setItem('uploaded_knowledge_files', JSON.stringify(uploadedFiles));
-      console.log('💾 Saved files to localStorage:', uploadedFiles.length);
+      localStorage.setItem(
+        "uploaded_knowledge_files",
+        JSON.stringify(uploadedFiles)
+      );
+      console.log("💾 Saved files to localStorage:", uploadedFiles.length);
     } else {
-      localStorage.removeItem('uploaded_knowledge_files');
+      localStorage.removeItem("uploaded_knowledge_files");
     }
   }, [uploadedFiles]);
 
@@ -135,7 +176,7 @@ export default function AgentSetupSingle() {
   useEffect(() => {
     const handleBeforeUnload = () => {
       // Optional: Ask user if they want to keep files
-      const savedFiles = localStorage.getItem('uploaded_knowledge_files');
+      const savedFiles = localStorage.getItem("uploaded_knowledge_files");
       if (savedFiles) {
         const files = JSON.parse(savedFiles);
         if (files.length > 0) {
@@ -143,24 +184,26 @@ export default function AgentSetupSingle() {
           // e.preventDefault();
           // e.returnValue = '';
           // await deleteAllFilesFromServer(files);
-          
+
           // For now, we'll keep files persistent across reloads
-          console.log('🔄 Page reload/close detected. Files preserved in localStorage.');
+          console.log(
+            "🔄 Page reload/close detected. Files preserved in localStorage."
+          );
         }
       }
     };
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, []);
 
   // Save chat history to localStorage whenever it changes
   useEffect(() => {
     if (chatMessages.length > 0) {
-      localStorage.setItem('agent_chat_history', JSON.stringify(chatMessages));
+      localStorage.setItem("agent_chat_history", JSON.stringify(chatMessages));
     }
   }, [chatMessages]);
 
@@ -173,7 +216,7 @@ export default function AgentSetupSingle() {
 
     // TODO: send payload to backend / create agent in app
   }
-  
+
   // Function to save/create agent
   function handleSaveAgent() {
     const newAgent = {
@@ -182,9 +225,9 @@ export default function AgentSetupSingle() {
       status: "draft",
       welcome: welcome,
       prompt: prompt,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
-    
+
     if (isNewAgent) {
       // Add new agent to the list
       setSavedAgents([newAgent, ...savedAgents]);
@@ -193,15 +236,17 @@ export default function AgentSetupSingle() {
       alert(`Agent "${agentName}" created successfully!`);
     } else if (selectedAgentId) {
       // Update existing agent
-      setSavedAgents(savedAgents.map(agent => 
-        agent.id === selectedAgentId 
-          ? { ...agent, name: agentName, welcome: welcome, prompt: prompt }
-          : agent
-      ));
+      setSavedAgents(
+        savedAgents.map((agent) =>
+          agent.id === selectedAgentId
+            ? { ...agent, name: agentName, welcome: welcome, prompt: prompt }
+            : agent
+        )
+      );
       alert(`Agent "${agentName}" updated successfully!`);
     }
   }
-  
+
   // Function to select an agent from the list
   function handleSelectAgent(agent) {
     setSelectedAgentId(agent.id);
@@ -210,83 +255,91 @@ export default function AgentSetupSingle() {
     setPrompt(agent.prompt);
     setIsNewAgent(false);
   }
-  
+
   // Function to create a new blank agent
   function handleNewAgent() {
     setIsNewAgent(true);
     setSelectedAgentId(null);
     setAgentName("My New Agent");
     setWelcome("Hello from crml");
-    setPrompt("You are a helpful agent. You will help the customer with their queries and doubts. You will never speak more than 2 sentences. Keep your responses concise.");
+    setPrompt(
+      "You are a helpful agent. You will help the customer with their queries and doubts. You will never speak more than 2 sentences. Keep your responses concise."
+    );
     setChatMessages([]);
   }
-  
+
   // Function to delete an agent
   function handleDeleteAgent(agentId, agentName, event) {
     event.stopPropagation(); // Prevent selecting the agent when clicking delete
-    
+
     if (window.confirm(`Are you sure you want to delete "${agentName}"?`)) {
-      setSavedAgents(savedAgents.filter(agent => agent.id !== agentId));
-      
+      setSavedAgents(savedAgents.filter((agent) => agent.id !== agentId));
+
       // If deleted agent was selected, reset to new agent
       if (selectedAgentId === agentId) {
         handleNewAgent();
       }
-      
+
       alert(`Agent "${agentName}" deleted successfully!`);
     }
   }
-  
+
   // Function to send message to agent and get response
   async function handleSendMessage() {
     if (!userMessage.trim()) return;
-    
+
     // Add user message to chat
-    const newUserMessage = { role: 'user', content: userMessage };
-    setChatMessages(prev => [...prev, newUserMessage]);
-    setUserMessage('');
+    const newUserMessage = { role: "user", content: userMessage };
+    setChatMessages((prev) => [...prev, newUserMessage]);
+    setUserMessage("");
     setIsLoadingResponse(true);
-    
+
     try {
       // Build conversation history for context
-      const conversationHistory = chatMessages.map(msg => ({
-        role: msg.role === 'error' ? 'assistant' : msg.role,
-        content: msg.content
+      const conversationHistory = chatMessages.map((msg) => ({
+        role: msg.role === "error" ? "assistant" : msg.role,
+        content: msg.content,
       }));
-      
+
       // Use the agent's custom prompt with full conversation context
       const result = await generateAgentResponseWithHistory(
         conversationHistory,
-        userMessage, 
+        userMessage,
         prompt,
         {
           temperature: 0.7,
-          max_tokens: 500
+          max_tokens: 500,
         }
       );
-      
+
       if (result.success) {
-        const aiMessage = { role: 'assistant', content: result.data };
-        setChatMessages(prev => [...prev, aiMessage]);
+        const aiMessage = { role: "assistant", content: result.data };
+        setChatMessages((prev) => [...prev, aiMessage]);
       } else {
-        const errorMessage = { role: 'error', content: `Error: ${result.error}` };
-        setChatMessages(prev => [...prev, errorMessage]);
+        const errorMessage = {
+          role: "error",
+          content: `Error: ${result.error}`,
+        };
+        setChatMessages((prev) => [...prev, errorMessage]);
       }
     } catch {
-      const errorMessage = { role: 'error', content: 'Failed to get response from agent' };
-      setChatMessages(prev => [...prev, errorMessage]);
+      const errorMessage = {
+        role: "error",
+        content: "Failed to get response from agent",
+      };
+      setChatMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoadingResponse(false);
     }
   }
-  
+
   // Function to start fresh chat
   function handleStartChat() {
     setChatMessages([]);
-    localStorage.removeItem('agent_chat_history'); // Clear localStorage
+    localStorage.removeItem("agent_chat_history"); // Clear localStorage
     // Add welcome message as first message if it exists
     if (welcome && welcome.trim()) {
-      setChatMessages([{ role: 'assistant', content: welcome }]);
+      setChatMessages([{ role: "assistant", content: welcome }]);
     }
     setShowChat(true);
   }
@@ -294,17 +347,19 @@ export default function AgentSetupSingle() {
   // Knowledge Base file upload handlers
   const handleFileUpload = async (event) => {
     const files = Array.from(event.target.files);
-    
+
     if (files.length === 0) return;
-    
+
     // Validate files
-    const validFiles = files.filter(file => {
-      const extension = file.name.split('.').pop().toLowerCase();
-      const isValid = ['pdf', 'doc', 'docx'].includes(extension);
+    const validFiles = files.filter((file) => {
+      const extension = file.name.split(".").pop().toLowerCase();
+      const isValid = ["pdf", "doc", "docx"].includes(extension);
       const isUnderLimit = file.size <= 10 * 1024 * 1024; // 10MB
-      
+
       if (!isValid) {
-        setUploadError(`${file.name}: Invalid file type. Only PDF, DOC, DOCX allowed.`);
+        setUploadError(
+          `${file.name}: Invalid file type. Only PDF, DOC, DOCX allowed.`
+        );
         return false;
       }
       if (!isUnderLimit) {
@@ -322,89 +377,117 @@ export default function AgentSetupSingle() {
 
     try {
       const formData = new FormData();
-      validFiles.forEach(file => {
-        formData.append('files', file);
+      validFiles.forEach((file) => {
+        formData.append("files", file);
       });
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/upload-knowledge`, {
-        method: 'POST',
-        body: formData,
-      });
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/upload-knowledge`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        }
+      );
 
       const data = await response.json();
 
       if (data.success) {
         // Backend returns single file (data.file), refresh from server to get updated list
         await fetchUploadedFiles();
-        
+
         setUploadSuccess(`Successfully uploaded ${data.file.originalName}`);
-        
+
         // Clear success message after 3 seconds
         setTimeout(() => setUploadSuccess(null), 3000);
       } else {
-        setUploadError(data.error || 'Upload failed');
+        setUploadError(data.error || "Upload failed");
       }
     } catch (error) {
-      console.error('Upload error:', error);
-      setUploadError('Failed to upload files. Make sure the server is running.');
+      console.error("Upload error:", error);
+      setUploadError(
+        "Failed to upload files. Make sure the server is running."
+      );
     } finally {
       setIsUploading(false);
       // Reset file input
-      event.target.value = '';
+      event.target.value = "";
     }
   };
 
   const handleRemoveFile = async (index, fileName) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/knowledge-files/${fileName}`, {
-        method: 'DELETE',
-      });
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/knowledge-files/${fileName}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
 
       const data = await response.json();
 
       if (data.success) {
         const updatedFiles = uploadedFiles.filter((_, i) => i !== index);
         setUploadedFiles(updatedFiles);
-        
+
         // Update localStorage
         if (updatedFiles.length > 0) {
-          localStorage.setItem('uploaded_knowledge_files', JSON.stringify(updatedFiles));
+          localStorage.setItem(
+            "uploaded_knowledge_files",
+            JSON.stringify(updatedFiles)
+          );
         } else {
-          localStorage.removeItem('uploaded_knowledge_files');
+          localStorage.removeItem("uploaded_knowledge_files");
         }
-        console.log('🗑️ File removed and localStorage updated');
-        
-        setUploadSuccess('File removed successfully');
+        console.log("🗑️ File removed and localStorage updated");
+
+        setUploadSuccess("File removed successfully");
         setTimeout(() => setUploadSuccess(null), 2000);
       } else {
-        setUploadError('Failed to remove file');
+        setUploadError("Failed to remove file");
       }
     } catch (error) {
-      console.error('Delete error:', error);
-      setUploadError('Failed to remove file');
+      console.error("Delete error:", error);
+      setUploadError("Failed to remove file");
     }
   };
 
   // Function to clear all uploaded files
   const handleClearAllFiles = async () => {
     if (uploadedFiles.length === 0) return;
-    
+
     const confirmed = window.confirm(
       `Are you sure you want to delete all ${uploadedFiles.length} file(s)? This action cannot be undone.`
     );
-    
+
     if (!confirmed) return;
-    
+
     setIsUploading(true);
     let successCount = 0;
     let failCount = 0;
-    
+
     for (const file of uploadedFiles) {
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/knowledge-files/${file.fileName}`, {
-          method: 'DELETE',
-        });
-        
+        const token = localStorage.getItem("token");
+        const response = await fetch(
+          `${import.meta.env.VITE_API_URL}/api/knowledge-files/${
+            file.fileName
+          }`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
         const data = await response.json();
         if (data.success) {
           successCount++;
@@ -412,17 +495,21 @@ export default function AgentSetupSingle() {
           failCount++;
         }
       } catch (error) {
-        console.error('Failed to delete:', file.fileName, error);
+        console.error("Failed to delete:", file.fileName, error);
         failCount++;
       }
     }
-    
+
     // Clear state and localStorage
     setUploadedFiles([]);
-    localStorage.removeItem('uploaded_knowledge_files');
-    
+    localStorage.removeItem("uploaded_knowledge_files");
+
     setIsUploading(false);
-    setUploadSuccess(`Deleted ${successCount} file(s)${failCount > 0 ? `, ${failCount} failed` : ''}`);
+    setUploadSuccess(
+      `Deleted ${successCount} file(s)${
+        failCount > 0 ? `, ${failCount} failed` : ""
+      }`
+    );
     setTimeout(() => setUploadSuccess(null), 3000);
   };
 
@@ -432,7 +519,9 @@ export default function AgentSetupSingle() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-5 gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold">Agent setup</h1>
-          <p className="text-xs sm:text-sm text-slate-500">Fine tune your agents</p>
+          <p className="text-xs sm:text-sm text-slate-500">
+            Fine tune your agents
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
@@ -442,7 +531,9 @@ export default function AgentSetupSingle() {
           <button className="px-2 sm:px-3 py-1 rounded-md bg-white border shadow-sm text-xs sm:text-sm whitespace-nowrap">
             Add more funds
           </button>
-          <button className="px-2 sm:px-3 py-1 rounded-md bg-white border text-xs sm:text-sm">Help</button>
+          <button className="px-2 sm:px-3 py-1 rounded-md bg-white border text-xs sm:text-sm">
+            Help
+          </button>
         </div>
       </div>
 
@@ -455,9 +546,11 @@ export default function AgentSetupSingle() {
           </div>
 
           <div className="flex gap-2">
-            <button className="flex-1 text-sm px-3 py-2 rounded-md bg-slate-100 border">Import</button>
-            <button 
-              className="flex-1 text-sm px-3 py-2 rounded-md bg-blue-600 text-white" 
+            <button className="flex-1 text-sm px-3 py-2 rounded-md bg-slate-100 border">
+              Import
+            </button>
+            <button
+              className="flex-1 text-sm px-3 py-2 rounded-md bg-blue-600 text-white"
               onClick={handleNewAgent}
             >
               + New Agent
@@ -468,7 +561,9 @@ export default function AgentSetupSingle() {
             {/* Current agent being edited */}
             {isNewAgent && (
               <div className="bg-blue-50 border-2 border-blue-500 rounded-md p-3 flex items-center justify-between mb-3">
-                <div className="text-sm font-medium text-blue-700">New Agent (Unsaved)</div>
+                <div className="text-sm font-medium text-blue-700">
+                  New Agent (Unsaved)
+                </div>
                 <div className="text-xs text-blue-600">editing</div>
               </div>
             )}
@@ -481,19 +576,27 @@ export default function AgentSetupSingle() {
                   onClick={() => handleSelectAgent(agent)}
                   className={`p-3 rounded-md border cursor-pointer transition-all ${
                     selectedAgentId === agent.id
-                      ? 'bg-blue-50 border-blue-500'
-                      : 'bg-white border-slate-200 hover:border-blue-300'
+                      ? "bg-blue-50 border-blue-500"
+                      : "bg-white border-slate-200 hover:border-blue-300"
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
                       <div className="text-sm font-medium">{agent.name}</div>
-                      <div className={`text-xs mt-1 ${agent.status === 'active' ? 'text-green-600' : 'text-slate-400'}`}>
+                      <div
+                        className={`text-xs mt-1 ${
+                          agent.status === "active"
+                            ? "text-green-600"
+                            : "text-slate-400"
+                        }`}
+                      >
                         {agent.status}
                       </div>
                     </div>
                     <button
-                      onClick={(e) => handleDeleteAgent(agent.id, agent.name, e)}
+                      onClick={(e) =>
+                        handleDeleteAgent(agent.id, agent.name, e)
+                      }
                       className="ml-2 p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
                       title="Delete agent"
                     >
@@ -520,28 +623,60 @@ export default function AgentSetupSingle() {
                   placeholder="Enter agent name"
                 />
                 {isNewAgent && (
-                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded whitespace-nowrap">Unsaved</span>
+                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded whitespace-nowrap">
+                    Unsaved
+                  </span>
                 )}
               </div>
 
               <div className="flex flex-col items-stretch gap-2 w-full lg:w-auto shrink-0">
                 <div className="flex gap-2">
                   <button className="flex-1 lg:flex-none px-3 py-1.5 rounded-md border bg-white text-xs sm:text-sm whitespace-nowrap hover:bg-slate-50 transition-colors flex items-center justify-center gap-1">
-                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    <svg
+                      className="w-3 h-3 sm:w-4 sm:h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                      />
                     </svg>
                     Agent ID
                   </button>
                   <button className="flex-1 lg:flex-none px-3 py-1.5 rounded-md border bg-white text-xs sm:text-sm hover:bg-slate-50 transition-colors flex items-center justify-center gap-1">
-                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                    <svg
+                      className="w-3 h-3 sm:w-4 sm:h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                      />
                     </svg>
                     Share
                   </button>
                 </div>
                 <button className="w-full px-4 py-1.5 bg-blue-600 text-white rounded-md text-xs sm:text-sm whitespace-nowrap hover:bg-blue-700 transition-colors flex items-center justify-center gap-1">
-                  <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                  <svg
+                    className="w-3 h-3 sm:w-4 sm:h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                    />
                   </svg>
                   Get call from agent
                 </button>
@@ -551,21 +686,43 @@ export default function AgentSetupSingle() {
             {/* Cost Info Badge */}
             <div className="flex items-center gap-2 mb-3">
               <div className="inline-flex items-center gap-1 text-xs text-slate-500">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <svg
+                  className="w-3 h-3"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
-                <span>Cost per min: <span className="font-medium text-slate-700">~ $0.056</span></span>
+                <span>
+                  Cost per min:{" "}
+                  <span className="font-medium text-slate-700">~ $0.056</span>
+                </span>
               </div>
             </div>
 
             {/* Progress Bar */}
             <div className="w-full max-w-md mb-2">
               <div className="h-2 bg-slate-200 rounded-full overflow-hidden flex">
-                <div className="h-2 bg-teal-500" style={{ width: '15%' }}></div>
-                <div className="h-2 bg-orange-500" style={{ width: '10%' }}></div>
-                <div className="h-2 bg-slate-700" style={{ width: '15%' }}></div>
-                <div className="h-2 bg-orange-300" style={{ width: '10%' }}></div>
-                <div className="h-2 bg-blue-500" style={{ width: '50%' }}></div>
+                <div className="h-2 bg-teal-500" style={{ width: "15%" }}></div>
+                <div
+                  className="h-2 bg-orange-500"
+                  style={{ width: "10%" }}
+                ></div>
+                <div
+                  className="h-2 bg-slate-700"
+                  style={{ width: "15%" }}
+                ></div>
+                <div
+                  className="h-2 bg-orange-300"
+                  style={{ width: "10%" }}
+                ></div>
+                <div className="h-2 bg-blue-500" style={{ width: "50%" }}></div>
               </div>
             </div>
 
@@ -599,84 +756,186 @@ export default function AgentSetupSingle() {
             <nav className="flex justify-between gap-1 bg-slate-100 rounded-lg p-1 overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
               {TABS.map((t) => {
                 const active = t === activeTab;
-                
+
                 // Icon mapping for each tab
                 const getIcon = () => {
-                  switch(t) {
+                  switch (t) {
                     case "Agent":
                       return (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                          />
                         </svg>
                       );
                     case "LLM":
                       return (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
                         </svg>
                       );
                     case "Audio":
                       return (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"
+                          />
                         </svg>
                       );
                     case "Voice":
                       return (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                          />
                         </svg>
                       );
                     case "Engine":
                       return (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
                         </svg>
                       );
                     case "Call":
                       return (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                          />
                         </svg>
                       );
                     case "Tools":
                       return (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"
+                          />
                         </svg>
                       );
                     case "Analytics":
                       return (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                          />
                         </svg>
                       );
                     case "Inbound":
                       return (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                          />
                         </svg>
                       );
                     default:
                       return null;
                   }
                 };
-                
+
                 return (
                   <button
                     key={t}
                     onClick={() => setActiveTab(t)}
                     className={`flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 sm:px-3 sm:py-2 rounded-md transition-colors shrink-0 min-w-[60px] sm:min-w-0 ${
-                      active 
-                        ? "bg-white text-blue-600 shadow-sm" 
+                      active
+                        ? "bg-white text-blue-600 shadow-sm"
                         : "text-slate-500 hover:text-slate-700 hover:bg-slate-200"
                     }`}
                     aria-current={active ? "page" : undefined}
                   >
                     <span className="hidden sm:inline">{getIcon()}</span>
-                    <span className="text-[10px] sm:text-xs whitespace-nowrap">{t}</span>
+                    <span className="text-[10px] sm:text-xs whitespace-nowrap">
+                      {t}
+                    </span>
                   </button>
                 );
               })}
@@ -690,20 +949,25 @@ export default function AgentSetupSingle() {
               <section>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold mb-1">Agent Welcome Message</label>
+                    <label className="block text-xs font-semibold mb-1">
+                      Agent Welcome Message
+                    </label>
                     <input
                       value={welcome}
                       onChange={(e) => setWelcome(e.target.value)}
                       className="w-full border border-slate-200 rounded-md px-3 py-2 text-xs"
                     />
                     <p className="text-xs text-slate-400 mt-1">
-                      This will be the initial message from the agent. You can use variables here using{" "}
+                      This will be the initial message from the agent. You can
+                      use variables here using{" "}
                       <code className="bg-slate-50 px-1 rounded">{`{variable_name}`}</code>
                     </p>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold mb-1">Agent Prompt</label>
+                    <label className="block text-xs font-semibold mb-1">
+                      Agent Prompt
+                    </label>
                     <textarea
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
@@ -714,8 +978,13 @@ export default function AgentSetupSingle() {
                   </div>
 
                   <div>
-                    <h3 className="text-xs font-semibold">You can fill in your following prompt variables for testing</h3>
-                    <div className="mt-2 text-xs text-slate-500">(variables UI placeholder)</div>
+                    <h3 className="text-xs font-semibold">
+                      You can fill in your following prompt variables for
+                      testing
+                    </h3>
+                    <div className="mt-2 text-xs text-slate-500">
+                      (variables UI placeholder)
+                    </div>
                   </div>
                 </div>
               </section>
@@ -738,24 +1007,40 @@ export default function AgentSetupSingle() {
                 {/* Knowledge Base Section */}
                 <div className="mb-6 bg-white rounded-lg border border-slate-200 p-3 sm:p-4 md:p-6">
                   <h3 className="text-sm font-semibold mb-4">Knowledge Base</h3>
-                  
+
                   <div className="mb-4">
                     <label className="block text-xs font-medium text-slate-700 mb-2">
                       Upload Documents (PDF, Word)
                     </label>
                     <p className="text-xs text-slate-500 mb-3">
-                      Upload documents to enhance your agent's knowledge. The agent will use this information to answer questions more accurately.
+                      Upload documents to enhance your agent's knowledge. The
+                      agent will use this information to answer questions more
+                      accurately.
                     </p>
-                    
+
                     {/* File Upload Input */}
                     <div className="space-y-3">
                       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
-                        <label className={`flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer transition-colors w-full sm:w-auto ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                          <svg className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        <label
+                          className={`flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer transition-colors w-full sm:w-auto ${
+                            isUploading ? "opacity-50 cursor-not-allowed" : ""
+                          }`}
+                        >
+                          <svg
+                            className="w-4 h-4 sm:w-5 sm:h-5 shrink-0"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                            />
                           </svg>
                           <span className="text-xs sm:text-sm font-medium">
-                            {isUploading ? 'Uploading...' : 'Choose Files'}
+                            {isUploading ? "Uploading..." : "Choose Files"}
                           </span>
                           <input
                             type="file"
@@ -774,19 +1059,43 @@ export default function AgentSetupSingle() {
                       {/* Upload Status Messages */}
                       {uploadSuccess && (
                         <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-md">
-                          <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          <svg
+                            className="w-5 h-5 text-green-600"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M5 13l4 4L19 7"
+                            />
                           </svg>
-                          <span className="text-sm text-green-700">{uploadSuccess}</span>
+                          <span className="text-sm text-green-700">
+                            {uploadSuccess}
+                          </span>
                         </div>
                       )}
 
                       {uploadError && (
                         <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-md">
-                          <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          <svg
+                            className="w-5 h-5 text-red-600"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M6 18L18 6M6 6l12 12"
+                            />
                           </svg>
-                          <span className="text-sm text-red-700">{uploadError}</span>
+                          <span className="text-sm text-red-700">
+                            {uploadError}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -807,12 +1116,16 @@ export default function AgentSetupSingle() {
                           Clear All
                         </button>
                       </div>
-                      
+
                       <div className="space-y-2 max-h-96 overflow-y-auto">
                         {uploadedFiles.map((file, index) => {
-                          const isPDF = file.originalName?.toLowerCase().endsWith('.pdf');
-                          const isWord = file.originalName?.toLowerCase().match(/\.(doc|docx)$/);
-                          
+                          const isPDF = file.originalName
+                            ?.toLowerCase()
+                            .endsWith(".pdf");
+                          const isWord = file.originalName
+                            ?.toLowerCase()
+                            .match(/\.(doc|docx)$/);
+
                           return (
                             <div
                               key={`${file.fileName}-${index}`}
@@ -820,84 +1133,150 @@ export default function AgentSetupSingle() {
                             >
                               <div className="flex items-start gap-3 flex-1 min-w-0">
                                 {/* File Icon */}
-                                <div className={`shrink-0 mt-0.5 ${file.status === 'processed' ? 'text-green-600' : file.status === 'failed' ? 'text-red-600' : 'text-blue-600'}`}>
+                                <div
+                                  className={`shrink-0 mt-0.5 ${
+                                    file.status === "processed"
+                                      ? "text-green-600"
+                                      : file.status === "failed"
+                                      ? "text-red-600"
+                                      : "text-blue-600"
+                                  }`}
+                                >
                                   {isPDF ? (
-                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                                    <svg
+                                      className="w-6 h-6"
+                                      fill="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
                                       <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18.5,9L13,3.5V9H18.5M6,20V4H11V10H18V20H6M7.93,17.5H9.61L9.85,16.74H11.58L11.82,17.5H13.5L11.58,12.5H9.85L7.93,17.5M10.15,15.43L10.71,13.34L11.27,15.43H10.15Z" />
                                     </svg>
                                   ) : isWord ? (
-                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                                    <svg
+                                      className="w-6 h-6"
+                                      fill="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
                                       <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18.5,9L13,3.5V9H18.5M7,12.5L8.5,17.5H9.5L10.5,14L11.5,17.5H12.5L14,12.5H13L12,15.5L11,12.5H10L9,15.5L8,12.5H7Z" />
                                     </svg>
                                   ) : (
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                    <svg
+                                      className="w-6 h-6"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                                      />
                                     </svg>
                                   )}
                                 </div>
-                                
+
                                 {/* File Info */}
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2">
                                     <p className="text-sm font-medium text-slate-700 truncate">
                                       {file.originalName}
                                     </p>
-                                    {file.status === 'processed' && (
+                                    {file.status === "processed" && (
                                       <span className="shrink-0 px-2 py-0.5 text-xs font-medium text-green-700 bg-green-100 rounded-full">
                                         ✓ Ready
                                       </span>
                                     )}
-                                    {file.status === 'failed' && (
+                                    {file.status === "failed" && (
                                       <span className="shrink-0 px-2 py-0.5 text-xs font-medium text-red-700 bg-red-100 rounded-full">
                                         ✗ Failed
                                       </span>
                                     )}
                                   </div>
-                                  
+
                                   <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-500">
                                     <span className="flex items-center gap-1">
-                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                      <svg
+                                        className="w-3 h-3"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth={2}
+                                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                        />
                                       </svg>
                                       {(file.size / 1024).toFixed(1)} KB
                                     </span>
-                                    
-                                    {file.status === 'processed' && file.textLength && (
-                                      <>
-                                        <span className="text-slate-400">•</span>
-                                        <span className="flex items-center gap-1">
-                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                          </svg>
-                                          {file.textLength.toLocaleString()} chars
-                                        </span>
-                                      </>
-                                    )}
-                                    
+
+                                    {file.status === "processed" &&
+                                      file.textLength && (
+                                        <>
+                                          <span className="text-slate-400">
+                                            •
+                                          </span>
+                                          <span className="flex items-center gap-1">
+                                            <svg
+                                              className="w-3 h-3"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                            >
+                                              <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                              />
+                                            </svg>
+                                            {file.textLength.toLocaleString()}{" "}
+                                            chars
+                                          </span>
+                                        </>
+                                      )}
+
                                     {file.uploadedAt && (
                                       <>
-                                        <span className="text-slate-400">•</span>
+                                        <span className="text-slate-400">
+                                          •
+                                        </span>
                                         <span className="flex items-center gap-1">
-                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                          <svg
+                                            className="w-3 h-3"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                          >
+                                            <path
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                              strokeWidth={2}
+                                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                                            />
                                           </svg>
-                                          {new Date(file.uploadedAt).toLocaleDateString()}
+                                          {new Date(
+                                            file.uploadedAt
+                                          ).toLocaleDateString()}
                                         </span>
                                       </>
                                     )}
                                   </div>
-                                  
-                                  {file.status === 'failed' && file.error && (
+
+                                  {file.status === "failed" && file.error && (
                                     <p className="text-xs text-red-500 mt-1">
                                       Error: {file.error}
                                     </p>
                                   )}
                                 </div>
                               </div>
-                              
+
                               {/* Delete Button */}
                               <button
-                                onClick={() => handleRemoveFile(index, file.fileName)}
+                                onClick={() =>
+                                  handleRemoveFile(index, file.fileName)
+                                }
                                 disabled={isUploading}
                                 className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors shrink-0 ml-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Remove file"
@@ -908,18 +1287,30 @@ export default function AgentSetupSingle() {
                           );
                         })}
                       </div>
-                      
+
                       {/* Summary Stats */}
                       <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-blue-700 font-medium">
-                            📊 Total: {uploadedFiles.length} file{uploadedFiles.length !== 1 ? 's' : ''}
+                            📊 Total: {uploadedFiles.length} file
+                            {uploadedFiles.length !== 1 ? "s" : ""}
                           </span>
                           <span className="text-blue-600">
-                            {(uploadedFiles.reduce((acc, f) => acc + (f.size || 0), 0) / 1024).toFixed(1)} KB total
+                            {(
+                              uploadedFiles.reduce(
+                                (acc, f) => acc + (f.size || 0),
+                                0
+                              ) / 1024
+                            ).toFixed(1)}{" "}
+                            KB total
                           </span>
                           <span className="text-blue-600">
-                            {uploadedFiles.filter(f => f.status === 'processed').length} ready
+                            {
+                              uploadedFiles.filter(
+                                (f) => f.status === "processed"
+                              ).length
+                            }{" "}
+                            ready
                           </span>
                         </div>
                       </div>
@@ -941,25 +1332,35 @@ export default function AgentSetupSingle() {
                 <Call />
               </section>
             )}
-             {activeTab === "Tools" && (
+            {activeTab === "Tools" && (
               <section>
                 <Tool />
               </section>
             )}
-             {activeTab === "Analytics" && (
+            {activeTab === "Analytics" && (
               <section>
                 <Analytics />
               </section>
             )}
             {/* Other tabs (placeholders) */}
-            {activeTab !== "Agent" && activeTab !== "LLM" && activeTab !== "Audio" && activeTab !== "Voice" && activeTab !== "Engine" && activeTab !== "Call" && activeTab !== "Tools" && activeTab !== "Analytics" && (
-              <section>
-                <div className="p-4 sm:p-6 bg-slate-50 rounded-md border border-dashed border-slate-100 text-xs sm:text-sm text-slate-600">
-                  <div className="font-medium mb-2">{activeTab} settings</div>
-                  <div className="text-xs sm:text-sm text-slate-500">Use the SelectField pattern to add dropdowns and settings for this tab.</div>
-                </div>
-              </section>
-            )}
+            {activeTab !== "Agent" &&
+              activeTab !== "LLM" &&
+              activeTab !== "Audio" &&
+              activeTab !== "Voice" &&
+              activeTab !== "Engine" &&
+              activeTab !== "Call" &&
+              activeTab !== "Tools" &&
+              activeTab !== "Analytics" && (
+                <section>
+                  <div className="p-4 sm:p-6 bg-slate-50 rounded-md border border-dashed border-slate-100 text-xs sm:text-sm text-slate-600">
+                    <div className="font-medium mb-2">{activeTab} settings</div>
+                    <div className="text-xs sm:text-sm text-slate-500">
+                      Use the SelectField pattern to add dropdowns and settings
+                      for this tab.
+                    </div>
+                  </div>
+                </section>
+              )}
           </div>
         </main>
 
@@ -971,21 +1372,23 @@ export default function AgentSetupSingle() {
           </div>
 
           <div className="space-y-3">
-            <button 
+            <button
               onClick={handleSaveAgent}
               className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors text-sm"
             >
-              {isNewAgent ? 'Create Agent' : 'Update Agent'}
+              {isNewAgent ? "Create Agent" : "Update Agent"}
             </button>
             <div className="text-xs text-slate-400">
-              {isNewAgent ? 'Save to create a new agent' : 'Last updated a few seconds ago'}
+              {isNewAgent
+                ? "Save to create a new agent"
+                : "Last updated a few seconds ago"}
             </div>
 
             {/* Chat Interface */}
             <div className="p-3 border rounded-md bg-slate-50">
               {!showChat ? (
                 <>
-                  <button 
+                  <button
                     onClick={handleStartChat}
                     className="w-full px-3 py-2 border rounded-md bg-white hover:bg-gray-50 transition-colors text-sm"
                   >
@@ -999,14 +1402,14 @@ export default function AgentSetupSingle() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold">Live Chat</span>
-                    <button 
+                    <button
                       onClick={() => setShowChat(false)}
                       className="text-xs text-slate-400 hover:text-slate-600"
                     >
                       ✕ Close
                     </button>
                   </div>
-                  
+
                   {/* Chat Messages */}
                   <div className="bg-white border rounded-md p-3 max-h-48 sm:max-h-64 overflow-y-auto space-y-2">
                     {chatMessages.length === 0 ? (
@@ -1018,15 +1421,19 @@ export default function AgentSetupSingle() {
                         <div
                           key={idx}
                           className={`p-2 rounded-md text-xs sm:text-sm overflow-wrap-break-word ${
-                            msg.role === 'user'
-                              ? 'bg-blue-100 text-blue-900 ml-4'
-                              : msg.role === 'error'
-                              ? 'bg-red-100 text-red-900'
-                              : 'bg-gray-100 text-gray-900 mr-4'
+                            msg.role === "user"
+                              ? "bg-blue-100 text-blue-900 ml-4"
+                              : msg.role === "error"
+                              ? "bg-red-100 text-red-900"
+                              : "bg-gray-100 text-gray-900 mr-4"
                           }`}
                         >
                           <div className="text-xs font-semibold mb-1 opacity-75">
-                            {msg.role === 'user' ? 'You' : msg.role === 'error' ? 'Error' : agentName}
+                            {msg.role === "user"
+                              ? "You"
+                              : msg.role === "error"
+                              ? "Error"
+                              : agentName}
                           </div>
                           {msg.content}
                         </div>
@@ -1036,13 +1443,19 @@ export default function AgentSetupSingle() {
                       <div className="bg-gray-100 text-gray-900 p-2 rounded-md text-sm mr-4">
                         <div className="flex gap-1">
                           <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                          <div
+                            className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                            style={{ animationDelay: "0.1s" }}
+                          ></div>
+                          <div
+                            className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                            style={{ animationDelay: "0.2s" }}
+                          ></div>
                         </div>
                       </div>
                     )}
                   </div>
-                  
+
                   {/* Chat Input */}
                   <div className="flex gap-2">
                     <input
@@ -1050,7 +1463,7 @@ export default function AgentSetupSingle() {
                       value={userMessage}
                       onChange={(e) => setUserMessage(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !isLoadingResponse) {
+                        if (e.key === "Enter" && !isLoadingResponse) {
                           handleSendMessage();
                         }
                       }}
@@ -1071,8 +1484,12 @@ export default function AgentSetupSingle() {
             </div>
 
             <div className="p-3 border rounded-md bg-slate-50 text-sm">
-              <button className="w-full px-3 py-2 border rounded-md text-sm">Test via web call</button>
-              <p className="text-xs text-slate-400 mt-2">Test your agent with voice calls</p>
+              <button className="w-full px-3 py-2 border rounded-md text-sm">
+                Test via web call
+              </button>
+              <p className="text-xs text-slate-400 mt-2">
+                Test your agent with voice calls
+              </p>
             </div>
           </div>
 

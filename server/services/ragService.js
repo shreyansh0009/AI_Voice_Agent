@@ -1,9 +1,9 @@
-import { Pinecone } from '@pinecone-database/pinecone';
-import { OpenAIEmbeddings } from '@langchain/openai';
-import { PineconeStore } from '@langchain/pinecone';
-import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
-import { Document } from '@langchain/core/documents';
-import { config } from '../config/index.js';
+import { Pinecone } from "@pinecone-database/pinecone";
+import { OpenAIEmbeddings } from "@langchain/openai";
+import { PineconeStore } from "@langchain/pinecone";
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
+import { Document } from "@langchain/core/documents";
+import { config } from "../config/index.js";
 
 class RAGService {
   constructor() {
@@ -20,12 +20,12 @@ class RAGService {
         this.pinecone = new Pinecone({
           apiKey: config.pineconeApiKey,
         });
-        
+
         this.index = this.pinecone.index(config.pineconeIndex);
-        
-        console.log('✅ Pinecone initialized');
+
+        console.log("✅ Pinecone initialized");
       } else {
-        console.warn('⚠️  Pinecone API key not found. Vector search disabled.');
+        console.warn("⚠️  Pinecone API key not found. Vector search disabled.");
       }
 
       // Initialize OpenAI Embeddings
@@ -34,15 +34,15 @@ class RAGService {
           openAIApiKey: config.openaiApiKey,
           modelName: config.embeddingModel,
         });
-        console.log('✅ OpenAI Embeddings initialized');
+        console.log("✅ OpenAI Embeddings initialized");
       } else {
-        console.warn('⚠️  OpenAI API key not found. Embeddings disabled.');
+        console.warn("⚠️  OpenAI API key not found. Embeddings disabled.");
       }
 
       this.initialized = this.embeddings && this.pinecone;
       return this.initialized;
     } catch (error) {
-      console.error('❌ Failed to initialize RAG service:', error);
+      console.error("❌ Failed to initialize RAG service:", error);
       return false;
     }
   }
@@ -54,11 +54,11 @@ class RAGService {
     const splitter = new RecursiveCharacterTextSplitter({
       chunkSize: config.chunkSize,
       chunkOverlap: config.chunkOverlap,
-      separators: ['\n\n', '\n', '.', '!', '?', ',', ' ', ''],
+      separators: ["\n\n", "\n", ".", "!", "?", ",", " ", ""],
     });
 
     const chunks = await splitter.splitText(text);
-    
+
     return chunks.map((chunk, index) => ({
       pageContent: chunk,
       metadata: {
@@ -74,7 +74,7 @@ class RAGService {
    */
   async storeDocument(fileInfo, extractedText) {
     if (!this.initialized) {
-      console.log('RAG not initialized, skipping vector storage');
+      console.log("RAG not initialized, skipping vector storage");
       return null;
     }
 
@@ -88,15 +88,17 @@ class RAGService {
         mimeType: fileInfo.mimetype,
       });
 
-      console.log(`📄 Chunked "${fileInfo.originalName}" into ${chunks.length} pieces`);
+      console.log(
+        `📄 Chunked "${fileInfo.originalName}" into ${chunks.length} pieces`
+      );
 
       // Create documents
-      const documents = chunks.map(chunk => new Document(chunk));
+      const documents = chunks.map((chunk) => new Document(chunk));
 
       // Store in Pinecone
       await PineconeStore.fromDocuments(documents, this.embeddings, {
         pineconeIndex: this.index,
-        namespace: 'knowledge-base',
+        namespace: "knowledge-base",
       });
 
       console.log(`✅ Stored ${chunks.length} chunks in vector database`);
@@ -106,7 +108,7 @@ class RAGService {
         chunksStored: chunks.length,
       };
     } catch (error) {
-      console.error('❌ Error storing document:', error);
+      console.error("❌ Error storing document:", error);
       return {
         success: false,
         error: error.message,
@@ -121,38 +123,45 @@ class RAGService {
     if (!this.initialized) {
       return {
         success: false,
-        error: 'RAG service not initialized',
-        context: '',
+        error: "RAG service not initialized",
+        context: "",
       };
     }
 
     try {
-      const vectorStore = await PineconeStore.fromExistingIndex(this.embeddings, {
-        pineconeIndex: this.index,
-        namespace: 'knowledge-base',
-      });
+      const vectorStore = await PineconeStore.fromExistingIndex(
+        this.embeddings,
+        {
+          pineconeIndex: this.index,
+          namespace: "knowledge-base",
+        }
+      );
 
       const results = await vectorStore.similaritySearch(query, topK);
 
       const context = results
         .map((doc, idx) => {
-          const source = doc.metadata.fileName || 'Unknown';
+          const source = doc.metadata.fileName || "Unknown";
           return `[Source ${idx + 1}: ${source}]\n${doc.pageContent}`;
         })
-        .join('\n\n---\n\n');
+        .join("\n\n---\n\n");
 
       return {
         success: true,
         context,
-        sources: results.map(doc => doc.metadata),
+        results: results.map((doc) => ({
+          text: doc.pageContent,
+          metadata: doc.metadata,
+        })),
+        sources: results.map((doc) => doc.metadata),
         numResults: results.length,
       };
     } catch (error) {
-      console.error('❌ Error retrieving context:', error);
+      console.error("❌ Error retrieving context:", error);
       return {
         success: false,
         error: error.message,
-        context: '',
+        context: "",
       };
     }
   }
@@ -162,27 +171,30 @@ class RAGService {
    */
   async deleteFileVectors(fileId) {
     if (!this.initialized) {
-      return { success: false, error: 'RAG not initialized' };
+      return { success: false, error: "RAG not initialized" };
     }
 
     try {
       // Query all vectors with this fileId
       const queryResponse = await this.index.query({
-        namespace: 'knowledge-base',
+        namespace: "knowledge-base",
         filter: { fileId: { $eq: fileId } },
         topK: 10000,
         includeMetadata: false,
       });
 
       if (queryResponse.matches && queryResponse.matches.length > 0) {
-        const ids = queryResponse.matches.map(match => match.id);
-        await this.index.deleteMany(ids, 'knowledge-base');
+        const ids = queryResponse.matches.map((match) => match.id);
+        await this.index.deleteMany(ids, "knowledge-base");
         console.log(`🗑️  Deleted ${ids.length} vectors for file ${fileId}`);
       }
 
-      return { success: true, deletedCount: queryResponse.matches?.length || 0 };
+      return {
+        success: true,
+        deletedCount: queryResponse.matches?.length || 0,
+      };
     } catch (error) {
-      console.error('❌ Error deleting vectors:', error);
+      console.error("❌ Error deleting vectors:", error);
       return { success: false, error: error.message };
     }
   }
@@ -190,19 +202,25 @@ class RAGService {
   /**
    * Generate enhanced response with RAG
    */
-  async generateRAGResponse(query, conversationHistory = [], systemPrompt = '', options = {}) {
+  async generateRAGResponse(
+    query,
+    conversationHistory = [],
+    systemPrompt = "",
+    options = {}
+  ) {
     try {
       // Retrieve relevant context from knowledge base
       const retrieval = await this.retrieveContext(query, 3);
 
       if (!retrieval.success) {
-        throw new Error('Failed to retrieve context');
+        throw new Error("Failed to retrieve context");
       }
 
       // Build smart RAG prompt - only use KB when needed
-      const contextSection = retrieval.context && retrieval.context.length > 50
-        ? `\n\n--- KNOWLEDGE BASE REFERENCE (Use ONLY if your instructions don't cover this) ---\n${retrieval.context}\n--- END KNOWLEDGE BASE ---\n\n`
-        : '';
+      const contextSection =
+        retrieval.context && retrieval.context.length > 50
+          ? `\n\n--- KNOWLEDGE BASE REFERENCE (Use ONLY if your instructions don't cover this) ---\n${retrieval.context}\n--- END KNOWLEDGE BASE ---\n\n`
+          : "";
 
       // Priority: Agent Prompt > Knowledge Base > General Knowledge
       const enhancedSystemPrompt = `${systemPrompt}
@@ -216,29 +234,32 @@ ${contextSection}INSTRUCTIONS:
 
       // Build messages with conversation history
       const messages = [
-        { role: 'system', content: enhancedSystemPrompt },
+        { role: "system", content: enhancedSystemPrompt },
         ...conversationHistory,
-        { role: 'user', content: query },
+        { role: "user", content: query },
       ];
 
       // Call OpenAI
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.openaiApiKey}`,
-        },
-        body: JSON.stringify({
-          model: config.chatModel,
-          messages: messages,
-          temperature: options.temperature || config.temperature,
-          max_tokens: options.max_tokens || 500, // Increased for better responses
-        }),
-      });
+      const response = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${config.openaiApiKey}`,
+          },
+          body: JSON.stringify({
+            model: config.chatModel,
+            messages: messages,
+            temperature: options.temperature || config.temperature,
+            max_tokens: options.max_tokens || 500, // Increased for better responses
+          }),
+        }
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error?.message || 'OpenAI API error');
+        throw new Error(errorData.error?.message || "OpenAI API error");
       }
 
       const data = await response.json();
@@ -252,7 +273,7 @@ ${contextSection}INSTRUCTIONS:
         tokensUsed: data.usage?.total_tokens || 0,
       };
     } catch (error) {
-      console.error('❌ RAG generation error:', error);
+      console.error("❌ RAG generation error:", error);
       return {
         success: false,
         error: error.message,

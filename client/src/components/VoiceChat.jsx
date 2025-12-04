@@ -22,6 +22,7 @@ const VoiceChat = ({
   const [error, setError] = useState("");
   const [selectedVoice, setSelectedVoice] = useState("anushka"); // Voice selector
   const [ragEnabled, setRagEnabled] = useState(useRAG); // RAG toggle
+  const [selectedLLM, setSelectedLLM] = useState("openai"); // 'openai' or 'agentforce'
 
   // Continuous voice mode (auto-listen after speaking)
   const [continuousMode, setContinuousMode] = useState(() => {
@@ -955,6 +956,88 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
           conversationHistoryRef.current.length - 1
         ]?.content || "";
 
+      // AGENTFORCE INTEGRATION
+      if (selectedLLM === "agentforce") {
+        try {
+          // Construct a message that includes context if needed, or just the user message
+          // For now, we'll send the user message. The session is managed by the server/Salesforce.
+          // To ensure the Agent behaves similarly (JSON memory), we might need to rely on the Agent's configuration
+          // or prepend instructions.
+
+          // Let's try to send the user message directly.
+          const response = await fetch(
+            `${import.meta.env.VITE_API_URL}/api/agentforce/chat`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${localStorage.getItem("token") || ""}`, // Assuming auth token is needed/available
+              },
+              body: JSON.stringify({
+                message: lastUserMessage,
+                conversationHistory: conversationHistoryRef.current, // Optional: send history if needed by controller
+                useRAG: ragEnabled,
+              }),
+            }
+          );
+
+          if (!response.ok) {
+            throw new Error("Agentforce API request failed");
+          }
+
+          const data = await response.json();
+          let aiResponse = data.response;
+
+          // Process response similar to OpenAI (Language switch, Memory)
+
+          // Check if AI wants to switch language
+          if (aiResponse.startsWith("LANGUAGE_SWITCH:")) {
+            const match = aiResponse.match(
+              /^LANGUAGE_SWITCH:([a-z]{2})[\s\n]/i
+            );
+            if (match) {
+              const newLanguageCode = match[1].toLowerCase();
+              if (languageNames[newLanguageCode]) {
+                currentLanguageRef.current = newLanguageCode;
+                setSelectedLanguage(newLanguageCode);
+                aiResponse = aiResponse
+                  .replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, "")
+                  .trim();
+              }
+            }
+          }
+
+          // Memory extraction
+          const memoryMatch = aiResponse.match(/\[MEMORY:\s*({[\s\S]*?})\]/);
+          if (memoryMatch) {
+            try {
+              const updates = JSON.parse(memoryMatch[1]);
+              if (Object.keys(updates).length > 0) {
+                const newContext = {
+                  ...customerContextRef.current,
+                  ...updates,
+                  lastUpdated: new Date().toISOString(),
+                };
+                setCustomerContext(newContext);
+                customerContextRef.current = newContext;
+              }
+              aiResponse = aiResponse.replace(memoryMatch[0], "").trim();
+            } catch (e) {
+              console.error("❌ Failed to parse AI memory block:", e);
+            }
+          }
+
+          return aiResponse;
+        } catch (error) {
+          console.error("Agentforce error:", error);
+          // Fallback to OpenAI if Agentforce fails? Or just throw?
+          // For now, let's throw so the user knows it failed.
+          throw new Error(
+            "Failed to get response from Agentforce: " + error.message
+          );
+        }
+      }
+
       // If RAG is enabled, use the RAG endpoint
       if (ragEnabled && lastUserMessage) {
         try {
@@ -964,6 +1047,7 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
+                Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
               },
               body: JSON.stringify({
                 query: lastUserMessage,
@@ -1100,22 +1184,22 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
       if (memoryMatch) {
         try {
           const updates = JSON.parse(memoryMatch[1]);
-          
+
           // Only update if we have valid data
           if (Object.keys(updates).length > 0) {
             // console.log('🧠 AI extracted memory updates:', updates);
-            
+
             // Update context synchronously
             const newContext = {
               ...customerContextRef.current,
               ...updates,
               lastUpdated: new Date().toISOString(),
             };
-            
+
             setCustomerContext(newContext);
             customerContextRef.current = newContext;
           }
-          
+
           // Remove the memory block from the text so it's not spoken
           aiResponse = aiResponse.replace(memoryMatch[0], "").trim();
         } catch (e) {
@@ -1353,6 +1437,21 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
 
       {/* Language and Voice Selectors */}
       <div className="mb-6 grid grid-cols-2 gap-4">
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-medium text-slate-700">
+            AI Model:
+          </label>
+          <select
+            value={selectedLLM}
+            onChange={(e) => setSelectedLLM(e.target.value)}
+            disabled={isListening || isProcessing}
+            className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:cursor-not-allowed"
+          >
+            <option value="openai">OpenAI (GPT-4o-mini)</option>
+            <option value="agentforce">Salesforce Agentforce</option>
+          </select>
+        </div>
+
         <div className="flex flex-col gap-2">
           <label className="text-sm font-medium text-slate-700">
             Language:

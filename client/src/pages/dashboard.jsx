@@ -25,6 +25,7 @@ import { HiBolt, HiArrowUp } from "react-icons/hi2";
 import AxisLayout from "../components/AxisLayout";
 import { LogOut, LayoutDashboard, UserCircle } from 'lucide-react';
 
+
 function Dashboard() {
   const [activeTab, setActiveTab] = useState("live");
   const [teamMember, setTeamMember] = useState("you");
@@ -244,6 +245,7 @@ function Dashboard() {
     <>
       <div className="h-full overflow-auto">
         {/* Header with Greeting and Logout */}
+
         <div className="
         relative overflow-hidden
         flex flex-col sm:flex-row justify-between items-start sm:items-center 
@@ -303,6 +305,7 @@ function Dashboard() {
         </div>
 
       </div>
+        
 
         <div className="bg-linear-to-br from-white to-gray-50 shadow-lg rounded-xl border border-gray-100 m-3 lg:m-6 mt-0 overflow-hidden hover:shadow-xl transition-shadow duration-300">
           <div className="flex flex-col lg:flex-row h-full">
