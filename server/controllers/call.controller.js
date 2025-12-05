@@ -1,7 +1,7 @@
-import exotelService from '../services/exotel.service.js';
-import aiAgentService from '../services/aiAgent.service.js';
-import callStorageService from '../services/callStorage.service.js';
-import deepgramService from '../services/deepgram.service.js';
+import exotelService from "../services/exotel.service.js";
+import aiAgentService from "../services/aiAgent.service.js";
+import callStorageService from "../services/callStorage.service.js";
+import deepgramService from "../services/deepgram.service.js";
 
 /**
  * Call Controller - Handles phone call operations
@@ -13,26 +13,32 @@ class CallController {
    */
   async initiateCall(req, res) {
     try {
-      const { phoneNumber, agentId = 'default', customerContext = {} } = req.body;
+      const {
+        phoneNumber,
+        agentId = "default",
+        customerContext = {},
+      } = req.body;
 
       if (!phoneNumber) {
         return res.status(400).json({
           success: false,
-          error: 'Phone number is required'
+          error: "Phone number is required",
         });
       }
 
       // Create call record in database
       const callRecord = await callStorageService.createCall({
         phoneNumber,
-        direction: 'outbound',
-        status: 'initiated',
+        direction: "outbound",
+        status: "initiated",
         agentId,
-        customerContext
+        customerContext,
       });
 
       // Build webhook URL for call flow
-      const baseUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const baseUrl =
+        process.env.SERVER_URL ||
+        `http://localhost:${process.env.PORT || 5000}`;
       const callbackUrl = `${baseUrl}/api/call/webhook/flow/${callRecord.id}`;
 
       // Initiate call via Exotel
@@ -45,20 +51,20 @@ class CallController {
       // Update call record with Exotel SID
       await callStorageService.updateCall(callRecord.id, {
         exotelCallSid: exotelResponse.callSid,
-        status: 'ringing'
+        status: "ringing",
       });
 
       res.json({
         success: true,
-        message: 'Call initiated successfully',
+        message: "Call initiated successfully",
         callId: callRecord.id,
-        exotelCallSid: exotelResponse.callSid
+        exotelCallSid: exotelResponse.callSid,
       });
     } catch (error) {
-      console.error('Error initiating call:', error);
+      console.error("Error initiating call:", error);
       res.status(500).json({
         success: false,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -75,7 +81,7 @@ class CallController {
       }
       return res.status(401).json({ success: false, error: result.error });
     } catch (error) {
-      console.error('Error testing Exotel auth:', error);
+      console.error("Error testing Exotel auth:", error);
       res.status(500).json({ success: false, error: error.message });
     }
   }
@@ -92,7 +98,7 @@ class CallController {
       }
       return res.status(500).json({ success: false, error: result.error });
     } catch (error) {
-      console.error('Error getting phone numbers:', error);
+      console.error("Error getting phone numbers:", error);
       res.status(500).json({ success: false, error: error.message });
     }
   }
@@ -104,52 +110,55 @@ class CallController {
   async handleIncomingCall(req, res) {
     try {
       const webhookData = exotelService.parseWebhookData(req.body);
-      
-      console.log('📞 Incoming call from:', webhookData.from);
+
+      console.log("📞 Incoming call from:", webhookData.from);
 
       // Create call record
       const callRecord = await callStorageService.createCall({
         exotelCallSid: webhookData.callSid,
         phoneNumber: webhookData.from,
-        direction: 'inbound',
-        status: 'in_progress',
-        agentId: 'default' // You can determine this based on the called number
+        direction: "inbound",
+        status: "in_progress",
+        agentId: "default", // You can determine this based on the called number
       });
 
       // Build webhook URL for call flow
-      const baseUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const baseUrl =
+        process.env.SERVER_URL ||
+        `http://localhost:${process.env.PORT || 5000}`;
       const callbackUrl = `${baseUrl}/api/call/webhook/flow/${callRecord.id}`;
 
       // Generate welcome message XML
-      const welcomeMessage = 'Hello! Welcome to our AI powered CRM. How can I help you today?';
+      const welcomeMessage =
+        "Hello! Welcome to our AI powered CRM. How can I help you today?";
       const xml = exotelService.generateCallFlowXML(
         welcomeMessage,
         callbackUrl,
-        { recordCall: true, language: 'en' }
+        { recordCall: true, language: "en" }
       );
 
       // Add system log
       await callStorageService.addCallLog(callRecord.id, {
-        type: 'system',
-        content: 'Call started'
+        type: "system",
+        content: "Call started",
       });
 
       // Add assistant log
       await callStorageService.addCallLog(callRecord.id, {
-        type: 'assistant',
-        content: welcomeMessage
+        type: "assistant",
+        content: welcomeMessage,
       });
 
-      res.type('text/xml').send(xml);
+      res.type("text/xml").send(xml);
     } catch (error) {
-      console.error('Error handling incoming call:', error);
-      
+      console.error("Error handling incoming call:", error);
+
       // Send error response XML
       const errorXml = exotelService.generateCallFlowXML(
-        'Sorry, there was an error processing your call. Please try again later.',
+        "Sorry, there was an error processing your call. Please try again later.",
         null
       );
-      res.type('text/xml').send(errorXml);
+      res.type("text/xml").send(errorXml);
     }
   }
 
@@ -171,48 +180,79 @@ class CallController {
 
       // Check if we have a recording URL (user spoke)
       if (webhookData.recordingUrl) {
-        console.log('🎤 User recording received:', webhookData.recordingUrl);
+        console.log("🎤 User recording received:", webhookData.recordingUrl);
 
-        let userMessage = '';
-        
-        // Transcribe user speech using Deepgram
+        let userMessage = "";
+
+        // Transcribe user speech using Deepgram with language detection
+        let detectedLanguage = "en";
+
         try {
           if (deepgramService.isReady()) {
-            console.log('🎙️  Transcribing with Deepgram...');
-            const transcription = await deepgramService.transcribePhoneCall(
-              webhookData.recordingUrl
-            );
+            console.log("🎙️  Transcribing with Deepgram (Auto Detect)...");
+            // Use language detection instead of hardcoded English
+            const transcription =
+              await deepgramService.transcribeWithLanguageDetection(
+                webhookData.recordingUrl
+              );
+
             userMessage = transcription.transcript;
-            console.log('✓ Transcription:', userMessage, `(confidence: ${transcription.confidence.toFixed(2)})`);
-            
+
+            // Get detected language code (e.g., 'hi', 'en')
+            if (transcription.language) {
+              detectedLanguage = transcription.language;
+            } else if (
+              transcription.raw?.results?.channels?.[0]?.detected_language
+            ) {
+              detectedLanguage =
+                transcription.raw.results.channels[0].detected_language;
+            }
+
+            console.log(
+              "✓ Transcription:",
+              userMessage,
+              `(confidence: ${transcription.confidence?.toFixed(2)})`
+            );
+            console.log("🌐 Detected Language:", detectedLanguage);
+
             // If transcription is empty or very low confidence, ask user to repeat
-            if (!userMessage || userMessage.length < 3 || transcription.confidence < 0.3) {
-              console.log('⚠️  Low confidence or empty transcription');
-              userMessage = '[UNCLEAR_AUDIO]';
+            if (
+              !userMessage ||
+              userMessage.length < 3 ||
+              (transcription.confidence && transcription.confidence < 0.3)
+            ) {
+              console.log("⚠️  Low confidence or empty transcription");
+              userMessage = "[UNCLEAR_AUDIO]";
             }
           } else {
-            console.warn('⚠️  Deepgram not available, using placeholder');
-            userMessage = '[AUDIO_NOT_TRANSCRIBED]';
+            console.warn("⚠️  Deepgram not available, using placeholder");
+            userMessage = "[AUDIO_NOT_TRANSCRIBED]";
           }
         } catch (error) {
-          console.error('❌ Deepgram transcription error:', error.message);
-          userMessage = '[TRANSCRIPTION_ERROR]';
+          console.error("❌ Deepgram transcription error:", error.message);
+          userMessage = "[TRANSCRIPTION_ERROR]";
         }
 
         // Add user message to call log
         await callStorageService.addCallLog(callId, {
-          type: 'user',
+          type: "user",
           content: userMessage,
-          audioUrl: webhookData.recordingUrl
+          audioUrl: webhookData.recordingUrl,
+          metadata: { language: detectedLanguage },
         });
 
         // Handle transcription errors with appropriate responses
         let aiResponse;
-        
-        if (userMessage === '[UNCLEAR_AUDIO]') {
-          aiResponse = "I'm sorry, I couldn't hear you clearly. Could you please repeat that?";
-        } else if (userMessage === '[AUDIO_NOT_TRANSCRIBED]' || userMessage === '[TRANSCRIPTION_ERROR]') {
-          aiResponse = "I'm having trouble understanding. Could you try speaking a bit more clearly?";
+
+        if (userMessage === "[UNCLEAR_AUDIO]") {
+          aiResponse =
+            "I'm sorry, I couldn't hear you clearly. Could you please repeat that?";
+        } else if (
+          userMessage === "[AUDIO_NOT_TRANSCRIBED]" ||
+          userMessage === "[TRANSCRIPTION_ERROR]"
+        ) {
+          aiResponse =
+            "I'm having trouble understanding. Could you try speaking a bit more clearly?";
         } else {
           // Update customer context from user message
           const updatedContext = aiAgentService.extractCustomerInfo(
@@ -220,60 +260,69 @@ class CallController {
             call.customerContext
           );
           await callStorageService.updateCall(callId, {
-            customerContext: updatedContext
+            customerContext: updatedContext,
           });
 
           // Get AI response
+          // We force 'agentforce' provider if configured, or fallback to 'openai'
+          // Ideally this should be configurable per agent/call
+          const provider = process.env.AI_PROVIDER || "agentforce";
+
           const aiResult = await aiAgentService.processMessage(
             userMessage,
             call.agentId,
             updatedContext,
             call.transcript,
             {
-              language: 'en', // TODO: Track language per call
-              useRAG: false,
-              systemPrompt: 'You are a helpful CRM assistant on a phone call. Keep responses brief and clear.',
-              maxTokens: 100 // Shorter for phone calls
+              language: detectedLanguage, // Pass the DETECTED language
+              useRAG: true, // Enable RAG by default for Agentforce
+              systemPrompt:
+                "You are a helpful CRM assistant on a phone call. Keep responses brief and clear.",
+              maxTokens: 100, // Shorter for phone calls
+              provider: provider,
             }
           );
 
-          aiResponse = typeof aiResult === 'string' ? aiResult : aiResult.response;
+          aiResponse =
+            typeof aiResult === "string" ? aiResult : aiResult.response;
         }
 
         // Add AI response to call log
         await callStorageService.addCallLog(callId, {
-          type: 'assistant',
-          content: aiResponse
+          type: "assistant",
+          content: aiResponse,
         });
 
         // Generate XML to speak AI response and wait for next input
-        const baseUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 5000}`;
+        const baseUrl =
+          process.env.SERVER_URL ||
+          `http://localhost:${process.env.PORT || 5000}`;
         const nextUrl = `${baseUrl}/api/call/webhook/flow/${callId}`;
-        
-        const xml = exotelService.generateCallFlowXML(
-          aiResponse,
-          nextUrl,
-          { recordCall: true, language: 'en' }
-        );
 
-        return res.type('text/xml').send(xml);
+        const xml = exotelService.generateCallFlowXML(aiResponse, nextUrl, {
+          recordCall: true,
+          language: "en",
+        });
+
+        return res.type("text/xml").send(xml);
       }
 
       // No recording, ask user to speak
-      const baseUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const baseUrl =
+        process.env.SERVER_URL ||
+        `http://localhost:${process.env.PORT || 5000}`;
       const nextUrl = `${baseUrl}/api/call/webhook/flow/${callId}`;
-      
-      const xml = exotelService.generateRecordXML(60, nextUrl);
-      res.type('text/xml').send(xml);
 
+      const xml = exotelService.generateRecordXML(60, nextUrl);
+      res.type("text/xml").send(xml);
     } catch (error) {
-      console.error('Error in call flow:', error);
-      
+      console.error("Error in call flow:", error);
+
       const errorXml = exotelService.generateCallFlowXML(
-        'Sorry, there was an error. Goodbye.',
+        "Sorry, there was an error. Goodbye.",
         null
       );
-      res.type('text/xml').send(errorXml);
+      res.type("text/xml").send(errorXml);
     }
   }
 
@@ -289,7 +338,7 @@ class CallController {
       console.log(`📊 Call status update for ${callId}:`, webhookData.status);
 
       const updates = {
-        status: webhookData.status
+        status: webhookData.status,
       };
 
       if (webhookData.duration) {
@@ -300,13 +349,16 @@ class CallController {
         updates.recordingUrl = webhookData.recordingUrl;
       }
 
-      if (webhookData.status === 'completed' || webhookData.status === 'failed') {
+      if (
+        webhookData.status === "completed" ||
+        webhookData.status === "failed"
+      ) {
         updates.endedAt = new Date().toISOString();
-        
+
         // Add system log
         await callStorageService.addCallLog(callId, {
-          type: 'system',
-          content: `Call ${webhookData.status}`
+          type: "system",
+          content: `Call ${webhookData.status}`,
         });
       }
 
@@ -314,10 +366,10 @@ class CallController {
 
       res.json({ success: true });
     } catch (error) {
-      console.error('Error handling call status:', error);
+      console.error("Error handling call status:", error);
       res.status(500).json({
         success: false,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -334,19 +386,19 @@ class CallController {
       if (!call) {
         return res.status(404).json({
           success: false,
-          error: 'Call not found'
+          error: "Call not found",
         });
       }
 
       res.json({
         success: true,
-        call
+        call,
       });
     } catch (error) {
-      console.error('Error getting call:', error);
+      console.error("Error getting call:", error);
       res.status(500).json({
         success: false,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -361,7 +413,7 @@ class CallController {
         phoneNumber: req.query.phoneNumber,
         direction: req.query.direction,
         status: req.query.status,
-        agentId: req.query.agentId
+        agentId: req.query.agentId,
       };
 
       const calls = await callStorageService.getAllCalls(filters);
@@ -369,13 +421,13 @@ class CallController {
       res.json({
         success: true,
         calls,
-        count: calls.length
+        count: calls.length,
       });
     } catch (error) {
-      console.error('Error getting call history:', error);
+      console.error("Error getting call history:", error);
       res.status(500).json({
         success: false,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -392,14 +444,14 @@ class CallController {
       if (!call) {
         return res.status(404).json({
           success: false,
-          error: 'Call not found'
+          error: "Call not found",
         });
       }
 
       if (!call.exotelCallSid) {
         return res.status(400).json({
           success: false,
-          error: 'Call not initiated yet'
+          error: "Call not initiated yet",
         });
       }
 
@@ -408,19 +460,19 @@ class CallController {
 
       // Update call record
       await callStorageService.updateCall(callId, {
-        status: 'completed',
-        endedAt: new Date().toISOString()
+        status: "completed",
+        endedAt: new Date().toISOString(),
       });
 
       res.json({
         success: true,
-        message: 'Call hung up successfully'
+        message: "Call hung up successfully",
       });
     } catch (error) {
-      console.error('Error hanging up call:', error);
+      console.error("Error hanging up call:", error);
       res.status(500).json({
         success: false,
-        error: error.message
+        error: error.message,
       });
     }
   }
