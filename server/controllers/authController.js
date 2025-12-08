@@ -39,12 +39,10 @@ export const signup = async (req, res) => {
       !/\d/.test(password)
     ) {
       console.log("🔴 SIGNUP: Weak password");
-      return res
-        .status(400)
-        .json({
-          message:
-            "Password must be at least 8 characters and include a letter and a number.",
-        });
+      return res.status(400).json({
+        message:
+          "Password must be at least 8 characters and include a letter and a number.",
+      });
     }
 
     console.log("🔵 SIGNUP: Checking for existing user");
@@ -237,5 +235,91 @@ export const verifyToken = async (req, res) => {
       name: err.name,
     });
     res.status(403).json({ message: "Invalid or expired token." });
+  }
+};
+
+export const googleLogin = async (req, res) => {
+  console.log("🔵 GOOGLE LOGIN: Handler started");
+  const { credential, access_token } = req.body;
+
+  if (!credential && !access_token) {
+    console.log("🔴 GOOGLE LOGIN: No credential or access_token provided");
+    return res
+      .status(400)
+      .json({ message: "Google credential or access_token required" });
+  }
+
+  try {
+    await connectDB();
+
+    // Lazy load OAuth2Client to avoid top-level await issues if config is missing
+    const { OAuth2Client } = await import("google-auth-library");
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+    let email;
+
+    if (credential) {
+      console.log("🔵 GOOGLE LOGIN: Verifying ID Token...");
+      const ticket = await client.verifyIdToken({
+        idToken: credential,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      const payload = ticket.getPayload();
+      email = payload.email;
+    } else if (access_token) {
+      console.log("🔵 GOOGLE LOGIN: Verifying Access Token via UserInfo...");
+      // Use fetch to get user info
+      const userInfoResponse = await fetch(
+        "https://www.googleapis.com/oauth2/v3/userinfo",
+        {
+          headers: { Authorization: `Bearer ${access_token}` },
+        }
+      );
+
+      if (!userInfoResponse.ok) {
+        throw new Error("Failed to fetch user info with access token");
+      }
+
+      const userInfo = await userInfoResponse.json();
+      email = userInfo.email;
+    }
+
+    console.log("🔵 GOOGLE LOGIN: Verified email", { email });
+
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      console.log("🔵 GOOGLE LOGIN: User not found, creating new user");
+      // Generate random password for google users
+      const randomPassword =
+        (await import("crypto")).randomBytes(16).toString("hex") + "A1!"; // Ensure it meets complexity requirements
+      const hashed = await bcrypt.hash(randomPassword, BCRYPT_SALT_ROUNDS);
+
+      user = new User({
+        email,
+        password: hashed,
+        role: "user",
+      });
+      await user.save();
+      console.log("✅ GOOGLE LOGIN: User created");
+    } else {
+      console.log("🔵 GOOGLE LOGIN: User found");
+    }
+
+    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, {
+      expiresIn: JWT_EXPIRES_IN,
+    });
+
+    console.log("✅ GOOGLE LOGIN: Success", { userId: user._id });
+    res.json({
+      token,
+      role: user.role,
+      email: user.email,
+    });
+  } catch (err) {
+    console.error("❌ GOOGLE LOGIN: Error", err);
+    res
+      .status(500)
+      .json({ message: "Google login failed", error: err.message });
   }
 };

@@ -127,6 +127,43 @@ export function AuthProvider({ children }) {
     return res.data;
   };
 
+  const googleLogin = async (accessToken) => {
+    console.log("🔵 AUTH CONTEXT: Google Login called");
+
+    const res = await api.post("/api/auth/google", {
+      access_token: accessToken,
+    });
+
+    console.log("🔵 AUTH CONTEXT: Google Login response", {
+      hasToken: !!res.data?.token,
+      role: res.data?.role,
+      fullResponse: res.data,
+    });
+
+    if (res.data?.token) {
+      const receivedToken = res.data.token;
+      const userRole = res.data.role;
+
+      // Save to localStorage first
+      localStorage.setItem("token", receivedToken);
+      localStorage.setItem("role", userRole);
+      console.log("💾 AUTH CONTEXT: Saved to localStorage", {
+        token: receivedToken.substring(0, 20) + "...",
+        role: userRole,
+      });
+
+      // Then update state
+      setToken(receivedToken);
+      setRole(userRole);
+      setUser({ email: res.data.email, role: userRole });
+      console.log("✅ AUTH CONTEXT: Google Login successful, state updated");
+    } else {
+      console.error("❌ AUTH CONTEXT: No token in response", res.data);
+    }
+
+    return res.data;
+  };
+
   const logout = async () => {
     console.log("🔵 AUTH CONTEXT: Logout called");
     try {
@@ -153,6 +190,7 @@ export function AuthProvider({ children }) {
     loading,
     isAuthenticated: !!token,
     login,
+    googleLogin,
     logout,
   };
 
