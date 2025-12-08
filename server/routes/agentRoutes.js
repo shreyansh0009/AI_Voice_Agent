@@ -5,6 +5,7 @@ import {
   getAgentById,
   updateAgent,
   deleteAgent,
+  generateAgentConfig,
 } from "../controllers/agentController.js";
 import { authenticate } from "../middleware/authMiddleware.js";
 
@@ -13,6 +14,7 @@ const router = express.Router();
 // All routes are protected
 router.use(authenticate);
 
+router.post("/generate", generateAgentConfig);
 router.post("/", createAgent);
 router.get("/", getAgents);
 router.get("/:id", getAgentById);

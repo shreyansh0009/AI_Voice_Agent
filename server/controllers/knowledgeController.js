@@ -27,9 +27,11 @@ export const uploadKnowledgeFiles = asyncHandler(async (req, res) => {
 
   const { agentId = "default", tags = [] } = req.body;
   const parsedTags = typeof tags === "string" ? JSON.parse(tags) : tags;
+  // Use .id from the JWT payload
+  const userId = req.user.id;
 
-  // Check if a file already exists for this agent
-  const existingFiles = await File.find({ agentId });
+  // Check if a file already exists for this agent AND user
+  const existingFiles = await File.find({ agentId, userId });
   if (existingFiles.length > 0) {
     // Delete the uploaded temp file since we're rejecting the upload
     const fs = await import("fs");
@@ -40,7 +42,7 @@ export const uploadKnowledgeFiles = asyncHandler(async (req, res) => {
     return res.status(400).json({
       success: false,
       error:
-        "A file is already uploaded. Please delete the existing file before uploading a new one.",
+        "A file is already uploaded for this agent. Please delete the existing file before uploading a new one.",
       existingFile: {
         originalName: existingFiles[0].originalName,
         fileName: existingFiles[0].fileName,
@@ -118,6 +120,7 @@ export const uploadKnowledgeFiles = asyncHandler(async (req, res) => {
       size: fileInfo.size,
       mimeType: fileInfo.mimeType,
       agentId,
+      userId,
       tags: parsedTags,
       processedForRAG: !!textContent,
     });
@@ -173,7 +176,12 @@ export const getKnowledgeFiles = asyncHandler(async (req, res) => {
   }
 
   const { agentId } = req.query;
-  const query = agentId ? { agentId } : {};
+  const userId = req.user.id;
+  const query = { userId };
+
+  if (agentId) {
+    query.agentId = agentId;
+  }
   const files = await File.find(query).sort({ uploadedAt: -1 });
 
   res.json({
@@ -196,11 +204,12 @@ export const deleteKnowledgeFile = asyncHandler(async (req, res) => {
   }
 
   const { filename } = req.params;
+  const userId = req.user.id;
 
   console.log("🗑️  Deleting file:", filename);
 
-  // Find file in MongoDB
-  const fileDoc = await File.findOne({ fileName: filename });
+  // Find file in MongoDB belonging to user
+  const fileDoc = await File.findOne({ fileName: filename, userId });
 
   if (!fileDoc) {
     return res.status(404).json({
@@ -252,6 +261,7 @@ export const searchKnowledgeFiles = asyncHandler(async (req, res) => {
   await connectDB();
 
   const { q, agentId } = req.query;
+  const userId = req.user.id;
 
   if (!q) {
     return res.status(400).json({
@@ -261,6 +271,7 @@ export const searchKnowledgeFiles = asyncHandler(async (req, res) => {
   }
 
   const query = {
+    userId,
     $or: [
       { originalName: { $regex: q, $options: "i" } },
       { fileName: { $regex: q, $options: "i" } },

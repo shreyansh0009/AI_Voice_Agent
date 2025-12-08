@@ -1,4 +1,61 @@
 import Agent from "../models/Agent.js";
+import { config } from "../config/index.js";
+import OpenAI from "openai";
+
+const openai = new OpenAI({
+  apiKey: config.openaiApiKey,
+});
+
+// Generate agent configuration from user inputs
+export const generateAgentConfig = async (req, res) => {
+  try {
+    const { name, languages, what, nextSteps, faqs, sample } = req.body;
+
+    // Construct the prompt for the LLM
+    const systemPrompt = `
+    You are an expert AI agent builder. Your goal is to create a "System Prompt" and a "Welcome Message" for a new AI Voice Agent based on the user's requirements.
+
+    USER REQUIREMENTS:
+    - Agent Name: ${name}
+    - Languages: ${JSON.stringify(languages)}
+    - Goal: ${what}
+    - Next Steps: ${nextSteps}
+    - FAQs/Info: ${faqs || "None"}
+    - Sample Transcript: ${sample || "None"}
+
+    OUTPUT FORMAT (JSON ONLY):
+    {
+      "name": "Refined Name",
+      "prompt": "The detailed system prompt for the agent...",
+      "welcome": "The concise welcome message..."
+    }
+
+    GUIDELINES:
+    1. The 'prompt' should be detailed, instructing the agent on its role, tone, constraints, and how to handle specific scenarios based on the user's input.
+    2. The 'welcome' should be short, friendly, and invite the user to speak.
+    3. If languages includes Hindi, ensure the prompt instructs the agent to be capable of speaking/understanding Hindi if spoken to, but default to English unless specified.
+    4. Do not include markdown code blocks, just raw JSON.
+    `;
+
+    const completion = await openai.chat.completions.create({
+      messages: [{ role: "system", content: systemPrompt }],
+      model: config.chatModel || "gpt-3.5-turbo",
+      response_format: { type: "json_object" },
+    });
+
+    const result = JSON.parse(completion.choices[0].message.content);
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error generating agent config:", error);
+    res
+      .status(500)
+      .json({
+        message: "Failed to generate agent configuration",
+        error: error.message,
+      });
+  }
+};
 
 // Create a new agent
 export const createAgent = async (req, res) => {

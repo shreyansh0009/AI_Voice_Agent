@@ -1,8 +1,13 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
 const fileSchema = new mongoose.Schema({
   fileName: {
     type: String,
+    required: true,
+  },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
     required: true,
   },
   originalName: {
@@ -34,6 +39,6 @@ const fileSchema = new mongoose.Schema({
   },
 });
 
-const File = mongoose.model('File', fileSchema);
+const File = mongoose.model("File", fileSchema);
 
 export default File;

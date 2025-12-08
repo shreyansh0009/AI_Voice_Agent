@@ -86,6 +86,7 @@ class RAGService {
         uploadedAt: fileInfo.uploadedAt,
         fileSize: fileInfo.size,
         mimeType: fileInfo.mimetype,
+        agentId: fileInfo.agentId, // Add agentId to metadata
       });
 
       console.log(
@@ -119,7 +120,7 @@ class RAGService {
   /**
    * Retrieve relevant context for a query
    */
-  async retrieveContext(query, topK = 5) {
+  async retrieveContext(query, topK = 5, filter = {}) {
     if (!this.initialized) {
       return {
         success: false,
@@ -137,7 +138,9 @@ class RAGService {
         }
       );
 
-      const results = await vectorStore.similaritySearch(query, topK);
+      // Perform similarity search with filter
+      // If agentId is provided in filter, it ensures we only get context for that agent
+      const results = await vectorStore.similaritySearch(query, topK, filter);
 
       const context = results
         .map((doc, idx) => {
@@ -209,8 +212,11 @@ class RAGService {
     options = {}
   ) {
     try {
-      // Retrieve relevant context from knowledge base
-      const retrieval = await this.retrieveContext(query, 3);
+      // Create filter if agentId is provided
+      const filter = options.agentId ? { agentId: options.agentId } : {};
+
+      // Retrieve relevant context from knowledge base with filter
+      const retrieval = await this.retrieveContext(query, 3, filter);
 
       if (!retrieval.success) {
         throw new Error("Failed to retrieve context");

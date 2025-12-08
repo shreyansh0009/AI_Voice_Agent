@@ -138,11 +138,20 @@ export default function AgentSetupSingle() {
   }, []);
 
   // Fetch uploaded files from server
-  const fetchUploadedFiles = async () => {
+  // Fetch files specific to the current agent
+  const fetchUploadedFiles = async (currentAgentId) => {
+    // If no agent selected (or new unsaved agent), clear files
+    if (!currentAgentId) {
+      setUploadedFiles([]);
+      return;
+    }
+
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/knowledge-files`,
+        `${
+          import.meta.env.VITE_API_URL
+        }/api/knowledge-files?agentId=${currentAgentId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -152,17 +161,19 @@ export default function AgentSetupSingle() {
       const data = await response.json();
 
       if (data.success) {
-        console.log("📂 Loaded files from server:", data.files);
+        console.log(`📂 Loaded files for agent ${currentAgentId}:`, data.files);
         setUploadedFiles(data.files);
-        localStorage.setItem(
-          "uploaded_knowledge_files",
-          JSON.stringify(data.files)
-        );
+        // We probably don't need localStorage for this anymore since it's agent-specific and synced with DB
       }
     } catch (error) {
       console.error("Failed to fetch files:", error);
     }
   };
+
+  // Effect to fetch files when selected agent changes
+  useEffect(() => {
+    fetchUploadedFiles(selectedAgentId);
+  }, [selectedAgentId]);
 
   // Save uploaded files to localStorage whenever they change
   useEffect(() => {
@@ -213,13 +224,33 @@ export default function AgentSetupSingle() {
   }, [chatMessages]);
 
   function handleCreateAgent(payload) {
-    // payload contains all modal fields
-    console.log("Generated agent payload:", payload);
-    // For now close modal and set agent name if provided
-    if (payload?.name) setAgentName(payload.name);
-    setShowAgentModal(false);
+    if (!payload) {
+      setShowAgentModal(false);
+      return;
+    }
 
-    // TODO: send payload to backend / create agent in app
+    console.log("Generating agent with payload:", payload);
+
+    // Optimistic UI update or loading state could go here
+
+    // Call backend to generate agent config
+    api
+      .post("/api/agents/generate", payload)
+      .then((res) => {
+        const { name, welcome, prompt } = res.data;
+
+        setIsNewAgent(true);
+        setSelectedAgentId(null);
+        setAgentName(name || payload.name || "New AI Agent");
+        setWelcome(welcome || "");
+        setPrompt(prompt || "");
+        setChatMessages([]);
+        setShowAgentModal(false);
+      })
+      .catch((err) => {
+        console.error("Failed to generate agent:", err);
+        alert("Failed to generate agent configuration. Please try again.");
+      });
   }
 
   // Function to save/create agent
@@ -266,14 +297,7 @@ export default function AgentSetupSingle() {
 
   // Function to create a new blank agent
   function handleNewAgent() {
-    setIsNewAgent(true);
-    setSelectedAgentId(null);
-    setAgentName("My New Agent");
-    setWelcome("Hello from crml");
-    setPrompt(
-      "You are a helpful agent. You will help the customer with their queries and doubts. You will never speak more than 2 sentences. Keep your responses concise."
-    );
-    setChatMessages([]);
+    setShowAgentModal(true);
   }
 
   // Function to delete an agent
@@ -395,6 +419,15 @@ export default function AgentSetupSingle() {
         formData.append("files", file);
       });
 
+      // Ensure we attach it to the currently selected agent
+      if (selectedAgentId) {
+        formData.append("agentId", selectedAgentId);
+      } else {
+        setUploadError("Please save the agent before uploading files.");
+        setIsUploading(false);
+        return;
+      }
+
       const token = localStorage.getItem("token");
       const response = await fetch(
         `${import.meta.env.VITE_API_URL}/api/upload-knowledge`,
@@ -411,7 +444,7 @@ export default function AgentSetupSingle() {
 
       if (data.success) {
         // Backend returns single file (data.file), refresh from server to get updated list
-        await fetchUploadedFiles();
+        await fetchUploadedFiles(selectedAgentId);
 
         setUploadSuccess(`Successfully uploaded ${data.file.originalName}`);
 
@@ -526,6 +559,17 @@ export default function AgentSetupSingle() {
     );
     setTimeout(() => setUploadSuccess(null), 3000);
   };
+
+  // Function to create scratch agent
+  function handleCreateScratch() {
+    setIsNewAgent(true);
+    setSelectedAgentId(null);
+    setAgentName("New Agent");
+    setWelcome("");
+    setPrompt("");
+    setChatMessages([]);
+    setShowAgentModal(false);
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-2 sm:p-4 md:p-6">
@@ -1516,6 +1560,7 @@ export default function AgentSetupSingle() {
         open={showAgentModal}
         onClose={() => setShowAgentModal(false)}
         onGenerate={handleCreateAgent}
+        onCreateScratch={handleCreateScratch}
       />
     </div>
   );
