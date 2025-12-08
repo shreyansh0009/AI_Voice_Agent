@@ -9,6 +9,7 @@ import Analytics from "../components/Analytics.jsx";
 import AgentModal from "../components/models/AgentModal.jsx";
 import { generateAgentResponseWithHistory } from "../config/openai.js";
 import { BiTrash } from "react-icons/bi";
+import api from "../utils/api";
 
 const TABS = [
   "Agent",
@@ -31,22 +32,7 @@ export default function AgentSetupSingle() {
   );
 
   // State to store all created agents
-  const [savedAgents, setSavedAgents] = useState([
-    {
-      id: 1,
-      name: "Sales Assistant",
-      status: "active",
-      welcome: "Hi! I'm here to help with sales.",
-      prompt: "You are a sales assistant.",
-    },
-    {
-      id: 2,
-      name: "Support Agent",
-      status: "active",
-      welcome: "Hello! How can I support you?",
-      prompt: "You are a support agent.",
-    },
-  ]);
+  const [savedAgents, setSavedAgents] = useState([]);
 
   // State to track currently selected agent
   const [selectedAgentId, setSelectedAgentId] = useState(null);
@@ -63,6 +49,25 @@ export default function AgentSetupSingle() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [uploadSuccess, setUploadSuccess] = useState(null);
+
+  // Fetch agents from backend
+  useEffect(() => {
+    fetchAgents();
+  }, []);
+
+  const fetchAgents = async () => {
+    try {
+      const res = await api.get("/api/agents");
+      setSavedAgents(res.data);
+      // If we have agents and none selected, select the first one? Or keep null.
+      if (res.data.length > 0 && !selectedAgentId && !isNewAgent) {
+        // Optional: auto-select first agent
+        // handleSelectAgent(res.data[0]);
+      }
+    } catch (err) {
+      console.error("Failed to fetch agents:", err);
+    }
+  };
 
   // Load chat history from localStorage on mount
   useEffect(() => {
@@ -218,38 +223,41 @@ export default function AgentSetupSingle() {
   }
 
   // Function to save/create agent
-  function handleSaveAgent() {
-    const newAgent = {
-      id: Date.now(), // Simple unique ID
+  async function handleSaveAgent() {
+    const agentData = {
       name: agentName,
       status: "draft",
       welcome: welcome,
       prompt: prompt,
-      createdAt: new Date().toISOString(),
     };
 
-    if (isNewAgent) {
-      // Add new agent to the list
-      setSavedAgents([newAgent, ...savedAgents]);
-      setSelectedAgentId(newAgent.id);
-      setIsNewAgent(false);
-      alert(`Agent "${agentName}" created successfully!`);
-    } else if (selectedAgentId) {
-      // Update existing agent
-      setSavedAgents(
-        savedAgents.map((agent) =>
-          agent.id === selectedAgentId
-            ? { ...agent, name: agentName, welcome: welcome, prompt: prompt }
-            : agent
-        )
-      );
-      alert(`Agent "${agentName}" updated successfully!`);
+    try {
+      if (isNewAgent) {
+        // Create new agent via API
+        const res = await api.post("/api/agents", agentData);
+        setSavedAgents([res.data, ...savedAgents]);
+        setSelectedAgentId(res.data._id);
+        setIsNewAgent(false);
+        alert(`Agent "${res.data.name}" created successfully!`);
+      } else if (selectedAgentId) {
+        // Update existing agent via API
+        const res = await api.put(`/api/agents/${selectedAgentId}`, agentData);
+        setSavedAgents(
+          savedAgents.map((agent) =>
+            agent._id === selectedAgentId ? res.data : agent
+          )
+        );
+        alert(`Agent "${res.data.name}" updated successfully!`);
+      }
+    } catch (err) {
+      console.error("Error saving agent:", err);
+      alert("Failed to save agent.");
     }
   }
 
   // Function to select an agent from the list
   function handleSelectAgent(agent) {
-    setSelectedAgentId(agent.id);
+    setSelectedAgentId(agent._id);
     setAgentName(agent.name);
     setWelcome(agent.welcome);
     setPrompt(agent.prompt);
@@ -269,18 +277,24 @@ export default function AgentSetupSingle() {
   }
 
   // Function to delete an agent
-  function handleDeleteAgent(agentId, agentName, event) {
+  async function handleDeleteAgent(agentId, agentName, event) {
     event.stopPropagation(); // Prevent selecting the agent when clicking delete
 
     if (window.confirm(`Are you sure you want to delete "${agentName}"?`)) {
-      setSavedAgents(savedAgents.filter((agent) => agent.id !== agentId));
+      try {
+        await api.delete(`/api/agents/${agentId}`);
+        setSavedAgents(savedAgents.filter((agent) => agent._id !== agentId));
 
-      // If deleted agent was selected, reset to new agent
-      if (selectedAgentId === agentId) {
-        handleNewAgent();
+        // If deleted agent was selected, reset to new agent
+        if (selectedAgentId === agentId) {
+          handleNewAgent();
+        }
+
+        alert(`Agent "${agentName}" deleted successfully!`);
+      } catch (err) {
+        console.error("Error deleting agent:", err);
+        alert("Failed to delete agent.");
       }
-
-      alert(`Agent "${agentName}" deleted successfully!`);
     }
   }
 
@@ -572,10 +586,10 @@ export default function AgentSetupSingle() {
             <div className="space-y-2">
               {savedAgents.map((agent) => (
                 <div
-                  key={agent.id}
+                  key={agent._id}
                   onClick={() => handleSelectAgent(agent)}
                   className={`p-3 rounded-md border cursor-pointer transition-all ${
-                    selectedAgentId === agent.id
+                    selectedAgentId === agent._id
                       ? "bg-blue-50 border-blue-500"
                       : "bg-white border-slate-200 hover:border-blue-300"
                   }`}
@@ -595,7 +609,7 @@ export default function AgentSetupSingle() {
                     </div>
                     <button
                       onClick={(e) =>
-                        handleDeleteAgent(agent.id, agent.name, e)
+                        handleDeleteAgent(agent._id, agent.name, e)
                       }
                       className="ml-2 p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
                       title="Delete agent"

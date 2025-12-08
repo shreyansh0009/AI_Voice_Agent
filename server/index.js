@@ -12,6 +12,7 @@ import fileManagementService from "./services/fileManagementService.js";
 import { authenticate } from "./middleware/authMiddleware.js";
 import authRoutes from "./routes/authRoutes.js";
 import agentforceRoutes from "./routes/agentforceRoutes.js";
+import agentRoutes from "./routes/agentRoutes.js";
 
 dotenv.config();
 
@@ -531,30 +532,8 @@ app.get("/api/agents/:agentId/stats", authenticate, (req, res) => {
   }
 });
 
-// Get all agents - PROTECTED
-app.get("/api/agents", authenticate, (req, res) => {
-  console.log("🔵 GET AGENTS: Handler started", { userId: req.user?.id });
-
-  try {
-    const agentIds = fileManagementService.getAllAgentIds();
-
-    console.log("✅ GET AGENTS: Success", {
-      userId: req.user.id,
-      agentsCount: agentIds.length,
-    });
-
-    res.json({
-      success: true,
-      agents: agentIds,
-    });
-  } catch (error) {
-    console.error("❌ GET AGENTS: Error", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to get agents",
-    });
-  }
-});
+// Agent routes
+app.use("/api/agents", agentRoutes);
 
 // Error handling middleware
 app.use((error, req, res, next) => {
