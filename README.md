@@ -283,6 +283,6 @@ For issues and questions:
 
 ---
 
-Made with ❤️ by Saurabh Kumar & Mahendra Gurjar
+Made with ❤️ by Saurabh Kumar
 
 🌟 **Star this repo if you find it useful!**
