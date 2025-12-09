@@ -27,9 +27,13 @@ export const signup = async (req, res) => {
       return res.status(400).json({ message: "Email and password required." });
     }
 
+    const normalizedEmail = email.toLowerCase();
+
     const emailRegex = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-    if (!emailRegex.test(email)) {
-      console.log("🔴 SIGNUP: Invalid email format", { email });
+    if (!emailRegex.test(normalizedEmail)) {
+      console.log("🔴 SIGNUP: Invalid email format", {
+        email: normalizedEmail,
+      });
       return res.status(400).json({ message: "Invalid email format." });
     }
 
@@ -46,9 +50,11 @@ export const signup = async (req, res) => {
     }
 
     console.log("🔵 SIGNUP: Checking for existing user");
-    const existing = await User.findOne({ email });
+    const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
-      console.log("🔴 SIGNUP: Email already registered", { email });
+      console.log("🔴 SIGNUP: Email already registered", {
+        email: normalizedEmail,
+      });
       return res.status(409).json({ message: "Email already registered." });
     }
 
@@ -56,7 +62,11 @@ export const signup = async (req, res) => {
     const hashed = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
 
     console.log("🔵 SIGNUP: Creating user");
-    const user = new User({ email, password: hashed, role: "user" });
+    const user = new User({
+      email: normalizedEmail,
+      password: hashed,
+      role: "user",
+    });
     await user.save();
 
     console.log("🔵 SIGNUP: User created, generating token", {
@@ -109,11 +119,15 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Email and password required." });
     }
 
-    console.log("🔵 LOGIN: Searching for user in database", { email });
-    const user = await User.findOne({ email });
+    const normalizedEmail = email.toLowerCase();
+
+    console.log("🔵 LOGIN: Searching for user in database", {
+      email: normalizedEmail,
+    });
+    const user = await User.findOne({ email: normalizedEmail });
 
     if (!user) {
-      console.log("🔴 LOGIN: User not found", { email });
+      console.log("🔴 LOGIN: User not found", { email: normalizedEmail });
       return res.status(401).json({ message: "Invalid credentials." });
     }
 
@@ -143,7 +157,7 @@ export const login = async (req, res) => {
     if (!match) {
       console.log("🔴 LOGIN: Password mismatch", {
         userId: user._id,
-        attemptedEmail: email,
+        attemptedEmail: normalizedEmail,
       });
       return res.status(401).json({ message: "Invalid credentials." });
     }
@@ -240,7 +254,7 @@ export const verifyToken = async (req, res) => {
 
 export const googleLogin = async (req, res) => {
   console.log("🔵 GOOGLE LOGIN: Handler started");
-  const { credential, access_token } = req.body;
+  const { credential, access_token, isSignup } = req.body;
 
   if (!credential && !access_token) {
     console.log("🔴 GOOGLE LOGIN: No credential or access_token provided");
@@ -284,10 +298,15 @@ export const googleLogin = async (req, res) => {
       email = userInfo.email;
     }
 
+    if (email) {
+      email = email.toLowerCase();
+    }
+
     console.log("🔵 GOOGLE LOGIN: Verified email", { email });
 
     let user = await User.findOne({ email });
 
+    // Create new user if not found
     if (!user) {
       console.log("🔵 GOOGLE LOGIN: User not found, creating new user");
       // Generate random password for google users
@@ -304,6 +323,16 @@ export const googleLogin = async (req, res) => {
       console.log("✅ GOOGLE LOGIN: User created");
     } else {
       console.log("🔵 GOOGLE LOGIN: User found");
+
+      // If this is a signup attempt and user exists, return error
+      if (isSignup) {
+        console.log("🔴 GOOGLE LOGIN: Signup attempted for existing user", {
+          email,
+        });
+        return res
+          .status(409)
+          .json({ message: "User already exists with this email." });
+      }
     }
 
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, {

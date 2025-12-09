@@ -127,11 +127,12 @@ export function AuthProvider({ children }) {
     return res.data;
   };
 
-  const googleLogin = async (accessToken) => {
-    console.log("🔵 AUTH CONTEXT: Google Login called");
+  const googleLogin = async (accessToken, isSignup = false) => {
+    console.log("🔵 AUTH CONTEXT: Google Login called", { isSignup });
 
     const res = await api.post("/api/auth/google", {
       access_token: accessToken,
+      isSignup,
     });
 
     console.log("🔵 AUTH CONTEXT: Google Login response", {

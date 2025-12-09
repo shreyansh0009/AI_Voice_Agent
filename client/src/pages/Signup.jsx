@@ -22,7 +22,7 @@ const Signup = () => {
     onSuccess: async (tokenResponse) => {
       try {
         setLoading(true);
-        await auth.googleLogin(tokenResponse.access_token);
+        await auth.googleLogin(tokenResponse.access_token, true);
         setLoading(false);
         navigate(from, { replace: true });
       } catch (err) {

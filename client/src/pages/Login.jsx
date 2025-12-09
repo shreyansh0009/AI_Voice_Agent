@@ -19,7 +19,7 @@ const Login = () => {
     onSuccess: async (tokenResponse) => {
       try {
         setLoading(true);
-        await auth.googleLogin(tokenResponse.access_token);
+        await auth.googleLogin(tokenResponse.access_token, false);
         setLoading(false);
         navigate(from, { replace: true });
       } catch (err) {
