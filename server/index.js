@@ -10,9 +10,11 @@ import dotenv from "dotenv";
 import ragService from "./services/ragService.js";
 import fileManagementService from "./services/fileManagementService.js";
 import { authenticate } from "./middleware/authMiddleware.js";
+import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import authRoutes from "./routes/authRoutes.js";
 import agentforceRoutes from "./routes/agentforceRoutes.js";
 import agentRoutes from "./routes/agentRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 
 dotenv.config();
 
@@ -50,6 +52,7 @@ app.use((req, res, next) => {
 // Auth routes (public)
 app.use("/api/auth", authRoutes);
 app.use("/api/agentforce", agentforceRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, "uploads");
@@ -536,29 +539,8 @@ app.get("/api/agents/:agentId/stats", authenticate, (req, res) => {
 app.use("/api/agents", agentRoutes);
 
 // Error handling middleware
-app.use((error, req, res, next) => {
-  console.error("❌ ERROR HANDLER:", {
-    message: error.message,
-    stack: error.stack,
-    path: req.path,
-  });
-
-  if (error instanceof multer.MulterError) {
-    if (error.code === "LIMIT_FILE_SIZE") {
-      return res.status(400).json({
-        success: false,
-        error: "File size too large. Maximum size is 10MB.",
-      });
-    }
-  }
-
-  if (!res.headersSent) {
-    res.status(500).json({
-      success: false,
-      error: error.message || "Internal server error",
-    });
-  }
-});
+app.use(errorHandler);
+app.use(notFoundHandler);
 
 app.listen(PORT, async () => {
   console.log("=".repeat(50));

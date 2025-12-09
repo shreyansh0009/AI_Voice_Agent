@@ -12,6 +12,7 @@ import { requestLogger } from "./middleware/logger.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import routes from "./routes/index.js";
 import authRoutes from "./routes/authRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 import ragService from "./services/ragService.js";
 import { connectDB } from "./config/database.js";
 import freeswitchRoutes from "./routes/freeswitchRoutes.js";
@@ -66,6 +67,7 @@ app.use((req, res, next) => {
 app.use("/api/freeswitch", freeswitchRoutes);
 // API routes
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api", routes);
 
 // 404 handler

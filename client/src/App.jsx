@@ -1,7 +1,14 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+} from "react-router-dom";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/dashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 import AgentSetup from "./pages/AgentSetup";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -12,7 +19,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 function PrivateRoute({ children }) {
   const location = useLocation();
   const { loading, isAuthenticated } = useAuth();
-  
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -20,12 +27,21 @@ function PrivateRoute({ children }) {
       </div>
     );
   }
-  
+
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
-  
+
   return children;
+}
+
+function DashboardWrapper() {
+  const { role } = useAuth();
+  // Role can be 'user' or 'admin'
+  if (role === "admin") {
+    return <AdminDashboard />;
+  }
+  return <Dashboard />;
 }
 
 function App() {
@@ -42,7 +58,7 @@ function App() {
                 <PrivateRoute>
                   <Layout>
                     <Routes>
-                      <Route path="/" element={<Dashboard />} />
+                      <Route path="/" element={<DashboardWrapper />} />
                       <Route path="/voice" element={<AgentSetup />} />
                     </Routes>
                   </Layout>
