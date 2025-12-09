@@ -37,6 +37,15 @@ const fileSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  agentId: {
+    type: String,
+    default: "default",
+    index: true,
+  },
+  tags: {
+    type: [String],
+    default: [],
+  },
 });
 
 const File = mongoose.model("File", fileSchema);

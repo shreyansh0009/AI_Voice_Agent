@@ -67,13 +67,17 @@ export const getUsersDetails = async (req, res) => {
         );
 
         // Attach files to each agent
-        const agentsWithFiles = userAgents.map((agent) => {
-          const files = fileManagementService.getAllFiles(agent._id.toString());
-          return {
-            ...agent.toObject(),
-            files: files || [],
-          };
-        });
+        const agentsWithFiles = await Promise.all(
+          userAgents.map(async (agent) => {
+            const files = await fileManagementService.getAllFiles(
+              agent._id.toString()
+            );
+            return {
+              ...agent.toObject(),
+              files: files || [],
+            };
+          })
+        );
 
         return {
           ...user.toObject(),
