@@ -116,6 +116,7 @@ Current language: ${currentLanguageName}. Keep responses brief for voice chat (m
 To switch language, respond with "LANGUAGE_SWITCH:[code]" then your message.
 Codes: en, hi, ta, te, kn, ml, bn, mr, gu, pa, es, fr, de, zh, ja, ko
 
+IMPORTANT: This is a VOICE conversation. Do NOT use markdown formatting like **bold**, *italics*, or [links]. Write plain text that is easy to read aloud.
 IMPORTANT: If customer provides personal details (name, address, phone, email, order info), acknowledge them and remember them for the entire conversation.`;
 
       // If RAG is enabled, try to use knowledge base

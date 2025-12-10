@@ -1241,10 +1241,18 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
 
       const sarvamLanguage = languageMap[currentLanguageRef.current] || "en-IN";
 
+      // Sanitize text to remove markdown
+      const sanitizedText = text
+        .replace(/\*\*/g, "") // Remove bold
+        .replace(/\*/g, "") // Remove italics
+        .replace(/`/g, "") // Remove code blocks
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // Remove links but keep text
+        .trim();
+
       const response = await axios.post(
         "https://api.sarvam.ai/text-to-speech",
         {
-          inputs: [text],
+          inputs: [sanitizedText],
           target_language_code: sarvamLanguage,
           speaker: selectedVoice,
           model: "bulbul:v2",
