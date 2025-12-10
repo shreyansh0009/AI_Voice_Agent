@@ -9,7 +9,11 @@ const router = express.Router();
 // Configure Multer for audio uploads
 // Ensure uploads dir exists
 import fs from "fs";
-const uploadsDir = path.join(process.cwd(), "uploads");
+const uploadsDir =
+  process.env.NODE_ENV === "production" || process.env.VERCEL
+    ? "/tmp/uploads"
+    : path.join(process.cwd(), "uploads");
+
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
