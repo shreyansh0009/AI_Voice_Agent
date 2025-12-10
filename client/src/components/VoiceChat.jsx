@@ -7,7 +7,6 @@ const VoiceChat = ({
   systemPrompt,
   agentName = "AI Agent",
   useRAG = false,
-  agentId = "default",
 }) => {
   // Initialize language from localStorage or default to 'en'
   const [selectedLanguage, setSelectedLanguage] = useState(() => {
@@ -577,64 +576,6 @@ const VoiceChat = ({
   };
 
   /**
-   * Extract customer information from conversation
-   * Simple pattern matching - can be enhanced with AI extraction
-   */
-  const extractCustomerInfo = (text) => {
-    const updates = {};
-
-    // Extract phone numbers (Indian format)
-    const phoneMatch = text.match(/\b(\+?91[-\s]?)?[6-9]\d{9}\b/);
-    if (phoneMatch) {
-      updates.phone = phoneMatch[0];
-    }
-
-    // Extract email
-    const emailMatch = text.match(
-      /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/
-    );
-    if (emailMatch) {
-      updates.email = emailMatch[0];
-    }
-
-    // Extract name (if someone says "my name is..." or "I am...")
-    const nameMatch = text.match(
-      /(?:my name is|i am|this is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i
-    );
-    if (nameMatch) {
-      updates.name = nameMatch[1];
-    }
-
-    // Extract address keywords
-    if (
-      text.toLowerCase().includes("address") ||
-      text.toLowerCase().includes("deliver to")
-    ) {
-      // Store the full text if it mentions address (can be refined later)
-      const addressMatch = text.match(
-        /(?:address is|deliver to|ship to)\s+(.+?)(?:\.|$)/i
-      );
-      if (addressMatch) {
-        updates.address = addressMatch[1].trim();
-      }
-    }
-
-    // If any updates found, merge with existing context
-    if (Object.keys(updates).length > 0) {
-      // Build the new context synchronously using the ref so callers can read it immediately
-      const newContext = {
-        ...customerContextRef.current,
-        ...updates,
-        lastUpdated: new Date().toISOString(),
-      };
-      // Update state and ref
-      setCustomerContext(newContext);
-      customerContextRef.current = newContext;
-      // console.log('📝 Extracted customer info (sync):', updates, newContext);
-    }
-  };
-
-  /**
    * Process recorded audio: STT → OpenAI → TTS
    */
   const processAudio = async (audioBlob) => {
@@ -734,7 +675,74 @@ const VoiceChat = ({
   /**
    * Convert speech to text using Deepgram Live Streaming (Browser compatible)
    */
+  /**
+   * Convert speech to text using Deepgram (English/Hindi) or Sarvam (Other Indian Languages)
+   */
   const speechToText = async (audioBlob) => {
+    // 1. Determine which service to use based on language
+    const currentLang = currentLanguageRef.current;
+
+    // Define supported languages
+    const deepgramLanguages = ["en", "hi"];
+    const sarvamLanguages = ["ta", "te", "kn", "ml", "bn", "mr", "gu", "pa"];
+
+    // Check if language is supported
+    if (
+      !deepgramLanguages.includes(currentLang) &&
+      !sarvamLanguages.includes(currentLang)
+    ) {
+      const languageNames = {
+        es: "Spanish",
+        fr: "French",
+        de: "German",
+        zh: "Chinese",
+        ja: "Japanese",
+        ko: "Korean",
+      };
+      const langName = languageNames[currentLang] || currentLang;
+      throw new Error(
+        `Voice support not available for ${langName}. Please switch to an Indian language or English.`
+      );
+    }
+
+    // 2. Use SARVAM for regional Indian languages
+    if (sarvamLanguages.includes(currentLang)) {
+      try {
+        // console.log(`🇮🇳 Routing to Sarvam STT for language: ${currentLang}`);
+
+        const formData = new FormData();
+        formData.append("audio", audioBlob, "recording.webm");
+        formData.append("language", currentLang);
+
+        const response = await axios.post(
+          `${
+            import.meta.env.VITE_API_URL || "http://localhost:5000"
+          }/api/speech/stt/sarvam`,
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+              // Add auth token since the endpoint is protected by global/route middleware
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+          }
+        );
+
+        if (response.data && response.data.success) {
+          return response.data.transcript;
+        } else {
+          throw new Error(response.data?.error || "Transcription failed");
+        }
+      } catch (error) {
+        console.error("Sarvam STT Error:", error);
+        throw new Error(
+          "Failed to transcribe with Sarvam: " +
+            (error.response?.data?.error || error.message)
+        );
+      }
+    }
+
+    // 3. Use DEEPGRAM for English and Hindi (Existing Logic)
     try {
       if (!deepgramRef.current) {
         console.error("Deepgram client not initialized");
@@ -760,7 +768,7 @@ const VoiceChat = ({
             model: "nova-2",
             smart_format: true,
             punctuate: true,
-            language: languageToUse,
+            language: languageToUse === "hi" ? "hi" : "en", // Force specific codes if needed, though 'languageToUse' is already 'hi' or 'en'
           });
         } catch (err) {
           console.error("❌ Failed to create Deepgram connection:", err);
@@ -815,23 +823,11 @@ const VoiceChat = ({
             // console.log('✅ Transcript:', finalTranscript);
             resolve(finalTranscript);
           } else {
+            // Only reject if we expected a result. For silence, Deepgram returns empty, but user interface handles empty/short?
+            // Existing logic rejects with specific message.
             const languageNames = {
               en: "English",
               hi: "Hindi",
-              ta: "Tamil",
-              te: "Telugu",
-              kn: "Kannada",
-              ml: "Malayalam",
-              bn: "Bengali",
-              mr: "Marathi",
-              gu: "Gujarati",
-              pa: "Punjabi",
-              es: "Spanish",
-              fr: "French",
-              de: "German",
-              zh: "Chinese",
-              ja: "Japanese",
-              ko: "Korean",
             };
             const currentLangName =
               languageNames[languageToUse] || languageToUse;
