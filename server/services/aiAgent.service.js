@@ -49,7 +49,7 @@ class AIAgentService {
         language = "en",
         useRAG = false,
         systemPrompt = "You are a helpful AI assistant for a CRM system.",
-        temperature = 0.7,
+        temperature = 0.4,
         maxTokens = 150,
         provider = "openai", // 'openai' or 'agentforce'
       } = options;
@@ -58,6 +58,10 @@ class AIAgentService {
       if (provider === "agentforce") {
         return await this.getAgentforceResponse(userMessage, language, {
           useRAG,
+          customerContext,
+          agentId,
+          conversationHistory,
+          systemPrompt,
         });
       }
 
@@ -117,7 +121,9 @@ To switch language, respond with "LANGUAGE_SWITCH:[code]" then your message.
 Codes: en, hi, ta, te, kn, ml, bn, mr, gu, pa, es, fr, de, zh, ja, ko
 
 IMPORTANT: This is a VOICE conversation. Do NOT use markdown formatting like **bold**, *italics*, or [links]. Write plain text that is easy to read aloud.
-IMPORTANT: If customer provides personal details (name, address, phone, email, order info), acknowledge them and remember them for the entire conversation.`;
+IMPORTANT: If customer provides personal details (name, address, phone, email, order info), acknowledge them and remember them for the entire conversation.
+CRITICAL: Never invent or guess personal details. Use ONLY the values present in CUSTOMER INFORMATION or explicitly provided by the user in this conversation.
+CRITICAL: If the user asks for their phone number, email, address or order details, read them EXACTLY from CUSTOMER INFORMATION. If they are missing, say you do not have them yet and ask the user to provide or confirm, instead of guessing.`;
 
       // If RAG is enabled, try to use knowledge base
       if (useRAG && userMessage) {
@@ -126,7 +132,7 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
             userMessage,
             conversationHistory,
             enhancedSystemPrompt,
-            { temperature, maxTokens }
+            { temperature, maxTokens, agentId }
           );
 
           if (ragResponse) {
@@ -166,11 +172,17 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
     }
 
     try {
+      const { temperature, maxTokens, agentId } = options || {};
+
       const response = await ragService.chat(
         query,
         conversationHistory.slice(-6), // Last 3 exchanges
         systemPrompt,
-        options
+        {
+          temperature,
+          max_tokens: maxTokens,
+          agentId,
+        }
       );
 
       return response.response;

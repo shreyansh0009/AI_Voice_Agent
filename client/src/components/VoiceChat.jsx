@@ -6,6 +6,8 @@ import axios from "axios";
 const VoiceChat = ({
   systemPrompt,
   agentName = "AI Agent",
+  agentId,
+  welcomeMessage,
   useRAG = false,
 }) => {
   // Initialize language from localStorage or default to 'en'
@@ -22,6 +24,39 @@ const VoiceChat = ({
   const [selectedVoice, setSelectedVoice] = useState("anushka"); // Voice selector
   const [ragEnabled, setRagEnabled] = useState(useRAG); // RAG toggle
   const [selectedLLM, setSelectedLLM] = useState("openai"); // 'openai' or 'agentforce'
+
+  // Update RAG enabled state when prop changes
+  useEffect(() => {
+    setRagEnabled(useRAG);
+  }, [useRAG]);
+
+  // Reset conversation when agent changes
+  useEffect(() => {
+    setConversation([]);
+    setTranscript("");
+    conversationHistoryRef.current = [];
+  }, [agentId]);
+
+  // Handle Welcome Message
+  useEffect(() => {
+    // Only set welcome message if conversation is empty
+    if (
+      welcomeMessage &&
+      welcomeMessage.trim() &&
+      conversation.length === 0 &&
+      !isListening &&
+      !isProcessing
+    ) {
+      // Add welcome message to conversation
+      const welcomeMsg = { role: "assistant", content: welcomeMessage };
+      setConversation([welcomeMsg]);
+      conversationHistoryRef.current = [welcomeMsg];
+
+      // Speak it automatically (optional - usually better to wait for user interaction or click)
+      // For now, just showing it is enough as per user request "conversation with entered welcome message"
+      // If auto-speak is desired: speakTextWithSarvam(welcomeMessage);
+    }
+  }, [welcomeMessage, conversation.length, isListening, isProcessing]);
 
   // Continuous voice mode (auto-listen after speaking)
   const [continuousMode, setContinuousMode] = useState(() => {
@@ -944,7 +979,11 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
     
     If the user corrects you (e.g., "No, it's .net not .com"), update the JSON block with the CORRECTED value and confirm again.
     
-    Only include fields that were explicitly provided or updated in this turn. Do not speak the JSON block itself.`;
+    Only include fields that were explicitly provided or updated in this turn. Do not speak the JSON block itself.
+    
+    CRITICAL: Never invent or guess personal details. Use ONLY the values present in CUSTOMER INFORMATION or in the latest [MEMORY] JSON you have emitted.
+    CRITICAL: If the user asks for their phone number, email, address or order details, read them EXACTLY from CUSTOMER INFORMATION / memory. If they are missing, say you do not have them yet and ask the user to provide or confirm, instead of guessing.
+    CRITICAL: Follow the behavior, flow and steps defined in the system prompt strictly unless the user explicitly requests a deviation. If there is any ambiguity, ask a clarifying question instead of making up actions.`;
 
       // Get the last user message
       const lastUserMessage =
@@ -1050,8 +1089,9 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
                 conversationHistory: conversationHistoryRef.current.slice(-6),
                 systemPrompt: enhancedSystemPrompt, // Pass full prompt with language instructions
                 options: {
-                  temperature: 0.7,
+                  temperature: 0.4,
                   max_tokens: 500,
+                  agentId: agentId, // Pass agentId for filtering
                 },
               }),
             }
@@ -1135,7 +1175,7 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
           body: JSON.stringify({
             model: "gpt-4o-mini", // Much cheaper than gpt-4 (15x cheaper!) and faster
             messages: messages,
-            temperature: 0.7,
+            temperature: 0.4,
             max_tokens: 100, // Reduced from 150 - shorter responses for voice
           }),
         }

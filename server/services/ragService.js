@@ -216,7 +216,11 @@ class RAGService {
       const filter = options.agentId ? { agentId: options.agentId } : {};
 
       // Retrieve relevant context from knowledge base with filter
-      const retrieval = await this.retrieveContext(query, 3, filter);
+      const retrieval = await this.retrieveContext(
+        query,
+        config.topK || 15,
+        filter
+      );
 
       if (!retrieval.success) {
         throw new Error("Failed to retrieve context");
@@ -229,14 +233,21 @@ class RAGService {
           : "";
 
       // Priority: Agent Prompt > Knowledge Base > General Knowledge
+      // Priority: Agent Prompt > Knowledge Base > General Knowledge
       const enhancedSystemPrompt = `${systemPrompt}
 
 ${contextSection}INSTRUCTIONS:
-1. FIRST, follow your main instructions above to answer the question.
-2. ONLY if your instructions don't cover the topic, use the Knowledge Base reference.
-3. If neither covers it, politely say you don't have specific information about that.
-4. IMPORTANT: Preserve all language switching capabilities and formatting instructions from your main prompt.
-5. Keep responses concise and natural for voice conversations.`;
+1. You are an AI assistant representing the organization defined in the KNOWLEDGE BASE.
+2. USE the "KNOWLEDGE BASE REFERENCE" above as your PRIMARY source of truth and behavior.
+3. If the Knowledge Base contains a script, flow, or specific set of steps, you MUST FOLLOW THEM EXACTLY.
+4. Do NOT use outside knowledge or generic AI responses if the answer or procedure is in the Knowledge Base.
+5. Only use general knowledge if the user's query is completely unrelated to the Knowledge Base.
+6. IMPORTANT: Preserve all language switching capabilities and formatting instructions from your main prompt.
+7. KEEP RESPONSES SHORT (1-2 sentences). This is a voice conversation.
+8. CRITICAL: If the Context contains a "Script", "Flow", "Sequence", or "Steps", you MUST perform the NEXT step in that sequence.
+9. SKIPPING STEPS IS FORBIDDEN. You cannot book a visit or confirm an action until you have collected ALL required information defined in the flow (e.g., Pincode, Name, etc.).
+10. If you are missing information required by the flow, ASK FOR IT. Do not hallucinate or assume values.
+11. IGNORE any 'helpful assistant' behavior that contradicts the strict flow defined in the Knowledge Base.`;
 
       // Build messages with conversation history
       const messages = [
@@ -285,6 +296,19 @@ ${contextSection}INSTRUCTIONS:
         error: error.message,
       };
     }
+  }
+
+  isInitialized() {
+    return this.initialized;
+  }
+
+  async chat(query, conversationHistory = [], systemPrompt = "", options = {}) {
+    return this.generateRAGResponse(
+      query,
+      conversationHistory,
+      systemPrompt,
+      options
+    );
   }
 }
 

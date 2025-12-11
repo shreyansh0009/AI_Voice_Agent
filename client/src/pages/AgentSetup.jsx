@@ -1377,7 +1377,13 @@ export default function AgentSetupSingle() {
                 </div>
 
                 {/* Voice Chat Component */}
-                <VoiceChat systemPrompt={prompt} agentName={agentName} />
+                <VoiceChat
+                  systemPrompt={prompt}
+                  agentName={agentName}
+                  agentId={selectedAgentId}
+                  welcomeMessage={welcome}
+                  useRAG={uploadedFiles.length > 0}
+                />
               </section>
             )}
             {activeTab === "Engine" && (

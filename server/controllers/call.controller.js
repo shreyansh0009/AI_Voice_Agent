@@ -2,6 +2,7 @@ import exotelService from "../services/exotel.service.js";
 import aiAgentService from "../services/aiAgent.service.js";
 import callStorageService from "../services/callStorage.service.js";
 import deepgramService from "../services/deepgram.service.js";
+import Agent from "../models/Agent.js";
 
 /**
  * Call Controller - Handles phone call operations
@@ -128,9 +129,23 @@ class CallController {
         `http://localhost:${process.env.PORT || 5000}`;
       const callbackUrl = `${baseUrl}/api/call/webhook/flow/${callRecord.id}`;
 
-      // Generate welcome message XML
+      // Find an active agent to handle the call
+      // In a real multi-tenant system, we would map the 'to' number to an agent/user
+      // For this project, we'll pick the most recently updated active agent
+      const agent = await Agent.findOne({ status: "active" }).sort({
+        updatedAt: -1,
+      });
+
       const welcomeMessage =
+        agent?.welcome ||
         "Hello! Welcome to our AI powered CRM. How can I help you today?";
+      const agentId = agent?._id?.toString() || "default";
+
+      console.log(`🤖 Using Agent: ${agent?.name || "Default"} (${agentId})`);
+
+      // Update call record with the identified agent
+      await callStorageService.updateCall(callRecord.id, { agentId });
+
       const xml = exotelService.generateCallFlowXML(
         welcomeMessage,
         callbackUrl,

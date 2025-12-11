@@ -44,7 +44,7 @@ class AgentforceService {
   async processMessage(message, options = {}) {
     try {
       await this.initialize();
-      const { useRAG = false } = options;
+      const { useRAG = false, systemPrompt, agentId } = options;
 
       let finalMessage = message;
 
@@ -52,22 +52,43 @@ class AgentforceService {
       if (useRAG) {
         console.log("AgentforceService: RAG enabled, retrieving context...");
         try {
-          const ragResult = await ragService.retrieveContext(message, 3);
+          // Use topK from config or default to 15 for better context
+          // Filter by agentId to ensure we only get relevant knowledge
+          const filter = agentId ? { agentId } : {};
+          const ragResult = await ragService.retrieveContext(
+            message,
+            15,
+            filter
+          );
 
           if (ragResult && ragResult.results && ragResult.results.length > 0) {
             const contextText = ragResult.results
               .map((r) => r.text)
               .join("\n\n");
-            finalMessage = `Context information is below.
----------------------
+
+            // Incorporate System Prompt + Context + Query
+            finalMessage = `
+${systemPrompt ? "SYSTEM INSTRUCTIONS:\n" + systemPrompt : ""}
+
+--- KNOWLEDGE BASE CONTEXT (STRICTLY FOLLOW THIS) ---
 ${contextText}
----------------------
-Given the context information and not prior knowledge, answer the query.
-Query: ${message}`;
+--- END CONTEXT ---
+
+CRITICAL INSTRUCTIONS:
+1. The KNOWLEDGE BASE CONTEXT above is your PRIMARY script.
+2. If it defines a "Flow", "Script", or "Steps", you MUST follow them sequentially.
+3. SKIPPING STEPS IS FORBIDDEN. Do not skip to booking/confirmation until you have asked for and received ALL required details (e.g. Pincode) as per the script.
+4. If the user answers a question, look at the script to see what the NEXT question is.
+5. Keep responses short (1-2 sentences) for voice.
+
+User Query: ${message}`;
           }
         } catch (ragError) {
           console.error("AgentforceService: RAG retrieval failed:", ragError);
         }
+      } else if (systemPrompt) {
+        // If no RAG but System Prompt exists
+        finalMessage = `SYSTEM INSTRUCTIONS:\n${systemPrompt}\n\nUser Query: ${message}`;
       }
 
       const sessionId = await this.client.createSession();
