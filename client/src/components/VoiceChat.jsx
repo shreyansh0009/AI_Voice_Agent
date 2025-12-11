@@ -1281,12 +1281,17 @@ IMPORTANT: If customer provides personal details (name, address, phone, email, o
 
       const sarvamLanguage = languageMap[currentLanguageRef.current] || "en-IN";
 
-      // Sanitize text to remove markdown
+      // Sanitize text to remove markdown and system instructions
       const sanitizedText = text
         .replace(/\*\*/g, "") // Remove bold
         .replace(/\*/g, "") // Remove italics
         .replace(/`/g, "") // Remove code blocks
         .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // Remove links but keep text
+        .replace(/LANGUAGE_SWITCH:[^ ]+/g, "") // Remove language switch commands
+        .replace(/\[MEMORY:.*\]/g, "") // Remove memory blocks
+        .replace(/[#_]/g, "") // Remove dashes/underscores/hashes
+        .replace(/\n\n/g, ". ") // Convert paragraph breaks to full stops for pauses
+        .replace(/\s+/g, " ") // Normalize whitespace
         .trim();
 
       const response = await axios.post(

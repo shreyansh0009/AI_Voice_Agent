@@ -1060,165 +1060,203 @@ export default function AgentSetupSingle() {
                 <Audio />
               </section>
             )}
-            {activeTab === "Voice" && (
-              <section>
-                {/* Knowledge Base Section */}
-                <div className="mb-6 bg-white rounded-lg border border-slate-200 p-3 sm:p-4 md:p-6">
-                  <h3 className="text-sm font-semibold mb-4">Knowledge Base</h3>
+            {/* Voice Settings Section (Knowledge Base) */}
+            <section
+              style={{ display: activeTab === "Voice" ? "block" : "none" }}
+            >
+              {/* Knowledge Base Section */}
+              <div className="mb-6 bg-white rounded-lg border border-slate-200 p-3 sm:p-4 md:p-6">
+                <h3 className="text-sm font-semibold mb-4">Knowledge Base</h3>
 
-                  <div className="mb-4">
-                    <label className="block text-xs font-medium text-slate-700 mb-2">
-                      Upload Documents (PDF, Word)
-                    </label>
-                    <p className="text-xs text-slate-500 mb-3">
-                      Upload documents to enhance your agent's knowledge. The
-                      agent will use this information to answer questions more
-                      accurately.
-                    </p>
+                <div className="mb-4">
+                  <label className="block text-xs font-medium text-slate-700 mb-2">
+                    Upload Documents (PDF, Word)
+                  </label>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Upload documents to enhance your agent's knowledge. The
+                    agent will use this information to answer questions more
+                    accurately.
+                  </p>
 
-                    {/* File Upload Input */}
-                    <div className="space-y-3">
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
-                        <label
-                          className={`flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer transition-colors w-full sm:w-auto ${
-                            isUploading ? "opacity-50 cursor-not-allowed" : ""
-                          }`}
+                  {/* File Upload Input */}
+                  <div className="space-y-3">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+                      <label
+                        className={`flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer transition-colors w-full sm:w-auto ${
+                          isUploading ? "opacity-50 cursor-not-allowed" : ""
+                        }`}
+                      >
+                        <svg
+                          className="w-4 h-4 sm:w-5 sm:h-5 shrink-0"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
                         >
-                          <svg
-                            className="w-4 h-4 sm:w-5 sm:h-5 shrink-0"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                            />
-                          </svg>
-                          <span className="text-xs sm:text-sm font-medium">
-                            {isUploading ? "Uploading..." : "Choose Files"}
-                          </span>
-                          <input
-                            type="file"
-                            multiple
-                            accept=".pdf,.doc,.docx"
-                            onChange={handleFileUpload}
-                            disabled={isUploading}
-                            className="hidden"
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
                           />
-                        </label>
-                        <span className="text-xs text-slate-500 text-center sm:text-left">
-                          Supported: PDF, DOC, DOCX (Max 10MB each)
+                        </svg>
+                        <span className="text-xs sm:text-sm font-medium">
+                          {isUploading ? "Uploading..." : "Choose Files"}
+                        </span>
+                        <input
+                          type="file"
+                          multiple
+                          accept=".pdf,.doc,.docx"
+                          onChange={handleFileUpload}
+                          disabled={isUploading}
+                          className="hidden"
+                        />
+                      </label>
+                      <span className="text-xs text-slate-500 text-center sm:text-left">
+                        Supported: PDF, DOC, DOCX (Max 10MB each)
+                      </span>
+                    </div>
+
+                    {/* Upload Status Messages */}
+                    {uploadSuccess && (
+                      <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-md">
+                        <svg
+                          className="w-5 h-5 text-green-600"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        <span className="text-sm text-green-700">
+                          {uploadSuccess}
                         </span>
                       </div>
+                    )}
 
-                      {/* Upload Status Messages */}
-                      {uploadSuccess && (
-                        <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-md">
-                          <svg
-                            className="w-5 h-5 text-green-600"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M5 13l4 4L19 7"
-                            />
-                          </svg>
-                          <span className="text-sm text-green-700">
-                            {uploadSuccess}
-                          </span>
-                        </div>
-                      )}
-
-                      {uploadError && (
-                        <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-md">
-                          <svg
-                            className="w-5 h-5 text-red-600"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M6 18L18 6M6 6l12 12"
-                            />
-                          </svg>
-                          <span className="text-sm text-red-700">
-                            {uploadError}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Uploaded Files List */}
-                  {uploadedFiles.length > 0 && (
-                    <div className="mt-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-sm font-medium text-slate-700">
-                          📚 Knowledge Base Files ({uploadedFiles.length})
-                        </h4>
-                        <button
-                          onClick={handleClearAllFiles}
-                          disabled={isUploading}
-                          className="px-3 py-1.5 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md border border-red-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    {uploadError && (
+                      <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-md">
+                        <svg
+                          className="w-5 h-5 text-red-600"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
                         >
-                          Clear All
-                        </button>
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                        <span className="text-sm text-red-700">
+                          {uploadError}
+                        </span>
                       </div>
+                    )}
+                  </div>
+                </div>
 
-                      <div className="space-y-2 max-h-96 overflow-y-auto">
-                        {uploadedFiles.map((file, index) => {
-                          const isPDF = file.originalName
-                            ?.toLowerCase()
-                            .endsWith(".pdf");
-                          const isWord = file.originalName
-                            ?.toLowerCase()
-                            .match(/\.(doc|docx)$/);
+                {/* Uploaded Files List */}
+                {uploadedFiles.length > 0 && (
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-medium text-slate-700">
+                        📚 Knowledge Base Files ({uploadedFiles.length})
+                      </h4>
+                      <button
+                        onClick={handleClearAllFiles}
+                        disabled={isUploading}
+                        className="px-3 py-1.5 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md border border-red-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Clear All
+                      </button>
+                    </div>
 
-                          return (
-                            <div
-                              key={`${file.fileName}-${index}`}
-                              className="flex items-start justify-between p-3 bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 transition-colors"
-                            >
-                              <div className="flex items-start gap-3 flex-1 min-w-0">
-                                {/* File Icon */}
-                                <div
-                                  className={`shrink-0 mt-0.5 ${
-                                    file.status === "processed"
-                                      ? "text-green-600"
-                                      : file.status === "failed"
-                                      ? "text-red-600"
-                                      : "text-blue-600"
-                                  }`}
-                                >
-                                  {isPDF ? (
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {uploadedFiles.map((file, index) => {
+                        const isPDF = file.originalName
+                          ?.toLowerCase()
+                          .endsWith(".pdf");
+                        const isWord = file.originalName
+                          ?.toLowerCase()
+                          .match(/\.(doc|docx)$/);
+
+                        return (
+                          <div
+                            key={`${file.fileName}-${index}`}
+                            className="flex items-start justify-between p-3 bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 transition-colors"
+                          >
+                            <div className="flex items-start gap-3 flex-1 min-w-0">
+                              {/* File Icon */}
+                              <div
+                                className={`shrink-0 mt-0.5 ${
+                                  file.status === "processed"
+                                    ? "text-green-600"
+                                    : file.status === "failed"
+                                    ? "text-red-600"
+                                    : "text-blue-600"
+                                }`}
+                              >
+                                {isPDF ? (
+                                  <svg
+                                    className="w-6 h-6"
+                                    fill="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18.5,9L13,3.5V9H18.5M6,20V4H11V10H18V20H6M7.93,17.5H9.61L9.85,16.74H11.58L11.82,17.5H13.5L11.58,12.5H9.85L7.93,17.5M10.15,15.43L10.71,13.34L11.27,15.43H10.15Z" />
+                                  </svg>
+                                ) : isWord ? (
+                                  <svg
+                                    className="w-6 h-6"
+                                    fill="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18.5,9L13,3.5V9H18.5M7,12.5L8.5,17.5H9.5L10.5,14L11.5,17.5H12.5L14,12.5H13L12,15.5L11,12.5H10L9,15.5L8,12.5H7Z" />
+                                  </svg>
+                                ) : (
+                                  <svg
+                                    className="w-6 h-6"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                                    />
+                                  </svg>
+                                )}
+                              </div>
+
+                              {/* File Info */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium text-slate-700 truncate">
+                                    {file.originalName}
+                                  </p>
+                                  {file.status === "processed" && (
+                                    <span className="shrink-0 px-2 py-0.5 text-xs font-medium text-green-700 bg-green-100 rounded-full">
+                                      ✓ Ready
+                                    </span>
+                                  )}
+                                  {file.status === "failed" && (
+                                    <span className="shrink-0 px-2 py-0.5 text-xs font-medium text-red-700 bg-red-100 rounded-full">
+                                      ✗ Failed
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-500">
+                                  <span className="flex items-center gap-1">
                                     <svg
-                                      className="w-6 h-6"
-                                      fill="currentColor"
-                                      viewBox="0 0 24 24"
-                                    >
-                                      <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18.5,9L13,3.5V9H18.5M6,20V4H11V10H18V20H6M7.93,17.5H9.61L9.85,16.74H11.58L11.82,17.5H13.5L11.58,12.5H9.85L7.93,17.5M10.15,15.43L10.71,13.34L11.27,15.43H10.15Z" />
-                                    </svg>
-                                  ) : isWord ? (
-                                    <svg
-                                      className="w-6 h-6"
-                                      fill="currentColor"
-                                      viewBox="0 0 24 24"
-                                    >
-                                      <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18.5,9L13,3.5V9H18.5M7,12.5L8.5,17.5H9.5L10.5,14L11.5,17.5H12.5L14,12.5H13L12,15.5L11,12.5H10L9,15.5L8,12.5H7Z" />
-                                    </svg>
-                                  ) : (
-                                    <svg
-                                      className="w-6 h-6"
+                                      className="w-3 h-3"
                                       fill="none"
                                       stroke="currentColor"
                                       viewBox="0 0 24 24"
@@ -1227,75 +1265,14 @@ export default function AgentSetupSingle() {
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
                                         strokeWidth={2}
-                                        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                                       />
                                     </svg>
-                                  )}
-                                </div>
+                                    {(file.size / 1024).toFixed(1)} KB
+                                  </span>
 
-                                {/* File Info */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <p className="text-sm font-medium text-slate-700 truncate">
-                                      {file.originalName}
-                                    </p>
-                                    {file.status === "processed" && (
-                                      <span className="shrink-0 px-2 py-0.5 text-xs font-medium text-green-700 bg-green-100 rounded-full">
-                                        ✓ Ready
-                                      </span>
-                                    )}
-                                    {file.status === "failed" && (
-                                      <span className="shrink-0 px-2 py-0.5 text-xs font-medium text-red-700 bg-red-100 rounded-full">
-                                        ✗ Failed
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-500">
-                                    <span className="flex items-center gap-1">
-                                      <svg
-                                        className="w-3 h-3"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                      >
-                                        <path
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          strokeWidth={2}
-                                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                        />
-                                      </svg>
-                                      {(file.size / 1024).toFixed(1)} KB
-                                    </span>
-
-                                    {file.status === "processed" &&
-                                      file.textLength && (
-                                        <>
-                                          <span className="text-slate-400">
-                                            •
-                                          </span>
-                                          <span className="flex items-center gap-1">
-                                            <svg
-                                              className="w-3 h-3"
-                                              fill="none"
-                                              stroke="currentColor"
-                                              viewBox="0 0 24 24"
-                                            >
-                                              <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                strokeWidth={2}
-                                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                              />
-                                            </svg>
-                                            {file.textLength.toLocaleString()}{" "}
-                                            chars
-                                          </span>
-                                        </>
-                                      )}
-
-                                    {file.uploadedAt && (
+                                  {file.status === "processed" &&
+                                    file.textLength && (
                                       <>
                                         <span className="text-slate-400">
                                           •
@@ -1311,81 +1288,105 @@ export default function AgentSetupSingle() {
                                               strokeLinecap="round"
                                               strokeLinejoin="round"
                                               strokeWidth={2}
-                                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                                              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                                             />
                                           </svg>
-                                          {new Date(
-                                            file.uploadedAt
-                                          ).toLocaleDateString()}
+                                          {file.textLength.toLocaleString()}{" "}
+                                          chars
                                         </span>
                                       </>
                                     )}
-                                  </div>
 
-                                  {file.status === "failed" && file.error && (
-                                    <p className="text-xs text-red-500 mt-1">
-                                      Error: {file.error}
-                                    </p>
+                                  {file.uploadedAt && (
+                                    <>
+                                      <span className="text-slate-400">•</span>
+                                      <span className="flex items-center gap-1">
+                                        <svg
+                                          className="w-3 h-3"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          viewBox="0 0 24 24"
+                                        >
+                                          <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                                          />
+                                        </svg>
+                                        {new Date(
+                                          file.uploadedAt
+                                        ).toLocaleDateString()}
+                                      </span>
+                                    </>
                                   )}
                                 </div>
+
+                                {file.status === "failed" && file.error && (
+                                  <p className="text-xs text-red-500 mt-1">
+                                    Error: {file.error}
+                                  </p>
+                                )}
                               </div>
-
-                              {/* Delete Button */}
-                              <button
-                                onClick={() =>
-                                  handleRemoveFile(index, file.fileName)
-                                }
-                                disabled={isUploading}
-                                className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors shrink-0 ml-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                title="Remove file"
-                              >
-                                <BiTrash className="w-5 h-5" />
-                              </button>
                             </div>
-                          );
-                        })}
-                      </div>
 
-                      {/* Summary Stats */}
-                      <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-blue-700 font-medium">
-                            📊 Total: {uploadedFiles.length} file
-                            {uploadedFiles.length !== 1 ? "s" : ""}
-                          </span>
-                          <span className="text-blue-600">
-                            {(
-                              uploadedFiles.reduce(
-                                (acc, f) => acc + (f.size || 0),
-                                0
-                              ) / 1024
-                            ).toFixed(1)}{" "}
-                            KB total
-                          </span>
-                          <span className="text-blue-600">
-                            {
-                              uploadedFiles.filter(
-                                (f) => f.status === "processed"
-                              ).length
-                            }{" "}
-                            ready
-                          </span>
-                        </div>
+                            {/* Delete Button */}
+                            <button
+                              onClick={() =>
+                                handleRemoveFile(index, file.fileName)
+                              }
+                              disabled={isUploading}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors shrink-0 ml-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Remove file"
+                            >
+                              <BiTrash className="w-5 h-5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Summary Stats */}
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-blue-700 font-medium">
+                          📊 Total: {uploadedFiles.length} file
+                          {uploadedFiles.length !== 1 ? "s" : ""}
+                        </span>
+                        <span className="text-blue-600">
+                          {(
+                            uploadedFiles.reduce(
+                              (acc, f) => acc + (f.size || 0),
+                              0
+                            ) / 1024
+                          ).toFixed(1)}{" "}
+                          KB total
+                        </span>
+                        <span className="text-blue-600">
+                          {
+                            uploadedFiles.filter(
+                              (f) => f.status === "processed"
+                            ).length
+                          }{" "}
+                          ready
+                        </span>
                       </div>
                     </div>
-                  )}
-                </div>
-
-                {/* Voice Chat Component */}
-                <VoiceChat
-                  systemPrompt={prompt}
-                  agentName={agentName}
-                  agentId={selectedAgentId}
-                  welcomeMessage={welcome}
-                  useRAG={uploadedFiles.length > 0}
-                />
-              </section>
-            )}
+                  </div>
+                )}
+              </div>
+            </section>
+            <section
+              style={{ display: activeTab === "Voice" ? "block" : "none" }}
+            >
+              <VoiceChat
+                systemPrompt={prompt}
+                agentName={agentName}
+                agentId={selectedAgentId}
+                welcomeMessage={welcome}
+                useRAG={uploadedFiles.length > 0}
+              />
+            </section>
             {activeTab === "Engine" && (
               <section>
                 <Engine />

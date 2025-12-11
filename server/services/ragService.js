@@ -247,7 +247,66 @@ ${contextSection}INSTRUCTIONS:
 8. CRITICAL: If the Context contains a "Script", "Flow", "Sequence", or "Steps", you MUST perform the NEXT step in that sequence.
 9. SKIPPING STEPS IS FORBIDDEN. You cannot book a visit or confirm an action until you have collected ALL required information defined in the flow (e.g., Pincode, Name, etc.).
 10. If you are missing information required by the flow, ASK FOR IT. Do not hallucinate or assume values.
-11. IGNORE any 'helpful assistant' behavior that contradicts the strict flow defined in the Knowledge Base.`;
+11. IGNORE any 'helpful assistant' behavior that contradicts the strict flow defined in the Knowledge Base.
+12. TONE: Be warm, professional, and conversational. Use natural fillers (e.g., "Got it," "Sure," "I understand") to sound more human, but NEVER deviate from the required flow steps.
+13. TOOLS: If the user asks about market prices, taxes, or availability for ANY item (Real Estate, Vehicles, Electronics, etc.) and the Knowledge Base doesn't have the info, YOU MUST USE THE PROVIDED TOOLS. Do not apologize, just use the tool.`;
+
+      // Define Available Tools (Dynamic & Universal)
+      const tools = [
+        {
+          type: "function",
+          function: {
+            name: "check_market_price",
+            description:
+              "Check estimated market price, taxes, and availability for ANY item (Real Estate, Vehicles, Electronics, etc.) in a specific location.",
+            parameters: {
+              type: "object",
+              properties: {
+                item_name: {
+                  type: "string",
+                  description:
+                    "Name of the item (e.g., '2BHK Flat', 'Royal Enfield 350', 'iPhone 15')",
+                },
+                category: {
+                  type: "string",
+                  enum: ["real_estate", "vehicle", "electronics", "other"],
+                  description:
+                    "Category of the item to help estimate taxes and pricing structure",
+                },
+                location: {
+                  type: "string",
+                  description:
+                    "City, Area, or Pincode (e.g., 'Mumbai', 'Andheri West', '400001')",
+                },
+              },
+              required: ["item_name", "category", "location"],
+            },
+          },
+        },
+        {
+          type: "function",
+          function: {
+            name: "find_nearby_places",
+            description:
+              "Find nearest dealerships, showrooms, property offices, or stores.",
+            parameters: {
+              type: "object",
+              properties: {
+                query: {
+                  type: "string",
+                  description:
+                    "What to look for (e.g., 'Honda Showroom', 'Real Estate Brokers', '2BHK for sale')",
+                },
+                location: {
+                  type: "string",
+                  description: "Location to search in",
+                },
+              },
+              required: ["query", "location"],
+            },
+          },
+        },
+      ];
 
       // Build messages with conversation history
       const messages = [
@@ -256,7 +315,7 @@ ${contextSection}INSTRUCTIONS:
         { role: "user", content: query },
       ];
 
-      // Call OpenAI
+      // First Call to OpenAI
       const response = await fetch(
         "https://api.openai.com/v1/chat/completions",
         {
@@ -268,8 +327,10 @@ ${contextSection}INSTRUCTIONS:
           body: JSON.stringify({
             model: config.chatModel,
             messages: messages,
+            tools: tools,
+            tool_choice: "auto",
             temperature: options.temperature || config.temperature,
-            max_tokens: options.max_tokens || 500, // Increased for better responses
+            max_tokens: options.max_tokens || 500,
           }),
         }
       );
@@ -280,7 +341,116 @@ ${contextSection}INSTRUCTIONS:
       }
 
       const data = await response.json();
-      const aiResponse = data.choices[0].message.content;
+      const choice = data.choices[0];
+      let aiResponse = choice.message.content;
+
+      // Handle Function Calls
+      if (choice.finish_reason === "tool_calls" && choice.message.tool_calls) {
+        const toolCalls = choice.message.tool_calls;
+
+        // Add the tool call request to conversation history for the next turn
+        messages.push(choice.message);
+
+        for (const toolCall of toolCalls) {
+          const fnName = toolCall.function.name;
+          const fnArgs = JSON.parse(toolCall.function.arguments);
+          let toolResult = "";
+
+          // Execute Mock Tools
+          if (fnName === "check_market_price") {
+            // Dynamic Logic based on Category
+            let basePrice = 0;
+            let taxLabel = "Tax";
+            let taxRate = 0.1;
+
+            if (fnArgs.category === "real_estate") {
+              // Real Estate: Range 50 Lakhs to 5 Crores
+              basePrice =
+                Math.floor(Math.random() * (50000000 - 5000000 + 1)) + 5000000;
+              taxLabel = "Stamp Duty & Registration";
+              taxRate = 0.07; // ~7%
+            } else if (fnArgs.category === "vehicle") {
+              // Vehicles: Range 70k to 20 Lakhs
+              basePrice =
+                Math.floor(Math.random() * (2000000 - 70000 + 1)) + 70000;
+              taxLabel = "RTO & Insurance";
+              taxRate = 0.15; // ~15%
+            } else {
+              // General/Electronics: Range 10k to 2 Lakhs
+              basePrice =
+                Math.floor(Math.random() * (200000 - 10000 + 1)) + 10000;
+              taxLabel = "GST";
+              taxRate = 0.18;
+            }
+
+            const taxes = Math.floor(basePrice * taxRate);
+            const totalPrice = basePrice + taxes;
+
+            toolResult = JSON.stringify({
+              item: fnArgs.item_name,
+              location: fnArgs.location,
+              base_price: `₹${basePrice.toLocaleString("en-IN")}`,
+              [taxLabel]: `₹${taxes.toLocaleString("en-IN")}`,
+              estimated_total: `₹${totalPrice.toLocaleString("en-IN")}`,
+              availability: "Available",
+              market_trend: "Prices are rising in this area.",
+            });
+          } else if (fnName === "find_nearby_places") {
+            // Mock Data Generation
+            const places = [
+              {
+                name: `${fnArgs.query} Center`,
+                address: `Main Market, ${fnArgs.location}`,
+                rating: "4.5/5",
+              },
+              {
+                name: `Premium ${fnArgs.query}`,
+                address: `New City Road, ${fnArgs.location}`,
+                rating: "4.2/5",
+              },
+              {
+                name: `City ${fnArgs.query} Hub`,
+                address: `Near Bus Stand, ${fnArgs.location}`,
+                rating: "4.6/5",
+              },
+            ];
+            toolResult = JSON.stringify({ matches: places });
+          } else {
+            toolResult = JSON.stringify({ error: "Function not implemented" });
+          }
+
+          // Add tool result to conversation
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: toolResult,
+          });
+        }
+
+        // Second Call to OpenAI with Tool Outputs
+        const secondResponse = await fetch(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${config.openaiApiKey}`,
+            },
+            body: JSON.stringify({
+              model: config.chatModel,
+              messages: messages,
+              temperature: options.temperature || 0.7,
+            }),
+          }
+        );
+
+        if (!secondResponse.ok) {
+          throw new Error("OpenAI API error during tool output processing");
+        }
+
+        const secondData = await secondResponse.json();
+        aiResponse = secondData.choices[0].message.content;
+      }
 
       return {
         success: true,
