@@ -12,6 +12,11 @@ const agentSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    domain: {
+      type: String,
+      enum: ["automotive", "finance", "real-estate", "general"],
+      default: "general",
+    },
     status: {
       type: String,
       enum: ["active", "draft", "inactive"],

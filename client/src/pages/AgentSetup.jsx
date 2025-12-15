@@ -10,6 +10,7 @@ import AgentModal from "../components/models/AgentModal.jsx";
 import { generateAgentResponseWithHistory } from "../config/openai.js";
 import { BiTrash } from "react-icons/bi";
 import api from "../utils/api";
+import { getDomainTemplate, getDomainOptions } from "../config/domainTemplates.js";
 
 const TABS = [
   "Agent",
@@ -25,6 +26,7 @@ const TABS = [
 export default function AgentSetupSingle() {
   const [activeTab, setActiveTab] = useState("Agent");
   const [agentName, setAgentName] = useState("My New Agent");
+  const [agentDomain, setAgentDomain] = useState("general");
   const [welcome, setWelcome] = useState("Hello from crml");
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [prompt, setPrompt] = useState(
@@ -257,6 +259,7 @@ export default function AgentSetupSingle() {
   async function handleSaveAgent() {
     const agentData = {
       name: agentName,
+      domain: agentDomain,
       status: "draft",
       welcome: welcome,
       prompt: prompt,
@@ -290,6 +293,7 @@ export default function AgentSetupSingle() {
   function handleSelectAgent(agent) {
     setSelectedAgentId(agent._id);
     setAgentName(agent.name);
+    setAgentDomain(agent.domain || "general");
     setWelcome(agent.welcome);
     setPrompt(agent.prompt);
     setIsNewAgent(false);
@@ -298,6 +302,15 @@ export default function AgentSetupSingle() {
   // Function to create a new blank agent
   function handleNewAgent() {
     setShowAgentModal(true);
+  }
+  
+  // Function to apply domain template
+  function handleDomainChange(newDomain) {
+    setAgentDomain(newDomain);
+    const template = getDomainTemplate(newDomain);
+    setAgentName(template.name);
+    setWelcome(template.welcome);
+    setPrompt(template.prompt);
   }
 
   // Function to delete an agent
@@ -640,7 +653,17 @@ export default function AgentSetupSingle() {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
-                      <div className="text-sm font-medium">{agent.name}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm font-medium">{agent.name}</div>
+                        {agent.domain && agent.domain !== "general" && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-gradient-to-r from-blue-100 to-purple-100 text-blue-700 font-medium">
+                            {agent.domain === "automotive" && "🚗"}
+                            {agent.domain === "finance" && "💰"}
+                            {agent.domain === "real-estate" && "🏢"}
+                            {agent.domain}
+                          </span>
+                        )}
+                      </div>
                       <div
                         className={`text-xs mt-1 ${
                           agent.status === "active"
@@ -1006,6 +1029,27 @@ export default function AgentSetupSingle() {
             {activeTab === "Agent" && (
               <section>
                 <div className="space-y-4">
+                  {/* Domain Selector */}
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">
+                      Agent Domain / Industry
+                    </label>
+                    <select
+                      value={agentDomain}
+                      onChange={(e) => handleDomainChange(e.target.value)}
+                      className="w-full border border-slate-200 rounded-md px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {getDomainOptions().map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Select a domain to auto-fill with industry-specific templates. You can customize after selection.
+                    </p>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-semibold mb-1">
                       Agent Welcome Message
