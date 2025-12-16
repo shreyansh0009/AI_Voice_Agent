@@ -52,7 +52,42 @@ class AIAgentService {
         temperature = 0.4,
         maxTokens = 150,
         provider = "openai", // 'openai' or 'agentforce'
+        isRetry = false, // Flag to indicate if this is a retry after no/unclear response
+        lastQuestion = null, // The last question that was asked
       } = options;
+
+      // Handle empty/unclear user input (silence, distortion, STT failure)
+      const isEmptyOrUnclear = !userMessage || 
+                               userMessage.trim().length < 2 || 
+                               /^[^a-zA-Z0-9]+$/.test(userMessage) || // Only symbols/noise
+                               userMessage.toLowerCase().match(/^(um|uh|hmm|err|ah)+$/); // Just filler words
+
+      if (isEmptyOrUnclear && lastQuestion) {
+        // User didn't respond clearly - re-ask the question
+        const retryPhrases = [
+          "I didn't catch that. Could you please repeat?",
+          "Sorry, I couldn't hear you clearly. Can you say that again?",
+          "I'm having trouble hearing you. Could you repeat your answer?",
+          "Pardon me, could you please say that again?",
+        ];
+        
+        const retryPrompt = retryPhrases[Math.floor(Math.random() * retryPhrases.length)];
+        
+        return {
+          response: `${retryPrompt} ${lastQuestion}`,
+          languageSwitch: null,
+          isRetry: true,
+        };
+      }
+
+      if (isEmptyOrUnclear && !lastQuestion) {
+        // No clear input and no previous question - generic prompt
+        return {
+          response: "I'm sorry, I didn't catch that. Could you please speak clearly?",
+          languageSwitch: null,
+          isRetry: true,
+        };
+      }
 
       // If Agentforce is selected, route there (with translation wrapper)
       if (provider === "agentforce") {
@@ -113,25 +148,47 @@ class AIAgentService {
 
       const customerContextString =
         contextSummary.length > 0
-          ? `\n\nCUSTOMER INFORMATION (Remember this throughout the conversation):\n${contextSummary.join(
+          ? `\n\nCUSTOMER INFORMATION (Already collected - DO NOT ask again):\n${contextSummary.join(
               "\n"
             )}\n`
           : "";
 
       console.log("📋 Server: Current customer context:", updatedContext);
 
+      // Analyze conversation history to track what was already asked
+      const alreadyAsked = this.analyzeConversationHistory(conversationHistory);
+      const trackingInfo = alreadyAsked.length > 0 
+        ? `\n\nQUESTIONS ALREADY ASKED IN THIS CONVERSATION (Never repeat these):\n${alreadyAsked.join('\n')}\n`
+        : '';
+
       // Build enhanced system prompt with language instructions AND customer context
       const enhancedSystemPrompt = `${systemPrompt}
-${customerContextString}
+${customerContextString}${trackingInfo}
 Current language: ${currentLanguageName}. Keep responses brief for voice chat (max 2-3 sentences).
 To switch language, respond with "LANGUAGE_SWITCH:[code]" then your message.
 Codes: en, hi, ta, te, kn, ml, bn, mr, gu, pa, es, fr, de, zh, ja, ko
 
-IMPORTANT: This is a VOICE conversation. Do NOT use markdown formatting like **bold**, *italics*, or [links]. Write plain text that is easy to read aloud.
-IMPORTANT: If customer provides personal details (name, address, phone, email, pincode, order info), acknowledge them and remember them for the entire conversation.
-CRITICAL: Never invent or guess personal details. Use ONLY the values present in CUSTOMER INFORMATION or explicitly provided by the user in this conversation.
-CRITICAL: If the user asks for their phone number, email, address, pincode or order details, read them EXACTLY from CUSTOMER INFORMATION. If they are missing, say you do not have them yet and ask the user to provide or confirm, instead of guessing.
-CRITICAL: When your script or knowledge base contains placeholders in curly braces like {Name}, {Mobile}, {Pincode}, {Email}, {Address} or {Model}, you MUST replace each placeholder with the real value from CUSTOMER INFORMATION / customerContext or the conversation. Never speak the curly-brace tokens literally. If a value is missing, ask the user for it instead of saying the placeholder.`;
+CRITICAL RULES FOR FOLLOWING THE SCRIPT:
+1. FOLLOW YOUR SCRIPT EXACTLY - If your script says "ask for name, then address, then pincode", follow that exact order
+2. NEVER SKIP STEPS - Complete each step before moving to the next
+3. NEVER REPEAT QUESTIONS - Check "CUSTOMER INFORMATION" and "QUESTIONS ALREADY ASKED" before asking anything
+4. ONE QUESTION AT A TIME - Ask only the next unanswered question from your script
+5. ACKNOWLEDGE THEN PROCEED - When user answers, acknowledge briefly and move to the NEXT step in your script
+6. DO NOT LOOP - After completing all script steps, proceed to your script's conclusion (booking, transfer, etc.)
+7. STAY ON SCRIPT - Do not deviate unless user explicitly asks something off-topic
+8. HANDLE UNCLEAR RESPONSES - If user's response doesn't answer your question, politely re-ask with rephrasing
+
+PLACEHOLDER HANDLING:
+- Replace {Name}, {Mobile}, {Pincode}, {Email}, {Address}, {Model} with actual values from CUSTOMER INFORMATION
+- If a placeholder's value is missing, ask for it according to your script's flow
+- Never say the placeholder literally (e.g., don't say "Hello {Name}")
+
+VOICE CONVERSATION RULES:
+- NO markdown formatting (**bold**, *italics*, [links])
+- Plain text only, easy to read aloud
+- Max 2-3 sentences per response
+- Never invent or guess personal details
+- Use ONLY values from CUSTOMER INFORMATION or explicitly provided by user`;
 
       // If RAG is enabled, try to use knowledge base
       if (useRAG && userMessage) {
@@ -211,8 +268,9 @@ CRITICAL: When your script or knowledge base contains placeholders in curly brac
   ) {
     const { temperature, maxTokens, languageNames } = options;
 
-    // Build messages array with LIMITED conversation history (last 6 messages = 3 exchanges)
-    const recentHistory = conversationHistory.slice(-6);
+    // Build messages array with FULL conversation history for better context
+    // Keep more history to track what was already asked (up to 20 messages = 10 exchanges)
+    const recentHistory = conversationHistory.slice(-20);
     const messages = [
       {
         role: "system",
@@ -225,12 +283,14 @@ CRITICAL: When your script or knowledge base contains placeholders in curly brac
       },
     ];
 
-    // Call OpenAI API
+    // Call OpenAI API with stricter parameters to follow script
     const response = await this.openai.chat.completions.create({
       model: "gpt-4o-mini", // Cheaper and faster
       messages: messages,
-      temperature: temperature || 0.7,
+      temperature: temperature || 0.3, // Lower temperature = more deterministic/script-following
       max_tokens: maxTokens || 150,
+      presence_penalty: 0.6, // Discourage repetition
+      frequency_penalty: 0.8, // Strongly discourage repeating same questions
     });
 
     let aiResponse = response.choices[0].message.content;
@@ -339,6 +399,42 @@ CRITICAL: When your script or knowledge base contains placeholders in curly brac
       console.error("❌ Agentforce processing failed:", error);
       return "I'm having trouble connecting to my brain right now. Please try again.";
     }
+  }
+
+  /**
+   * Analyze conversation history to track what questions were already asked
+   */
+  analyzeConversationHistory(conversationHistory) {
+    const askedQuestions = [];
+    
+    for (const msg of conversationHistory) {
+      if (msg.role === 'assistant') {
+        const content = msg.content.toLowerCase();
+        
+        // Detect if assistant asked for specific information
+        if (content.includes('name') && content.includes('?')) {
+          askedQuestions.push('- Asked for name');
+        }
+        if ((content.includes('phone') || content.includes('mobile') || content.includes('number')) && content.includes('?')) {
+          askedQuestions.push('- Asked for phone/mobile number');
+        }
+        if (content.includes('email') && content.includes('?')) {
+          askedQuestions.push('- Asked for email');
+        }
+        if (content.includes('address') && content.includes('?')) {
+          askedQuestions.push('- Asked for address');
+        }
+        if (content.includes('pincode') && content.includes('?')) {
+          askedQuestions.push('- Asked for pincode');
+        }
+        if (content.includes('location') && content.includes('?')) {
+          askedQuestions.push('- Asked for location');
+        }
+      }
+    }
+    
+    // Remove duplicates
+    return [...new Set(askedQuestions)];
   }
 
   /**

@@ -30,6 +30,57 @@ const agentSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    // LLM Configuration
+    llmProvider: {
+      type: String,
+      enum: ["Openai", "Agentforce"],
+      default: "Openai",
+    },
+    llmModel: {
+      type: String,
+      default: "gpt-4o-mini",
+    },
+    maxTokens: {
+      type: Number,
+      default: 1007,
+    },
+    temperature: {
+      type: Number,
+      default: 0.7,
+    },
+    // Audio Configuration
+    language: {
+      type: String,
+      default: "English (India)",
+    },
+    transcriberProvider: {
+      type: String,
+      default: "Deepgram",
+    },
+    transcriberModel: {
+      type: String,
+      default: "nova-2",
+    },
+    voiceProvider: {
+      type: String,
+      default: "Sarvam",
+    },
+    voiceModel: {
+      type: String,
+      default: "bulbulv2",
+    },
+    voice: {
+      type: String,
+      default: "abhilash",
+    },
+    bufferSize: {
+      type: Number,
+      default: 153,
+    },
+    speedRate: {
+      type: Number,
+      default: 0.8,
+    },
   },
   { timestamps: true }
 );

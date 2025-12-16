@@ -3,8 +3,8 @@ import React, { useState } from "react";
 /**
  * LLM tab content (separate file)
  * - Exports default LLM component
- * - Manages its own dropdown states and preview
- * - Used inside AgentSetupSingle when LLM tab is active
+ * - Receives values and onChange handlers as props from parent
+ * - Used inside AgentSetup when LLM tab is active
  */
 
 const SelectField = ({ label, value, onChange, options = [], className = "" }) => (
@@ -48,48 +48,79 @@ const SliderField = ({ label, value, onChange, min = 0, max = 2, step = 0.1, inf
   </div>
 );
 
-export default function LLM() {
-  const [provider, setProvider] = useState("Openai");
-  const [model, setModel] = useState("gpt-3.5-turbo");
-  const [maxTokens, setMaxTokens] = useState("1007");
-  const [temperature, setTemperature] = useState("0.7");
-
+export default function LLM({ 
+  provider, 
+  onProviderChange, 
+  model, 
+  onModelChange, 
+  maxTokens, 
+  onMaxTokensChange, 
+  temperature, 
+  onTemperatureChange 
+}) {
   const providerOptions = [
-    { value: "Openai", label: "Openai" },
-    { value: "Anthropic", label: "Anthropic" },
-    { value: "Google", label: "Google" },
+    { value: "Openai", label: "OpenAI" },
+    { value: "Agentforce", label: "Agentforce" },
   ];
   
-  const modelOptions = [
-    { value: "gpt-3.5-turbo", label: "gpt-3.5-turbo" },
-    { value: "gpt-4", label: "gpt-4" },
-    { value: "gpt-4-turbo", label: "gpt-4-turbo" },
-  ];
+  // Provider-specific model configurations
+  const providerConfigs = {
+    Openai: {
+      models: [
+        { value: "gpt-4o", label: "gpt-4o" },
+        { value: "gpt-4o-mini", label: "gpt-4o-mini" },
+        { value: "gpt-4-turbo", label: "gpt-4-turbo" },
+        { value: "gpt-4", label: "gpt-4" },
+        { value: "gpt-3.5-turbo", label: "gpt-3.5-turbo" },
+      ],
+      showModelSelector: true
+    },
+    Agentforce: {
+      models: [],
+      showModelSelector: false
+    }
+  };
+
+  // Get current provider's configuration
+  const currentConfig = providerConfigs[provider] || { models: [], showModelSelector: false };
+
+  // Handle provider change
+  const handleProviderChange = (newProvider) => {
+    onProviderChange(newProvider);
+    const config = providerConfigs[newProvider];
+    if (config && config.showModelSelector && config.models.length > 0) {
+      onModelChange(config.models[0].value);
+    } else {
+      onModelChange(""); // No model for Agentforce
+    }
+  };
 
   return (
     <div className="max-w-4xl">
       <h2 className="text-lg font-semibold mb-6">Choose LLM model</h2>
       
-      <div className="grid grid-cols-2 gap-6 mb-6">
+      <div className={`grid ${currentConfig.showModelSelector ? 'grid-cols-2' : 'grid-cols-1'} gap-6 mb-6`}>
         <SelectField 
           label="Provider" 
           value={provider} 
-          onChange={setProvider} 
+          onChange={handleProviderChange} 
           options={providerOptions} 
         />
-        <SelectField 
-          label="Model" 
-          value={model} 
-          onChange={setModel} 
-          options={modelOptions} 
-        />
+        {currentConfig.showModelSelector && (
+          <SelectField 
+            label="Model" 
+            value={model} 
+            onChange={onModelChange} 
+            options={currentConfig.models} 
+          />
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-8 mb-6">
         <SliderField
           label="Tokens generated on each LLM output"
           value={maxTokens}
-          onChange={setMaxTokens}
+          onChange={onMaxTokensChange}
           min={100}
           max={4000}
           step={1}
@@ -99,7 +130,7 @@ export default function LLM() {
         <SliderField
           label="Temperature"
           value={temperature}
-          onChange={setTemperature}
+          onChange={onTemperatureChange}
           min={0}
           max={2}
           step={0.1}

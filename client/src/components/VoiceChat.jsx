@@ -9,11 +9,25 @@ const VoiceChat = ({
   agentId,
   welcomeMessage,
   useRAG = false,
+  // LLM Configuration
+  llmProvider = "Openai",
+  llmModel = "gpt-4o-mini",
+  maxTokens = 1007,
+  temperature = 0.7,
+  // Audio Configuration
+  language = "English (India)",
+  transcriberProvider = "Deepgram",
+  transcriberModel = "nova-2",
+  voiceProvider = "Sarvam",
+  voiceModel = "bulbulv2",
+  voice = "abhilash",
+  bufferSize = 153,
+  speedRate = 0.8,
 }) => {
-  // Initialize language from localStorage or default to 'en'
+  // Initialize language from localStorage or default to prop
   const [selectedLanguage, setSelectedLanguage] = useState(() => {
     const saved = localStorage.getItem("voiceChat_selectedLanguage");
-    return saved || "en";
+    return saved || language;
   });
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -21,9 +35,11 @@ const VoiceChat = ({
   const [transcript, setTranscript] = useState("");
   const [conversation, setConversation] = useState([]);
   const [error, setError] = useState("");
-  const [selectedVoice, setSelectedVoice] = useState("anushka"); // Voice selector
+  const [selectedVoice, setSelectedVoice] = useState(voice); // Voice selector from props
   const [ragEnabled, setRagEnabled] = useState(useRAG); // RAG toggle
-  const [selectedLLM, setSelectedLLM] = useState("openai"); // 'openai' or 'agentforce'
+  const [selectedLLM, setSelectedLLM] = useState(llmProvider.toLowerCase()); // 'openai' or 'agentforce'
+  const [lastQuestion, setLastQuestion] = useState(null); // Track last question asked by agent
+  const [silenceTimeoutId, setSilenceTimeoutId] = useState(null); // Timeout for silence detection
 
   // Update RAG enabled state when prop changes
   useEffect(() => {
@@ -666,6 +682,12 @@ const VoiceChat = ({
       setConversation((prev) => [...prev, userMessage]);
       conversationHistoryRef.current.push(userMessage);
 
+      // Clear any pending silence timeout since user responded
+      if (silenceTimeoutId) {
+        clearTimeout(silenceTimeoutId);
+        setSilenceTimeoutId(null);
+      }
+
       // Step 2: Get AI response from OpenAI
       setTranscript("Getting AI response...");
       const aiResponse = await getAIResponse();
@@ -675,11 +697,28 @@ const VoiceChat = ({
       setConversation((prev) => [...prev, aiMessage]);
       conversationHistoryRef.current.push(aiMessage);
 
-      // Step 3: Speak the response using Sarvam AI
+      // Track if AI asked a question (for retry logic)
+      const isQuestion = aiResponse.includes('?');
+      if (isQuestion) {
+        setLastQuestion(aiResponse);
+      } else {
+        setLastQuestion(null);
+      }
+
+      // Step 3: Speak the response using configured TTS provider
       setTranscript("");
-      await speakTextWithSarvam(aiResponse);
+      await speakText(aiResponse);
 
       setIsProcessing(false);
+
+      // If AI asked a question, start silence timer (10 seconds)
+      if (isQuestion && continuousModeRef.current) {
+        const timeoutId = setTimeout(() => {
+          console.log("⏰ Silence detected - user didn't respond");
+          handleSilenceTimeout();
+        }, 10000); // 10 seconds
+        setSilenceTimeoutId(timeoutId);
+      }
 
       // In continuous mode, restart listening after AI finishes speaking
       if (continuousModeRef.current && mediaStreamRef.current) {
@@ -1091,8 +1130,8 @@ CRITICAL: Follow the behavior, flow and steps defined in the system prompt stric
                 conversationHistory: conversationHistoryRef.current.slice(-6),
                 systemPrompt: enhancedSystemPrompt, // Pass full prompt with language instructions
                 options: {
-                  temperature: 0.4,
-                  max_tokens: 500,
+                  temperature: temperature,
+                  max_tokens: maxTokens,
                   agentId: agentId, // Pass agentId for filtering
                 },
               }),
@@ -1170,7 +1209,7 @@ CRITICAL: Follow the behavior, flow and steps defined in the system prompt stric
               Authorization: `Bearer ${apiKey}`,
             },
             body: JSON.stringify({
-              model: "gpt-4o-mini",
+              model: llmModel,
               messages: [
                 {
                   role: "system",
@@ -1218,8 +1257,8 @@ Be flexible - extract whatever information is relevant to the user's request.`,
                   content: lastUserMessage,
                 },
               ],
-              temperature: 0,
-              max_tokens: 150,
+              temperature: 0, // Keep at 0 for consistent JSON extraction
+              max_tokens: 150, // Short response needed for JSON only
             }),
           }
         );
@@ -1366,10 +1405,10 @@ Be flexible - extract whatever information is relevant to the user's request.`,
             Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            model: "gpt-4o-mini", // Much cheaper than gpt-4 (15x cheaper!) and faster
+            model: llmModel,
             messages: messages,
-            temperature: 0.4,
-            max_tokens: 150, // Reduced from 150 - shorter responses for voice
+            temperature: temperature,
+            max_tokens: maxTokens,
           }),
         }
       );
@@ -1455,9 +1494,22 @@ Be flexible - extract whatever information is relevant to the user's request.`,
   };
 
   /**
+   * Text-to-Speech - Routes to appropriate provider (Sarvam or Tabbly)
+   */
+  const speakText = async (text) => {
+    // Route to appropriate TTS provider
+    if (voiceProvider === "Tabbly") {
+      return await speakWithTabbly(text);
+    } else {
+      // Default to Sarvam
+      return await speakWithSarvam(text);
+    }
+  };
+
+  /**
    * Text-to-Speech using Sarvam AI
    */
-  const speakTextWithSarvam = async (text) => {
+  const speakWithSarvam = async (text) => {
     try {
       setIsSpeaking(true);
 
@@ -1503,8 +1555,8 @@ Be flexible - extract whatever information is relevant to the user's request.`,
         {
           inputs: [sanitizedText],
           target_language_code: sarvamLanguage,
-          speaker: selectedVoice,
-          model: "bulbul:v2",
+          speaker: voice, // Use voice prop directly
+          model: voiceModel === "bulbulv2" ? "bulbul:v2" : "bulbul:v1", // Map model prop
         },
         {
           headers: {
@@ -1573,6 +1625,173 @@ Be flexible - extract whatever information is relevant to the user's request.`,
   };
 
   /**
+   * Text-to-Speech using Tabbly AI (via backend)
+   */
+  const speakWithTabbly = async (text) => {
+    try {
+      setIsSpeaking(true);
+
+      // Sanitize text to remove markdown and system instructions
+      const sanitizedText = text
+        .replace(/\*\*/g, "") // Remove bold
+        .replace(/\*/g, "") // Remove italics
+        .replace(/`/g, "") // Remove code blocks
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // Remove links but keep text
+        .replace(/LANGUAGE_SWITCH:[^ ]+/g, "") // Remove language switch commands
+        .replace(/\[MEMORY:.*\]/g, "") // Remove memory blocks
+        .replace(/[#_]/g, "") // Remove dashes/underscores/hashes
+        .replace(/\n\n/g, ". ") // Convert paragraph breaks to full stops for pauses
+        .replace(/\s+/g, " ") // Normalize whitespace
+        .trim();
+
+      const response = await axios.post(
+        "/api/speech/tts/tabbly",
+        {
+          text: sanitizedText,
+          voice: voice, // Use voice prop (Ashley, Brian, Emma, etc.)
+          model: voiceModel || "tabbly-tts",
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          responseType: "arraybuffer", // Important: Get binary WAV data
+        }
+      );
+
+      console.log("✅ Tabbly TTS response received:", {
+        dataSize: response.data.byteLength,
+        contentType: response.headers["content-type"],
+      });
+
+      // Convert response to blob
+      const audioBlob = new Blob([response.data], { type: "audio/wav" });
+      console.log("🔊 Audio blob created:", {
+        size: audioBlob.size,
+        type: audioBlob.type,
+      });
+
+      // Create audio URL and play
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+
+      console.log("🎵 Attempting to play audio from URL:", audioUrl);
+
+      return new Promise((resolve, reject) => {
+        audio.onended = () => {
+          console.log("✅ Audio playback completed");
+          setIsSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+          resolve();
+        };
+
+        audio.onerror = (error) => {
+          console.error("Audio playback error:", error);
+          console.error("Audio element:", audio);
+          setIsSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+          reject(error);
+        };
+
+        audio.onloadedmetadata = () => {
+          console.log("🎵 Audio metadata loaded:", {
+            duration: audio.duration,
+            readyState: audio.readyState,
+          });
+        };
+
+        audio.play().catch((error) => {
+          console.error("Error playing audio:", error);
+          setIsSpeaking(false);
+          reject(error);
+        });
+      });
+    } catch (error) {
+      console.error("Tabbly TTS error:", error);
+      setIsSpeaking(false);
+
+      // Show user-friendly error
+      if (error.response) {
+        console.error("Tabbly API error response:", error.response.data);
+        const errorMsg =
+          error.response.data?.error?.message ||
+          error.response.data?.message ||
+          error.response.statusText;
+        throw new Error(`Tabbly TTS failed: ${errorMsg}`);
+      } else {
+        throw new Error("Failed to generate speech: " + error.message);
+      }
+    }
+  };
+
+  /**
+   * Handle silence timeout - user didn't respond to a question
+   */
+  const handleSilenceTimeout = async () => {
+    if (!lastQuestion) return;
+
+    try {
+      setIsProcessing(true);
+      setTranscript("Processing silence timeout...");
+
+      // Call AI with empty/unclear input flag to trigger retry logic
+      const response = await axios.post(
+        "/api/rag/chat",
+        {
+          query: "", // Empty query indicates silence
+          conversationHistory: conversationHistoryRef.current,
+          systemPrompt: agentPrompt || "You are a helpful assistant.",
+          useRAG: ragEnabled,
+          agentId: agentId,
+          customerContext: customerContextRef.current,
+          isRetry: true,
+          lastQuestion: lastQuestion,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
+      );
+
+      const retryResponse = response.data.response || "Could you please respond?";
+
+      // Add retry message to conversation
+      const aiMessage = { role: "assistant", content: retryResponse };
+      setConversation((prev) => [...prev, aiMessage]);
+      conversationHistoryRef.current.push(aiMessage);
+
+      // Speak the retry message
+      setTranscript("");
+      await speakText(retryResponse);
+
+      setIsProcessing(false);
+
+      // Restart listening if continuous mode is on
+      if (continuousModeRef.current && mediaStreamRef.current) {
+        setTimeout(() => {
+          if (continuousModeRef.current && !isRecordingRef.current) {
+            startListening();
+          }
+        }, 500);
+      }
+
+      // Set another timeout for this retry question
+      const timeoutId = setTimeout(() => {
+        console.log("⏰ Second silence timeout");
+        handleSilenceTimeout();
+      }, 10000);
+      setSilenceTimeoutId(timeoutId);
+
+    } catch (error) {
+      console.error("Error handling silence timeout:", error);
+      setIsProcessing(false);
+    }
+  };
+
+  /**
    * Clear conversation history
    */
   const clearConversation = () => {
@@ -1580,6 +1799,11 @@ Be flexible - extract whatever information is relevant to the user's request.`,
     conversationHistoryRef.current = [];
     setTranscript("");
     setError("");
+    setLastQuestion(null);
+    if (silenceTimeoutId) {
+      clearTimeout(silenceTimeoutId);
+      setSilenceTimeoutId(null);
+    }
   };
 
   /**
@@ -1717,23 +1941,8 @@ Be flexible - extract whatever information is relevant to the user's request.`,
         </div>
       )}
 
-      {/* Language and Voice Selectors */}
+      {/* Language Selector and Settings */}
       <div className="mb-6 grid grid-cols-2 gap-4">
-        <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium text-slate-700">
-            AI Model:
-          </label>
-          <select
-            value={selectedLLM}
-            onChange={(e) => setSelectedLLM(e.target.value)}
-            disabled={isListening || isProcessing}
-            className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:cursor-not-allowed"
-          >
-            <option value="openai">OpenAI (GPT-4o-mini)</option>
-            <option value="agentforce">Salesforce Agentforce</option>
-          </select>
-        </div>
-
         <div className="flex flex-col gap-2">
           <label className="text-sm font-medium text-slate-700">
             Language:
@@ -1763,54 +1972,9 @@ Be flexible - extract whatever information is relevant to the user's request.`,
           </select>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium text-slate-700">Voice:</label>
-          <select
-            value={selectedVoice}
-            onChange={(e) => setSelectedVoice(e.target.value)}
-            disabled={isListening || isProcessing}
-            className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:cursor-not-allowed"
-          >
-            <optgroup label="👩 Female Voices">
-              <option value="anushka">Anushka</option>
-              <option value="manisha">Manisha</option>
-              <option value="vidya">Vidya</option>
-              <option value="isha">Isha</option>
-              <option value="ritu">Ritu</option>
-              <option value="sakshi">Sakshi</option>
-              <option value="priya">Priya</option>
-              <option value="neha">Neha</option>
-              <option value="pooja">Pooja</option>
-              <option value="simran">Simran</option>
-              <option value="kavya">Kavya</option>
-              <option value="anjali">Anjali</option>
-              <option value="sneha">Sneha</option>
-              <option value="sunita">Sunita</option>
-              <option value="tara">Tara</option>
-              <option value="kriti">Kriti</option>
-            </optgroup>
-            <optgroup label="👨 Male Voices">
-              <option value="abhilash">Abhilash</option>
-              <option value="arya">Arya</option>
-              <option value="karun">Karun</option>
-              <option value="hitesh">Hitesh</option>
-              <option value="aditya">Aditya</option>
-              <option value="chirag">Chirag</option>
-              <option value="harsh">Harsh</option>
-              <option value="rahul">Rahul</option>
-              <option value="rohan">Rohan</option>
-              <option value="kiran">Kiran</option>
-              <option value="vikram">Vikram</option>
-              <option value="rajesh">Rajesh</option>
-              <option value="anirudh">Anirudh</option>
-              <option value="ishaan">Ishaan</option>
-            </optgroup>
-          </select>
-        </div>
-
         {/* RAG Toggle */}
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 cursor-pointer">
+          <label className="flex items-center gap-2 cursor-pointer mt-6">
             <input
               type="checkbox"
               checked={ragEnabled}
@@ -1821,7 +1985,7 @@ Be flexible - extract whatever information is relevant to the user's request.`,
               Use Knowledge Base (RAG)
             </span>
           </label>
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-500 mt-6">
             {ragEnabled
               ? "✓ Enhanced with uploaded documents"
               : "⚠ Basic mode only"}
@@ -1829,7 +1993,7 @@ Be flexible - extract whatever information is relevant to the user's request.`,
         </div>
 
         {/* Continuous Mode Toggle */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 col-span-2">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"

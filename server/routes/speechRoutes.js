@@ -48,4 +48,9 @@ router.post(
   }
 );
 
+// TTS endpoint for Tabbly
+router.post("/tts/tabbly", authenticate, (req, res, next) => {
+  speechController.ttsWithTabbly(req, res).catch(next);
+});
+
 export default router;

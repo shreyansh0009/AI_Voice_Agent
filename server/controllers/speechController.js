@@ -1,4 +1,5 @@
 import sarvamService from "../services/sarvam.service.js";
+import ttsService from "../services/tts.service.js";
 import fs from "fs";
 
 class SpeechController {
@@ -45,6 +46,49 @@ class SpeechController {
         });
       }
 
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * Handle Text to Speech request using Tabbly
+   * POST /api/speech/tts/tabbly
+   */
+  async ttsWithTabbly(req, res) {
+    try {
+      const { text, voice, model } = req.body;
+
+      if (!text || text.trim() === "") {
+        return res.status(400).json({
+          success: false,
+          error: "No text provided for TTS",
+        });
+      }
+
+      console.log("🔊 Received TTS request for Tabbly:", {
+        voice: voice || "Ashley",
+        model: model || "tabbly-tts",
+        textLength: text.length,
+      });
+
+      // Call TTS Service
+      const audioBuffer = await ttsService.speakWithTabbly(
+        text,
+        voice,
+        model
+      );
+
+      // Send audio buffer as WAV
+      res.set({
+        "Content-Type": "audio/wav",
+        "Content-Length": audioBuffer.length,
+      });
+      res.send(audioBuffer);
+    } catch (error) {
+      console.error("Error in Tabbly TTS:", error);
       res.status(500).json({
         success: false,
         error: error.message,

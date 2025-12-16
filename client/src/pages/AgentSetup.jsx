@@ -33,6 +33,23 @@ export default function AgentSetupSingle() {
     "You are a helpful agent. You will help the customer with their queries and doubts. You will never speak more than 2 sentences. Keep your responses concise."
   );
 
+  // LLM Configuration
+  const [llmProvider, setLlmProvider] = useState("Openai");
+  const [llmModel, setLlmModel] = useState("gpt-4o-mini");
+  const [maxTokens, setMaxTokens] = useState(1007);
+  const [temperature, setTemperature] = useState(0.7);
+
+  // Audio Configuration
+  const [language, setLanguage] = useState("English (India)");
+  const [transcriberProvider, setTranscriberProvider] = useState("Deepgram");
+  const [transcriberModel, setTranscriberModel] = useState("nova-2");
+  const [keywords, setKeywords] = useState("");
+  const [voiceProvider, setVoiceProvider] = useState("Sarvam");
+  const [voiceModel, setVoiceModel] = useState("bulbulv2");
+  const [voice, setVoice] = useState("abhilash");
+  const [bufferSize, setBufferSize] = useState(153);
+  const [speedRate, setSpeedRate] = useState(0.8);
+
   // State to store all created agents
   const [savedAgents, setSavedAgents] = useState([]);
 
@@ -263,6 +280,20 @@ export default function AgentSetupSingle() {
       status: "draft",
       welcome: welcome,
       prompt: prompt,
+      // LLM Configuration
+      llmProvider: llmProvider,
+      llmModel: llmModel,
+      maxTokens: maxTokens,
+      temperature: temperature,
+      // Audio Configuration
+      language: language,
+      transcriberProvider: transcriberProvider,
+      transcriberModel: transcriberModel,
+      voiceProvider: voiceProvider,
+      voiceModel: voiceModel,
+      voice: voice,
+      bufferSize: bufferSize,
+      speedRate: speedRate,
     };
 
     try {
@@ -296,6 +327,20 @@ export default function AgentSetupSingle() {
     setAgentDomain(agent.domain || "general");
     setWelcome(agent.welcome);
     setPrompt(agent.prompt);
+    // Load LLM Configuration
+    setLlmProvider(agent.llmProvider || "Openai");
+    setLlmModel(agent.llmModel || "gpt-4o-mini");
+    setMaxTokens(agent.maxTokens || 1007);
+    setTemperature(agent.temperature || 0.7);
+    // Load Audio Configuration
+    setLanguage(agent.language || "English (India)");
+    setTranscriberProvider(agent.transcriberProvider || "Deepgram");
+    setTranscriberModel(agent.transcriberModel || "nova-2");
+    setVoiceProvider(agent.voiceProvider || "Sarvam");
+    setVoiceModel(agent.voiceModel || "bulbulv2");
+    setVoice(agent.voice || "Abhilash");
+    setBufferSize(agent.bufferSize || 153);
+    setSpeedRate(agent.speedRate || 0.8);
     setIsNewAgent(false);
   }
 
@@ -1095,13 +1140,41 @@ export default function AgentSetupSingle() {
             {/* LLM Tab: separate component imported */}
             {activeTab === "LLM" && (
               <section>
-                <LLM />
+                <LLM 
+                  provider={llmProvider}
+                  onProviderChange={setLlmProvider}
+                  model={llmModel}
+                  onModelChange={setLlmModel}
+                  maxTokens={maxTokens}
+                  onMaxTokensChange={setMaxTokens}
+                  temperature={temperature}
+                  onTemperatureChange={setTemperature}
+                />
               </section>
             )}
 
             {activeTab === "Audio" && (
               <section>
-                <Audio />
+                <Audio 
+                  language={language}
+                  onLanguageChange={setLanguage}
+                  transcriberProvider={transcriberProvider}
+                  onTranscriberProviderChange={setTranscriberProvider}
+                  transcriberModel={transcriberModel}
+                  onTranscriberModelChange={setTranscriberModel}
+                  keywords={keywords}
+                  onKeywordsChange={setKeywords}
+                  voiceProvider={voiceProvider}
+                  onVoiceProviderChange={setVoiceProvider}
+                  voiceModel={voiceModel}
+                  onVoiceModelChange={setVoiceModel}
+                  voice={voice}
+                  onVoiceChange={setVoice}
+                  bufferSize={bufferSize}
+                  onBufferSizeChange={setBufferSize}
+                  speedRate={speedRate}
+                  onSpeedRateChange={setSpeedRate}
+                />
               </section>
             )}
             {/* Voice Settings Section (Knowledge Base) */}
@@ -1429,6 +1502,18 @@ export default function AgentSetupSingle() {
                 agentId={selectedAgentId}
                 welcomeMessage={welcome}
                 useRAG={uploadedFiles.length > 0}
+                llmProvider={llmProvider}
+                llmModel={llmModel}
+                maxTokens={maxTokens}
+                temperature={temperature}
+                language={language}
+                transcriberProvider={transcriberProvider}
+                transcriberModel={transcriberModel}
+                voiceProvider={voiceProvider}
+                voiceModel={voiceModel}
+                voice={voice}
+                bufferSize={bufferSize}
+                speedRate={speedRate}
               />
             </section>
             {activeTab === "Engine" && (
