@@ -722,10 +722,11 @@ const VoiceChat = ({
 
       // In continuous mode, restart listening after AI finishes speaking
       if (continuousModeRef.current && mediaStreamRef.current) {
-        // console.log('🔄 Continuous mode: Restarting listening...');
+        console.log(`🔄 Continuous mode: Restarting listening with language: ${currentLanguageRef.current}`);
         // Small delay to avoid overlap
         setTimeout(() => {
           if (continuousModeRef.current && !isRecordingRef.current) {
+            console.log(`▶️ About to call startListening() with currentLanguageRef: ${currentLanguageRef.current}`);
             startListening();
           }
         }, 500);
@@ -756,6 +757,7 @@ const VoiceChat = ({
   const speechToText = async (audioBlob) => {
     // 1. Determine which service to use based on language
     const currentLang = currentLanguageRef.current;
+    console.log(`🎯 speechToText called with currentLang: ${currentLang}`);
 
     // Define supported languages
     const deepgramLanguages = ["en", "hi"];
@@ -832,10 +834,9 @@ const VoiceChat = ({
 
         // Use ref to get the most current language (might have been switched)
         const languageToUse = currentLanguageRef.current;
-        // console.log('🎤 Deepgram STT STARTING...');
-        // console.log('📊 selectedLanguage state:', selectedLanguage);
-        // console.log('📊 currentLanguageRef.current:', currentLanguageRef.current);
-        // console.log('🎤 Deepgram will use language:', languageToUse);
+        console.log('🎤 Deepgram STT STARTING with language:', languageToUse);
+        console.log('📊 selectedLanguage state:', selectedLanguage);
+        console.log('📊 currentLanguageRef.current:', currentLanguageRef.current);
 
         let connection;
         try {
@@ -963,6 +964,7 @@ const VoiceChat = ({
         message: lastUserMessage,
         customerContext: customerContextRef.current,
         historyLength: recentHistory.length,
+        language: currentLanguageRef.current, // Show what language we're sending
       });
 
       // CALL BACKEND API - it handles all extraction and processing
@@ -980,7 +982,7 @@ const VoiceChat = ({
             customerContext: customerContextRef.current,
             conversationHistory: recentHistory,
             options: {
-              language: selectedLanguage,
+              language: currentLanguageRef.current, // Use ref, not state, for immediate updates
               useRAG: ragEnabled,
               systemPrompt: systemPrompt || "You are a helpful AI assistant.",
               temperature: temperature,
@@ -1010,8 +1012,24 @@ const VoiceChat = ({
       // Handle language switch
       if (data.languageSwitch) {
         const newLanguageCode = data.languageSwitch.toLowerCase();
+        console.log(`🌐 [BEFORE] Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`);
+        
         currentLanguageRef.current = newLanguageCode;
         setSelectedLanguage(newLanguageCode);
+        
+        console.log(`🌐 [AFTER] currentLanguageRef.current is now: ${currentLanguageRef.current}`);
+        
+        // CRITICAL: If in continuous mode and listening, restart with new language
+        if (continuousModeRef.current && mediaStreamRef.current) {
+          console.log("🔄 Restarting listening with new language...");
+          // Stop current recording
+          if (isRecordingRef.current && mediaRecorderRef.current?.state === "recording") {
+            mediaRecorderRef.current.stop();
+            isRecordingRef.current = false;
+          }
+          // Restart will happen automatically after speaking completes
+          // (in processAudio's continuous mode logic)
+        }
       }
 
       return data.response;

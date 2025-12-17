@@ -147,9 +147,10 @@ class AIAgentService {
       } = options;
 
       // Handle empty/unclear user input (silence, distortion, STT failure)
+      // Note: Accept Unicode for multi-language support (Hindi, Tamil, etc.)
       const isEmptyOrUnclear = !userMessage || 
                                userMessage.trim().length < 2 || 
-                               /^[^a-zA-Z0-9]+$/.test(userMessage) || // Only symbols/noise
+                               /^[\s\p{P}]+$/u.test(userMessage) || // Only whitespace/punctuation (Unicode-aware)
                                userMessage.toLowerCase().match(/^(um|uh|hmm|err|ah)+$/); // Just filler words
 
       if (isEmptyOrUnclear && lastQuestion) {
@@ -314,7 +315,14 @@ SYSTEM INSTRUCTIONS (Auto-added for voice chat):
 - NO markdown formatting (**bold**, *italics*, [links]) - plain text only
 - Replace placeholders {Name}, {Mobile}, {Pincode}, {Email}, {Address}, {Model} with actual values
 - Never invent customer details - use ONLY from CUSTOMER INFORMATION
-- For language switch, use: LANGUAGE_SWITCH:[code] (codes: en, hi, ta, te, kn, ml, bn, mr, gu, pa, es, fr, de, zh, ja, ko)
+
+🌐 LANGUAGE SWITCHING - CRITICAL:
+When user asks to switch language (e.g., "Can we switch to Hindi?", "हिंदी में बात करें"), you MUST:
+1. Prefix your ENTIRE response with: LANGUAGE_SWITCH:[code] 
+2. Available codes: en, hi, ta, te, kn, ml, bn, mr, gu, pa, es, fr, de, zh, ja, ko
+3. Then respond in the requested language
+Example: "LANGUAGE_SWITCH:hi बिल्कुल! मैं हिंदी में बात कर सकती हूँ।"
+Example: "LANGUAGE_SWITCH:en Sure! I can speak in English."
 
 CRITICAL RULES:
 1. FOLLOW YOUR SCRIPT EXACTLY in order
