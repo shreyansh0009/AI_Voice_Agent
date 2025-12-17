@@ -13,8 +13,98 @@ dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 /**
  * AI Agent Service - Handles conversation logic for both web voice chat and phone calls
- * Reuses the same AI logic from VoiceChat component but on the server side
+ * 
+ * Architecture:
+ * - Dynamic flow extraction from user's agent prompt (no hardcoded state machines)
+ * - Automatic customer info extraction and validation
+ * - Multi-language support with translation layer
+ * - RAG-enabled knowledge base integration
+ * - Conversation state tracking to prevent loops and repetition
+ * 
+ * Configuration:
+ * - All AI parameters centralized in AI_CONFIG
+ * - System prompts defined as constants for reusability
+ * - Language codes mapped in LANGUAGE_CODES
  */
+
+// Configuration constants
+const AI_CONFIG = {
+  MODEL: "gpt-4o-mini",
+  EXTRACTION_MODEL: "gpt-4o-mini",
+  DEFAULT_TEMPERATURE: 0.3,
+  DEFAULT_MAX_TOKENS: 150,
+  EXTRACTION_MAX_TOKENS: 200,
+  CONVERSATION_HISTORY_LIMIT: 20, // messages to keep (10 exchanges)
+  PRESENCE_PENALTY: 0.6,
+  FREQUENCY_PENALTY: 0.8,
+};
+
+const LANGUAGE_CODES = {
+  en: "English",
+  hi: "Hindi",
+  ta: "Tamil",
+  te: "Telugu",
+  kn: "Kannada",
+  ml: "Malayalam",
+  bn: "Bengali",
+  mr: "Marathi",
+  gu: "Gujarati",
+  pa: "Punjabi",
+  es: "Spanish",
+  fr: "French",
+  de: "German",
+  zh: "Chinese",
+  ja: "Japanese",
+  ko: "Korean",
+};
+
+const RETRY_PHRASES = [
+  "I didn't catch that. Could you please repeat?",
+  "Sorry, I couldn't hear you clearly. Can you say that again?",
+  "I'm having trouble hearing you. Could you repeat your answer?",
+  "Pardon me, could you please say that again?",
+];
+
+// System prompts as constants for reusability
+const EXTRACTION_SYSTEM_PROMPT = `Extract customer information and requirements from the text. Return ONLY a valid JSON object.
+
+STANDARD CUSTOMER FIELDS (extract if present):
+- name: Customer's name (first name, last name, or full name)
+- phone: Mobile number (10 digits for India, starting with 6-9)
+- email: Email address
+- address: Physical address or location
+- pincode: Postal/ZIP code (6 digits in India)
+- model: Product/service identifier (car model, property type, course name, etc.)
+- orderDetails: Any domain-specific requirements (budget, preferences, specifications)
+
+CRITICAL RULES:
+1. Even if the user provides ONLY a name like "John" or "Rahul" → extract it as {"name": "John"}
+2. Even if the user provides ONLY a number like "9876543210" → extract as {"phone": "9876543210"}
+3. Even if the user provides ONLY a pincode like "305001" → extract as {"pincode": "305001"}
+4. If user says just a product name like "Magnus EX" → extract as {"model": "Magnus EX"}
+5. In conversation, users often answer questions with short responses - extract them!
+
+PHONE NUMBER EXTRACTION:
+- Extract 10-digit Indian mobile numbers (starting with 6-9)
+- Handle formats: "9876543210", "98765 43210", "987-654-3210", "+91 9876543210"
+- Handle spoken digits: "nine eight seven six five four three two one zero" → "9876543210"
+- Remove all spaces, hyphens, and country codes to get clean 10 digits
+
+EXAMPLES:
+Full sentence: "I'm Priya, need red dress size M, my number is 9876543210" → {"name": "Priya", "phone": "9876543210", "orderDetails": {"product": "red dress", "size": "M"}}
+Short answer: "John" → {"name": "John"}
+Short answer: "John Doe" → {"name": "John Doe"}
+Short answer: "9876543210" → {"phone": "9876543210"}
+Short answer: "305001" → {"pincode": "305001"}
+Short answer: "Magnus EX" → {"model": "Magnus EX"}
+Full sentence: "I am Rahul, want to test ride Magnus EX, pincode 305001" → {"name": "Rahul", "pincode": "305001", "model": "Magnus EX"}
+No info: "Yes" → {}
+No info: "Okay" → {}
+No info: "I want to book a test ride" → {}
+
+If no customer-specific info found, return {}
+Be flexible - extract whatever information is relevant to the user's identity or requirements.`;
+
 class AIAgentService {
   constructor() {
     this.openai = new OpenAI({
@@ -35,7 +125,7 @@ class AIAgentService {
    * @param {object} customerContext - Customer information (name, email, phone, etc.)
    * @param {array} conversationHistory - Recent conversation messages
    * @param {object} options - Additional options (language, useRAG, etc.)
-   * @returns {Promise<string>} AI response text
+   * @returns {Promise<object>} Object containing response text and updated customer context
    */
   async processMessage(
     userMessage,
@@ -64,17 +154,11 @@ class AIAgentService {
 
       if (isEmptyOrUnclear && lastQuestion) {
         // User didn't respond clearly - re-ask the question
-        const retryPhrases = [
-          "I didn't catch that. Could you please repeat?",
-          "Sorry, I couldn't hear you clearly. Can you say that again?",
-          "I'm having trouble hearing you. Could you repeat your answer?",
-          "Pardon me, could you please say that again?",
-        ];
-        
-        const retryPrompt = retryPhrases[Math.floor(Math.random() * retryPhrases.length)];
+        const retryPrompt = RETRY_PHRASES[Math.floor(Math.random() * RETRY_PHRASES.length)];
         
         return {
           response: `${retryPrompt} ${lastQuestion}`,
+          customerContext: customerContext, // Return unchanged context
           languageSwitch: null,
           isRetry: true,
         };
@@ -84,6 +168,7 @@ class AIAgentService {
         // No clear input and no previous question - generic prompt
         return {
           response: "I'm sorry, I didn't catch that. Could you please speak clearly?",
+          customerContext: customerContext, // Return unchanged context
           languageSwitch: null,
           isRetry: true,
         };
@@ -91,52 +176,43 @@ class AIAgentService {
 
       // If Agentforce is selected, route there (with translation wrapper)
       if (provider === "agentforce") {
-        return await this.getAgentforceResponse(userMessage, language, {
+        // Extract customer info even for Agentforce
+        const updatedContext = await this.extractCustomerInfo(userMessage, customerContext);
+        
+        const agentforceResponse = await this.getAgentforceResponse(userMessage, language, {
           useRAG,
-          customerContext,
+          customerContext: updatedContext,
           agentId,
           conversationHistory,
           systemPrompt,
         });
+        
+        return {
+          ...agentforceResponse,
+          customerContext: updatedContext,
+        };
       }
 
-      // Language mapping
-      const languageNames = {
-        en: "English",
-        hi: "Hindi",
-        ta: "Tamil",
-        te: "Telugu",
-        kn: "Kannada",
-        ml: "Malayalam",
-        bn: "Bengali",
-        mr: "Marathi",
-        gu: "Gujarati",
-        pa: "Punjabi",
-        es: "Spanish",
-        fr: "French",
-        de: "German",
-        zh: "Chinese",
-        ja: "Japanese",
-        ko: "Korean",
-      };
-
-      const currentLanguageName = languageNames[language] || "English";
+      const currentLanguageName = LANGUAGE_CODES[language] || "English";
 
       // Extract customer info from the current message FIRST
       const updatedContext = await this.extractCustomerInfo(userMessage, customerContext);
       
+      // Determine conversation stage and next required field
+      const conversationState = this.determineConversationState(updatedContext, systemPrompt);
+      
       // Build customer context summary for the prompt
       const contextSummary = [];
       if (updatedContext.name)
-        contextSummary.push(`Name: ${updatedContext.name}`);
+        contextSummary.push(`✅ Name: ${updatedContext.name}`);
       if (updatedContext.phone)
-        contextSummary.push(`Phone: ${updatedContext.phone}`);
+        contextSummary.push(`✅ Phone: ${updatedContext.phone}`);
       if (updatedContext.pincode)
-        contextSummary.push(`Pincode: ${updatedContext.pincode}`);
+        contextSummary.push(`✅ Pincode: ${updatedContext.pincode}`);
       if (updatedContext.email)
-        contextSummary.push(`Email: ${updatedContext.email}`);
+        contextSummary.push(`✅ Email: ${updatedContext.email}`);
       if (updatedContext.address)
-        contextSummary.push(`Address: ${updatedContext.address}`);
+        contextSummary.push(`✅ Address: ${updatedContext.address}`);
       if (
         updatedContext.orderDetails &&
         Object.keys(updatedContext.orderDetails).length > 0
@@ -153,42 +229,32 @@ class AIAgentService {
             )}\n`
           : "";
 
-      console.log("📋 Server: Current customer context:", updatedContext);
-
       // Analyze conversation history to track what was already asked
       const alreadyAsked = this.analyzeConversationHistory(conversationHistory);
       const trackingInfo = alreadyAsked.length > 0 
-        ? `\n\nQUESTIONS ALREADY ASKED IN THIS CONVERSATION (Never repeat these):\n${alreadyAsked.join('\n')}\n`
+        ? `\n\nQUESTIONS ALREADY ASKED (Never repeat these):\n${alreadyAsked.join('\n')}\n`
         : '';
 
-      // Build enhanced system prompt with language instructions AND customer context
-      const enhancedSystemPrompt = `${systemPrompt}
-${customerContextString}${trackingInfo}
-Current language: ${currentLanguageName}. Keep responses brief for voice chat (max 2-3 sentences).
-To switch language, respond with "LANGUAGE_SWITCH:[code]" then your message.
-Codes: en, hi, ta, te, kn, ml, bn, mr, gu, pa, es, fr, de, zh, ja, ko
+      // Add conversation stage guidance
+      const stageGuidance = conversationState.nextAction
+        ? `\n\n🎯 CURRENT STEP (${conversationState.currentStep}/${conversationState.totalSteps}): ${conversationState.nextAction}
+📋 COMPLETED: ${conversationState.completedSteps?.join(', ') || 'None'}
+⏭️  REMAINING: ${conversationState.remainingSteps?.slice(0, 3).join(', ') || 'None'}
 
-CRITICAL RULES FOR FOLLOWING THE SCRIPT:
-1. FOLLOW YOUR SCRIPT EXACTLY - If your script says "ask for name, then address, then pincode", follow that exact order
-2. NEVER SKIP STEPS - Complete each step before moving to the next
-3. NEVER REPEAT QUESTIONS - Check "CUSTOMER INFORMATION" and "QUESTIONS ALREADY ASKED" before asking anything
-4. ONE QUESTION AT A TIME - Ask only the next unanswered question from your script
-5. ACKNOWLEDGE THEN PROCEED - When user answers, acknowledge briefly and move to the NEXT step in your script
-6. DO NOT LOOP - After completing all script steps, proceed to your script's conclusion (booking, transfer, etc.)
-7. STAY ON SCRIPT - Do not deviate unless user explicitly asks something off-topic
-8. HANDLE UNCLEAR RESPONSES - If user's response doesn't answer your question, politely re-ask with rephrasing
+CRITICAL: You MUST complete the current step before proceeding. Follow your numbered flow exactly.\n`
+        : `\n\n✅ All flow steps completed. ${conversationState.nextAction}\n`;
 
-PLACEHOLDER HANDLING:
-- Replace {Name}, {Mobile}, {Pincode}, {Email}, {Address}, {Model} with actual values from CUSTOMER INFORMATION
-- If a placeholder's value is missing, ask for it according to your script's flow
-- Never say the placeholder literally (e.g., don't say "Hello {Name}")
+      console.log("📋 Server: Current customer context:", updatedContext);
+      console.log("🎯 Conversation state:", conversationState);
 
-VOICE CONVERSATION RULES:
-- NO markdown formatting (**bold**, *italics*, [links])
-- Plain text only, easy to read aloud
-- Max 2-3 sentences per response
-- Never invent or guess personal details
-- Use ONLY values from CUSTOMER INFORMATION or explicitly provided by user`;
+      // Build enhanced system prompt - add context and guidance to user's script
+      const enhancedSystemPrompt = this.buildEnhancedPrompt({
+        basePrompt: systemPrompt,
+        customerContext: customerContextString,
+        stageGuidance: stageGuidance,
+        trackingInfo: trackingInfo,
+        language: currentLanguageName,
+      });
 
       // If RAG is enabled, try to use knowledge base
       if (useRAG && userMessage) {
@@ -202,7 +268,11 @@ VOICE CONVERSATION RULES:
 
           if (ragResponse) {
             console.log("🤖 Using RAG response with knowledge base");
-            return this.processLanguageSwitch(ragResponse, languageNames);
+            const processedResponse = this.processLanguageSwitch(ragResponse, LANGUAGE_CODES);
+            return {
+              ...processedResponse,
+              customerContext: updatedContext, // Include updated context
+            };
           }
         } catch (ragError) {
           console.warn(
@@ -213,16 +283,48 @@ VOICE CONVERSATION RULES:
       }
 
       // Standard OpenAI response (fallback or when RAG disabled)
-      return await this.getStandardResponse(
+      const aiResponse = await this.getStandardResponse(
         userMessage,
         conversationHistory,
         enhancedSystemPrompt,
-        { temperature, maxTokens, languageNames }
+        { temperature, maxTokens, languageNames: LANGUAGE_CODES }
       );
+      
+      return {
+        ...aiResponse,
+        customerContext: updatedContext, // Include updated context
+      };
     } catch (error) {
       console.error("❌ Error processing message:", error);
       throw new Error(`Failed to process message: ${error.message}`);
     }
+  }
+
+  /**
+   * Build enhanced system prompt by adding context to base prompt
+   * Keeps hardcoded rules separate and reusable
+   */
+  buildEnhancedPrompt({ basePrompt, customerContext, stageGuidance, trackingInfo, language }) {
+    return `${basePrompt}
+${customerContext}${stageGuidance}${trackingInfo}
+
+SYSTEM INSTRUCTIONS (Auto-added for voice chat):
+- Current language: ${language}
+- Keep responses brief (max 2-3 sentences)
+- NO markdown formatting (**bold**, *italics*, [links]) - plain text only
+- Replace placeholders {Name}, {Mobile}, {Pincode}, {Email}, {Address}, {Model} with actual values
+- Never invent customer details - use ONLY from CUSTOMER INFORMATION
+- For language switch, use: LANGUAGE_SWITCH:[code] (codes: en, hi, ta, te, kn, ml, bn, mr, gu, pa, es, fr, de, zh, ja, ko)
+
+CRITICAL RULES:
+1. FOLLOW YOUR SCRIPT EXACTLY in order
+2. NEVER SKIP STEPS - complete current before next
+3. NEVER REPEAT - check CUSTOMER INFORMATION and QUESTIONS ALREADY ASKED
+4. ONE QUESTION AT A TIME
+5. ACKNOWLEDGE then PROCEED to next step
+6. DO NOT LOOP after completing all steps
+7. STAY ON SCRIPT unless user asks off-topic
+8. RE-ASK politely if response unclear`;
   }
 
   /**
@@ -269,8 +371,7 @@ VOICE CONVERSATION RULES:
     const { temperature, maxTokens, languageNames } = options;
 
     // Build messages array with FULL conversation history for better context
-    // Keep more history to track what was already asked (up to 20 messages = 10 exchanges)
-    const recentHistory = conversationHistory.slice(-20);
+    const recentHistory = conversationHistory.slice(-AI_CONFIG.CONVERSATION_HISTORY_LIMIT);
     const messages = [
       {
         role: "system",
@@ -285,12 +386,12 @@ VOICE CONVERSATION RULES:
 
     // Call OpenAI API with stricter parameters to follow script
     const response = await this.openai.chat.completions.create({
-      model: "gpt-4o-mini", // Cheaper and faster
+      model: AI_CONFIG.MODEL,
       messages: messages,
-      temperature: temperature || 0.3, // Lower temperature = more deterministic/script-following
-      max_tokens: maxTokens || 150,
-      presence_penalty: 0.6, // Discourage repetition
-      frequency_penalty: 0.8, // Strongly discourage repeating same questions
+      temperature: temperature || AI_CONFIG.DEFAULT_TEMPERATURE,
+      max_tokens: maxTokens || AI_CONFIG.DEFAULT_MAX_TOKENS,
+      presence_penalty: AI_CONFIG.PRESENCE_PENALTY,
+      frequency_penalty: AI_CONFIG.FREQUENCY_PENALTY,
     });
 
     let aiResponse = response.choices[0].message.content;
@@ -402,6 +503,246 @@ VOICE CONVERSATION RULES:
   }
 
   /**
+   * Determine conversation stage and next required field
+   * DYNAMIC state tracking - works for ANY agent/script
+   */
+  determineConversationState(customerContext, systemPrompt) {
+    // Extract numbered flow steps from script (supports any format)
+    const flowSteps = this.extractFlowSteps(systemPrompt);
+    
+    if (flowSteps.length === 0) {
+      // Fallback: Auto-detect required fields from script
+      return this.autoDetectRequiredFields(customerContext, systemPrompt);
+    }
+
+    // Check which steps are completed based on collected info
+    const completedSteps = [];
+    const pendingSteps = [];
+
+    for (let i = 0; i < flowSteps.length; i++) {
+      const step = flowSteps[i];
+      const isCompleted = this.isStepCompleted(step, customerContext);
+      
+      if (isCompleted) {
+        completedSteps.push({ index: i + 1, text: step });
+      } else {
+        pendingSteps.push({ index: i + 1, text: step });
+      }
+    }
+
+    // Determine next step
+    if (pendingSteps.length > 0) {
+      const nextStep = pendingSteps[0];
+      return {
+        stage: `Step ${nextStep.index}/${flowSteps.length}`,
+        currentStep: nextStep.index,
+        totalSteps: flowSteps.length,
+        nextAction: nextStep.text,
+        completedSteps: completedSteps.map(s => s.text),
+        remainingSteps: pendingSteps.map(s => s.text),
+        isComplete: false,
+      };
+    }
+
+    // All steps completed
+    return {
+      stage: 'Flow Complete',
+      currentStep: flowSteps.length,
+      totalSteps: flowSteps.length,
+      nextAction: 'Proceed to conclusion (booking, transfer, etc.)',
+      isComplete: true,
+    };
+  }
+
+  /**
+   * Extract flow steps from script
+   * Supports multiple formats:
+   * - "1. Step one" 
+   * - "Step 1: Do this"
+   * - "After X is given" (conversational templates)
+   * - "FLOW: 1) First step"
+   */
+  extractFlowSteps(systemPrompt) {
+    const steps = [];
+    const lines = systemPrompt.split('\n');
+
+    // Pattern 1: "1. Step" or "1) Step"
+    const numberedPattern = /^\s*(\d+)[.)]\s+(.+)/;
+    
+    // Pattern 2: "Step 1:" or "STEP 1:"
+    const stepPattern = /^\s*(?:step|STEP)\s*(\d+)[:\-]\s*(.+)/i;
+
+    // Pattern 3: "After X is given" or "If user says"
+    const conversationalPattern = /^\s*(?:After|If|When)\s+(.+?)(?:\s+is given|\s+says|\s+confirms?|\s+selects?)/i;
+
+    for (const line of lines) {
+      const match1 = line.match(numberedPattern);
+      const match2 = line.match(stepPattern);
+      const match3 = line.match(conversationalPattern);
+      
+      if (match1) {
+        steps.push(match1[2].trim());
+      } else if (match2) {
+        steps.push(match2[2].trim());
+      } else if (match3) {
+        // Convert "After name is given" → "Ask for name"
+        const extracted = match3[1].trim();
+        if (extracted.includes('name')) {
+          steps.push('Ask for customer name');
+        } else if (extracted.includes('mobile') || extracted.includes('phone')) {
+          steps.push('Ask for mobile number');
+        } else if (extracted.includes('pincode') || extracted.includes('pin code')) {
+          steps.push('Ask for pincode');
+        } else if (extracted.includes('email')) {
+          steps.push('Ask for email');
+        } else if (extracted.includes('model') || extracted.includes('product')) {
+          steps.push('Ask for preferred model/product');
+        } else if (extracted.includes('location') || extracted.includes('address')) {
+          steps.push('Ask for location/address');
+        } else {
+          steps.push(`Complete: ${extracted}`);
+        }
+      }
+    }
+
+    // If no numbered steps found, try to extract bullet points or dashed lists
+    if (steps.length === 0) {
+      const bulletPattern = /^\s*[-•*]\s+(.+)/;
+      for (const line of lines) {
+        const match = line.match(bulletPattern);
+        if (match && match[1].trim().length > 10) { // Ignore short bullets
+          steps.push(match[1].trim());
+        }
+      }
+    }
+
+    // If still nothing, look for FLOW/STEPS/CONVERSATION FLOW sections
+    if (steps.length === 0) {
+      const sectionPattern = /(?:FLOW|STEPS|CONVERSATION FLOW|SCRIPT):\s*\n([\s\S]*?)(?:\n\n|\n[A-Z]|$)/i;
+      const sectionMatch = systemPrompt.match(sectionPattern);
+      
+      if (sectionMatch) {
+        const sectionText = sectionMatch[1];
+        const sectionLines = sectionText.split('\n');
+        
+        for (const line of sectionLines) {
+          if (line.trim().length > 10) {
+            steps.push(line.replace(/^[-•*\d.)]\s*/, '').trim());
+          }
+        }
+      }
+    }
+
+    return steps;
+  }
+
+  /**
+   * Check if a conversation step is completed
+   */
+  isStepCompleted(stepText, customerContext) {
+    const stepLower = stepText.toLowerCase();
+
+    // Check for name collection
+    if ((stepLower.includes('name') || stepLower.includes('introduce')) && 
+        !stepLower.includes('greet')) {
+      return !!customerContext.name;
+    }
+
+    // Check for phone collection
+    if (stepLower.includes('phone') || stepLower.includes('mobile') || 
+        stepLower.includes('number') || stepLower.includes('contact')) {
+      return !!customerContext.phone;
+    }
+
+    // Check for location/address
+    if (stepLower.includes('location') || stepLower.includes('address') || 
+        stepLower.includes('area') || stepLower.includes('city')) {
+      return !!customerContext.address;
+    }
+
+    // Check for pincode
+    if (stepLower.includes('pincode') || stepLower.includes('pin code') || 
+        stepLower.includes('zip')) {
+      return !!customerContext.pincode;
+    }
+
+    // Check for email
+    if (stepLower.includes('email')) {
+      return !!customerContext.email;
+    }
+
+    // Check for budget/preference in orderDetails
+    if (stepLower.includes('budget') || stepLower.includes('price') || 
+        stepLower.includes('range')) {
+      return customerContext.orderDetails?.budget !== undefined;
+    }
+
+    // Check for property type / model / product
+    if (stepLower.includes('type') || stepLower.includes('model') || 
+        stepLower.includes('bhk') || stepLower.includes('product')) {
+      return customerContext.orderDetails?.propertyType !== undefined ||
+             customerContext.orderDetails?.model !== undefined ||
+             customerContext.orderDetails?.product !== undefined;
+    }
+
+    // Greeting steps are always "completed" after first exchange
+    if (stepLower.includes('greet') || stepLower.includes('introduce yourself')) {
+      return true; // Always move past greeting
+    }
+
+    // Unknown step type - assume not completed
+    return false;
+  }
+
+  /**
+   * Fallback: Auto-detect required fields when no explicit flow
+   */
+  autoDetectRequiredFields(customerContext, systemPrompt) {
+    // Parse script to understand required fields (simple approach)
+    const scriptLower = systemPrompt.toLowerCase();
+    
+    // Common required fields for most scripts
+    const fieldChecks = [
+      { key: 'name', patterns: ['name', '{name}'], label: 'customer name' },
+      { key: 'phone', patterns: ['phone', 'mobile', 'number', '{mobile}'], label: 'phone number' },
+      { key: 'pincode', patterns: ['pincode', 'pin code', '{pincode}'], label: 'pincode' },
+      { key: 'address', patterns: ['address', 'location', '{address}'], label: 'address' },
+      { key: 'email', patterns: ['email', '{email}'], label: 'email' },
+    ];
+
+    // Check which fields are mentioned in script and missing from context
+    const requiredFields = [];
+    for (const field of fieldChecks) {
+      const isInScript = field.patterns.some(pattern => scriptLower.includes(pattern));
+      const isMissing = !customerContext[field.key];
+      
+      if (isInScript && isMissing) {
+        requiredFields.push(field);
+      }
+    }
+
+    // Determine next field to ask
+    if (requiredFields.length > 0) {
+      const nextField = requiredFields[0];
+      return {
+        stage: `Collecting Info (${requiredFields.length} fields remaining)`,
+        nextField: nextField.label,
+        nextFieldKey: nextField.key,
+        remainingFields: requiredFields.map(f => f.label),
+        isComplete: false,
+      };
+    }
+
+    // All required fields collected
+    return {
+      stage: 'Information Complete',
+      nextField: null,
+      nextAction: 'your script\'s next steps (qualification, booking, etc.)',
+      isComplete: true,
+    };
+  }
+
+  /**
    * Analyze conversation history to track what questions were already asked
    */
   analyzeConversationHistory(conversationHistory) {
@@ -443,49 +784,14 @@ VOICE CONVERSATION RULES:
    */
   async extractCustomerInfo(text, existingContext = {}) {
     try {
+      console.log("🔍 Extracting customer info from:", text);
+      
       const response = await this.openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: AI_CONFIG.EXTRACTION_MODEL,
         messages: [
           {
             role: "system",
-            content:
-              `Extract customer information and requirements from the text. Return ONLY a valid JSON object.
-
-STANDARD CUSTOMER FIELDS (extract if present):
-- name: Customer's name
-- phone: Mobile number (10 digits for India, starting with 6-9)
-- email: Email address
-- address: Physical address or location
-- pincode: Postal/ZIP code
-- model: Product/service identifier (car model, property type, course name, etc.)
-- orderDetails: Any domain-specific requirements (budget, preferences, specifications)
-
-PHONE NUMBER EXTRACTION:
-- Extract 10-digit Indian mobile numbers (starting with 6-9)
-- Handle formats: "9876543210", "98765 43210", "987-654-3210", "+91 9876543210"
-- Handle spoken digits: "nine eight seven six five four three two one zero" → "9876543210"
-- Remove all spaces, hyphens, and country codes to get clean 10 digits
-
-EXAMPLES:
-
-E-Commerce:
-Input: "I'm Priya, need red dress size M, my number is 9876543210"
-Output: {"name": "Priya", "phone": "9876543210", "orderDetails": {"product": "red dress", "size": "M"}}
-
-Real Estate:
-Input: "Looking for 3 BHK flat in Pune under 80 lakhs"
-Output: {"orderDetails": {"propertyType": "flat", "bedrooms": "3 BHK", "location": "Pune", "budget": "80 lakhs"}}
-
-Automotive:
-Input: "I am Rahul, want to test ride Magnus EX, pincode 305001"
-Output: {"name": "Rahul", "pincode": "305001", "model": "Magnus EX"}
-
-Healthcare:
-Input: "Book appointment for Dr. Sharma, my email is john@email.com"
-Output: {"email": "john@email.com", "orderDetails": {"doctor": "Dr. Sharma", "type": "appointment"}}
-
-If no info found, return {}
-Be flexible - extract whatever information is relevant to the user's request.`,
+            content: EXTRACTION_SYSTEM_PROMPT,
           },
           {
             role: "user",
@@ -493,15 +799,18 @@ Be flexible - extract whatever information is relevant to the user's request.`,
           },
         ],
         temperature: 0,
-        max_tokens: 150,
+        max_tokens: AI_CONFIG.EXTRACTION_MAX_TOKENS,
       });
-
       const jsonStr = response.choices[0].message.content.trim();
+      console.log("🤖 AI extraction raw response:", jsonStr);
+      
       // Handle markdown code blocks if AI returns them
       const cleanJson = jsonStr.replace(/```json\n?|```\n?/g, '').trim();
+      console.log("🧹 Cleaned JSON:", cleanJson);
       
       if (cleanJson && cleanJson !== "{}") {
         const updates = JSON.parse(cleanJson);
+        console.log("📦 Parsed updates:", updates);
         
         // Clean phone number if extracted
         if (updates.phone) {
@@ -522,16 +831,31 @@ Be flexible - extract whatever information is relevant to the user's request.`,
         }
         
         if (Object.keys(updates).length > 0) {
-          const newContext = {
-            ...existingContext,
-            ...updates,
-            lastUpdated: new Date().toISOString(),
-          };
+          // Merge with existing context, but don't overwrite with empty values
+          const newContext = { ...existingContext };
+          
+          // Only update fields that have actual values (not empty strings)
+          Object.keys(updates).forEach(key => {
+            const value = updates[key];
+            if (value !== '' && value !== null && value !== undefined) {
+              // For objects, merge them
+              if (typeof value === 'object' && !Array.isArray(value)) {
+                newContext[key] = { ...newContext[key], ...value };
+              } else {
+                newContext[key] = value;
+              }
+            }
+          });
+          
+          newContext.lastUpdated = new Date().toISOString();
 
           console.log("📝 AI Extracted customer info:", updates);
+          console.log("✅ Merged context:", newContext);
           return newContext;
         }
       }
+      
+      console.log("ℹ️ No customer info extracted from AI (empty response)");
     } catch (error) {
       console.error("❌ AI extraction failed, using regex fallback:", error.message);
       
@@ -576,25 +900,57 @@ Be flexible - extract whatever information is relevant to the user's request.`,
         updates.pincode = pincodeMatch[0];
       }
 
-      // Extract name (if someone says "my name is..." or "I am...")
-      const nameMatch = text.match(
-        /(?:my name is|i am|this is|i'm)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i
+      // Extract name - multiple patterns
+      let nameMatch = text.match(
+        /(?:my name is|i am|this is|i'm|call me)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i
       );
-      if (nameMatch) {
+      
+      // If no explicit name pattern, try to extract capitalized words (likely names)
+      // Only if text is short (1-3 words) and starts with capital letter
+      if (!nameMatch && text.trim().split(/\s+/).length <= 3) {
+        const capitalizedMatch = text.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\.?$/);
+        if (capitalizedMatch) {
+          updates.name = capitalizedMatch[1];
+        }
+      } else if (nameMatch) {
         updates.name = nameMatch[1];
+      }
+      
+      // Extract model/product names (capitalized words with potential alphanumeric)
+      // Examples: "Magnus EX", "Primus", "iPhone 15", "Model 3"
+      if (!updates.name && !updates.phone && !updates.pincode && !updates.email) {
+        const modelMatch = text.match(/^([A-Z][a-zA-Z0-9\s]+?)(?:\s*[,.])?$/);
+        if (modelMatch && modelMatch[1].trim().split(/\s+/).length <= 4) {
+          updates.model = modelMatch[1].trim();
+        }
       }
 
       if (Object.keys(updates).length > 0) {
-        const newContext = {
-          ...existingContext,
-          ...updates,
-          lastUpdated: new Date().toISOString(),
-        };
+        // Merge with existing context, but don't overwrite with empty values
+        const newContext = { ...existingContext };
+        
+        // Only update fields that have actual values (not empty strings)
+        Object.keys(updates).forEach(key => {
+          const value = updates[key];
+          if (value !== '' && value !== null && value !== undefined) {
+            // For objects, merge them
+            if (typeof value === 'object' && !Array.isArray(value)) {
+              newContext[key] = { ...newContext[key], ...value };
+            } else {
+              newContext[key] = value;
+            }
+          }
+        });
+        
+        newContext.lastUpdated = new Date().toISOString();
+        
         console.log("📝 Regex extracted customer info:", updates);
+        console.log("✅ Merged context:", newContext);
         return newContext;
       }
     }
 
+    console.log("ℹ️ No customer info found in text, returning existing context");
     return existingContext;
   }
 }

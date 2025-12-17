@@ -12,19 +12,19 @@ api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     
-    console.log('🔵 API REQUEST:', { 
-      method: config.method?.toUpperCase(), 
-      url: config.url,
-      baseURL: config.baseURL,
-      hasToken: !!token,
-      tokenPreview: token ? token.substring(0, 20) + '...' : 'none'
-    });
+    // console.log('🔵 API REQUEST:', { 
+    //   method: config.method?.toUpperCase(), 
+    //   url: config.url,
+    //   baseURL: config.baseURL,
+    //   hasToken: !!token,
+    //   tokenPreview: token ? token.substring(0, 20) + '...' : 'none'
+    // });
     
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
-      console.log('✅ API REQUEST: Token attached to Authorization header');
+      // console.log('✅ API REQUEST: Token attached to Authorization header');
     } else {
-      console.log('⚠️ API REQUEST: No token found in localStorage');
+      // console.log('⚠️ API REQUEST: No token found in localStorage');
     }
     
     return config;
@@ -38,12 +38,12 @@ api.interceptors.request.use(
 // Response interceptor to handle errors
 api.interceptors.response.use(
   (response) => {
-    console.log('✅ API RESPONSE:', {
-      method: response.config.method?.toUpperCase(),
-      url: response.config.url,
-      status: response.status,
-      hasData: !!response.data
-    });
+    // console.log('✅ API RESPONSE:', {
+    //   method: response.config.method?.toUpperCase(),
+    //   url: response.config.url,
+    //   status: response.status,
+    //   hasData: !!response.data
+    // });
     return response;
   },
   (error) => {
@@ -57,13 +57,13 @@ api.interceptors.response.use(
     
     // If 401 Unauthorized, clear token
     if (error.response?.status === 401) {
-      console.log('🔴 401 Unauthorized: Clearing token from localStorage');
+      // console.log('🔴 401 Unauthorized: Clearing token from localStorage');
       localStorage.removeItem('token');
       localStorage.removeItem('role');
       
       // Optional: Only redirect if not already on login page
       if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/signup')) {
-        console.log('🔄 Redirecting to login page');
+        // console.log('🔄 Redirecting to login page');
         window.location.href = '/login';
       }
     }

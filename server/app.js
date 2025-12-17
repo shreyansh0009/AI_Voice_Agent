@@ -35,7 +35,7 @@ app.use(
   })
 );
 
-console.log("🔓 CORS: Allowing all origins (DEBUG MODE)");
+// console.log("🔓 CORS: Allowing all origins (DEBUG MODE)");
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
@@ -46,14 +46,14 @@ if (config.env === "development") {
 }
 
 // Add logging for ALL requests in production too
-app.use((req, res, next) => {
-  console.log(`📥 ${req.method} ${req.path}`, {
-    body: req.body,
-    headers: req.headers,
-    query: req.query,
-  });
-  next();
-});
+// app.use((req, res, next) => {
+//   console.log(`📥 ${req.method} ${req.path}`, {
+//     body: req.body,
+//     headers: req.headers,
+//     query: req.query,
+//   });
+//   next();
+// });
 
 // Create required directories
 [config.uploadsDir, config.dataDir].forEach((dir) => {
@@ -123,22 +123,22 @@ app.use((err, req, res, next) => {
 if (config.env !== "production") {
   const PORT = config.port || 5000;
   app.listen(PORT, () => {
-    console.log("=".repeat(50));
+    // console.log("=".repeat(50));
     console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log(`📁 Uploads directory: ${config.uploadsDir}`);
-    console.log(`📊 Environment: ${config.env}`);
-    console.log("=".repeat(50));
+    // console.log(`📁 Uploads directory: ${config.uploadsDir}`);
+    // console.log(`📊 Environment: ${config.env}`);
+    // console.log("=".repeat(50));
   });
 }
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
-  console.log("SIGTERM signal received: closing HTTP server");
+  // console.log("SIGTERM signal received: closing HTTP server");
   process.exit(0);
 });
 
 process.on("SIGINT", () => {
-  console.log("SIGINT signal received: closing HTTP server");
+  // console.log("SIGINT signal received: closing HTTP server");
   process.exit(0);
 });
 

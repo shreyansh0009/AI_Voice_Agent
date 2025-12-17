@@ -10,6 +10,7 @@ import { connectDB } from "../config/database.js";
 import { authenticate } from "../middleware/authMiddleware.js";
 import agentforceRoutes from "./agentforceRoutes.js";
 import speechRoutes from "./speechRoutes.js";
+import chatRoutes from "./chatRoutes.js";
 
 const router = express.Router();
 
@@ -62,6 +63,7 @@ router.use("/agent", agentRoutes);
 router.use("/call", callRoutes);
 router.use("/agentforce", agentforceRoutes);
 router.use("/speech", speechRoutes);
+router.use("/chat", chatRoutes);
 
 // Protect all routes below (except /auth and health checks)
 router.use("/rag", authenticate, ragRoutes);

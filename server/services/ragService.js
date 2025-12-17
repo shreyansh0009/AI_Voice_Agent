@@ -34,7 +34,7 @@ class RAGService {
           openAIApiKey: config.openaiApiKey,
           modelName: config.embeddingModel,
         });
-        console.log("✅ OpenAI Embeddings initialized");
+        // console.log("✅ OpenAI Embeddings initialized");
       } else {
         console.warn("⚠️  OpenAI API key not found. Embeddings disabled.");
       }
@@ -74,7 +74,7 @@ class RAGService {
    */
   async storeDocument(fileInfo, extractedText) {
     if (!this.initialized) {
-      console.log("RAG not initialized, skipping vector storage");
+      // console.log("RAG not initialized, skipping vector storage");
       return null;
     }
 
@@ -89,9 +89,9 @@ class RAGService {
         agentId: fileInfo.agentId, // Add agentId to metadata
       });
 
-      console.log(
-        `📄 Chunked "${fileInfo.originalName}" into ${chunks.length} pieces`
-      );
+      // console.log(
+      //   `📄 Chunked "${fileInfo.originalName}" into ${chunks.length} pieces`
+      // );
 
       // Create documents
       const documents = chunks.map((chunk) => new Document(chunk));
@@ -102,7 +102,7 @@ class RAGService {
         namespace: "knowledge-base",
       });
 
-      console.log(`✅ Stored ${chunks.length} chunks in vector database`);
+      // console.log(`✅ Stored ${chunks.length} chunks in vector database`);
 
       return {
         success: true,
@@ -189,7 +189,7 @@ class RAGService {
       if (queryResponse.matches && queryResponse.matches.length > 0) {
         const ids = queryResponse.matches.map((match) => match.id);
         await this.index.deleteMany(ids, "knowledge-base");
-        console.log(`🗑️  Deleted ${ids.length} vectors for file ${fileId}`);
+        // console.log(`🗑️  Deleted ${ids.length} vectors for file ${fileId}`);
       }
 
       return {

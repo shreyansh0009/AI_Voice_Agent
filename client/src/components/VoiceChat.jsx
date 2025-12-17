@@ -950,546 +950,74 @@ const VoiceChat = ({
    */
   const getAIResponse = async () => {
     try {
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey) {
-        throw new Error("OpenAI API key not found");
-      }
-
-      // Language mapping
-      const languageNames = {
-        en: "English",
-        hi: "Hindi",
-        ta: "Tamil",
-        te: "Telugu",
-        kn: "Kannada",
-        ml: "Malayalam",
-        bn: "Bengali",
-        mr: "Marathi",
-        gu: "Gujarati",
-        pa: "Punjabi",
-        es: "Spanish",
-        fr: "French",
-        de: "German",
-        zh: "Chinese",
-        ja: "Japanese",
-        ko: "Korean",
-      };
-
-      const currentLanguageName = languageNames[selectedLanguage] || "English";
-
-      // Build customer context summary for the prompt (use ref for latest data)
-      const latestCustomerContext = customerContextRef.current || {};
-      const contextSummary = [];
-      if (latestCustomerContext.name)
-        contextSummary.push(`Name: ${latestCustomerContext.name}`);
-      if (latestCustomerContext.phone)
-        contextSummary.push(`Phone: ${latestCustomerContext.phone}`);
-      if (latestCustomerContext.email)
-        contextSummary.push(`Email: ${latestCustomerContext.email}`);
-      if (latestCustomerContext.address)
-        contextSummary.push(`Address: ${latestCustomerContext.address}`);
-      if (Object.keys(latestCustomerContext.orderDetails || {}).length > 0) {
-        contextSummary.push(
-          `Order: ${JSON.stringify(latestCustomerContext.orderDetails)}`
-        );
-      }
-
-      const customerContextString =
-        contextSummary.length > 0
-          ? `\n\nCUSTOMER INFORMATION (Remember this throughout the conversation):\n${contextSummary.join(
-              "\n"
-            )}\n`
-          : "";
-
-      // Build enhanced system prompt with language instructions AND customer context
-      const enhancedSystemPrompt = `${
-        systemPrompt || "You are a helpful AI assistant."
-      }
-${customerContextString}
-Current language: ${currentLanguageName}. Keep responses brief for voice chat.
-To switch language, respond with "LANGUAGE_SWITCH:[code]" then your message.
-Codes: en, hi, ta, te, kn, ml, bn, mr, gu, pa, es, fr, de, zh, ja, ko
-
-IMPORTANT: If customer provides personal details (name, address, phone, email, order info), acknowledge them.
-
-CRITICAL: If the user provides or updates any personal details:
-1. You MUST output them in a JSON block at the very end of your response like this:
-[MEMORY: {"name": "John Doe", "phone": "+919999999999", "email": "john@example.com", "address": "123 Main St"}]
-2. You MUST verbally confirm the details you just captured in your response (e.g., "I've updated your email to john@example.com, is that correct?").
-
-If the user corrects you (e.g., "No, it's .net not .com"), update the JSON block with the CORRECTED value and confirm again.
-
-Only include fields that were explicitly provided or updated in this turn. Do not speak the JSON block itself.
-
-CRITICAL: Never invent or guess personal details. Use ONLY the values present in CUSTOMER INFORMATION or in the latest [MEMORY] JSON you have emitted.
-CRITICAL: If the user asks for their phone number, email, address or order details, read them EXACTLY from CUSTOMER INFORMATION / memory. If they are missing, say you do not have them yet and ask the user to provide or confirm, instead of guessing.
-CRITICAL: When your script or knowledge base contains placeholders in curly braces like {Name}, {Mobile}, {Pincode}, {Email}, {Address} or {Model}, you MUST replace each placeholder with the real value from CUSTOMER INFORMATION / memory or the conversation. Never speak the curly-brace tokens literally. If a value is missing, ask the user for it instead of saying the placeholder.
-CRITICAL: Follow the behavior, flow and steps defined in the system prompt strictly unless the user explicitly requests a deviation. If there is any ambiguity, ask a clarifying question instead of making up actions.`;
-
       // Get the last user message
       const lastUserMessage =
         conversationHistoryRef.current[
           conversationHistoryRef.current.length - 1
         ]?.content || "";
 
-      // AGENTFORCE INTEGRATION
-      if (selectedLLM === "agentforce") {
-        try {
-          // Construct a message that includes context if needed, or just the user message
-          // For now, we'll send the user message. The session is managed by the server/Salesforce.
-          // To ensure the Agent behaves similarly (JSON memory), we might need to rely on the Agent's configuration
-          // or prepend instructions.
-
-          // Let's try to send the user message directly.
-          const response = await fetch(
-            `${import.meta.env.VITE_API_URL}/api/agentforce/chat`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${localStorage.getItem("token") || ""}`, // Assuming auth token is needed/available
-              },
-              body: JSON.stringify({
-                message: lastUserMessage,
-                conversationHistory: conversationHistoryRef.current, // Optional: send history if needed by controller
-                useRAG: ragEnabled,
-              }),
-            }
-          );
-
-          if (!response.ok) {
-            throw new Error("Agentforce API request failed");
-          }
-
-          const data = await response.json();
-          let aiResponse = data.response;
-
-          // Process response similar to OpenAI (Language switch, Memory)
-
-          // Check if AI wants to switch language
-          if (aiResponse.startsWith("LANGUAGE_SWITCH:")) {
-            const match = aiResponse.match(
-              /^LANGUAGE_SWITCH:([a-z]{2})[\s\n]/i
-            );
-            if (match) {
-              const newLanguageCode = match[1].toLowerCase();
-              if (languageNames[newLanguageCode]) {
-                currentLanguageRef.current = newLanguageCode;
-                setSelectedLanguage(newLanguageCode);
-                aiResponse = aiResponse
-                  .replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, "")
-                  .trim();
-              }
-            }
-          }
-
-          // Memory extraction
-          const memoryMatch = aiResponse.match(/\[MEMORY:\s*({[\s\S]*?})\]/);
-          if (memoryMatch) {
-            try {
-              const updates = JSON.parse(memoryMatch[1]);
-              if (Object.keys(updates).length > 0) {
-                const newContext = {
-                  ...customerContextRef.current,
-                  ...updates,
-                  lastUpdated: new Date().toISOString(),
-                };
-                setCustomerContext(newContext);
-                customerContextRef.current = newContext;
-              }
-              aiResponse = aiResponse.replace(memoryMatch[0], "").trim();
-            } catch (e) {
-              console.error("❌ Failed to parse AI memory block:", e);
-            }
-          }
-
-          return aiResponse;
-        } catch (error) {
-          console.error("Agentforce error:", error);
-          // Fallback to OpenAI if Agentforce fails? Or just throw?
-          // For now, let's throw so the user knows it failed.
-          throw new Error(
-            "Failed to get response from Agentforce: " + error.message
-          );
-        }
-      }
-
-      // If RAG is enabled, use the RAG endpoint
-      if (ragEnabled && lastUserMessage) {
-        try {
-          const ragResponse = await fetch(
-            `${import.meta.env.VITE_API_URL}/api/rag/chat`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-              },
-              body: JSON.stringify({
-                query: lastUserMessage,
-                conversationHistory: conversationHistoryRef.current.slice(-6),
-                systemPrompt: enhancedSystemPrompt, // Pass full prompt with language instructions
-                options: {
-                  temperature: temperature,
-                  max_tokens: maxTokens,
-                  agentId: agentId, // Pass agentId for filtering
-                },
-              }),
-            }
-          );
-
-          if (ragResponse.ok) {
-            const ragData = await ragResponse.json();
-            if (ragData.success) {
-              // console.log('🤖 Using RAG response with knowledge base');
-              // console.log('📊 Tokens used:', ragData.tokensUsed);
-              // console.log('📚 Context used:', ragData.contextUsed);
-
-              let aiResponse = ragData.response;
-
-              // Log the AI response to debug language switching
-              // console.log('🤖 RAG AI Response:', aiResponse);
-              // console.log('🔍 Starts with LANGUAGE_SWITCH?', aiResponse.startsWith('LANGUAGE_SWITCH:'));
-
-              // Check if AI wants to switch language (same logic as standard OpenAI)
-              if (aiResponse.startsWith("LANGUAGE_SWITCH:")) {
-                const match = aiResponse.match(
-                  /^LANGUAGE_SWITCH:([a-z]{2})[\s\n]/i
-                );
-
-                if (match) {
-                  const newLanguageCode = match[1].toLowerCase();
-
-                  // console.log(`🔍 Extracted language code: "${newLanguageCode}"`);
-
-                  if (languageNames[newLanguageCode]) {
-                    // console.log(`🌐 Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`);
-
-                    // CRITICAL: Update ref FIRST (synchronous), then state (async)
-                    currentLanguageRef.current = newLanguageCode;
-                    setSelectedLanguage(newLanguageCode);
-
-                    // console.log(`✅ Language switched!`);
-                    // console.log(`  - currentLanguageRef.current: ${currentLanguageRef.current}`);
-                    // console.log(`  - selectedLanguage state: updating to "${newLanguageCode}"`);
-
-                    // Remove the switch command from response
-                    aiResponse = aiResponse
-                      .replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, "")
-                      .trim();
-                  }
-                }
-              }
-
-              return aiResponse;
-            }
-          }
-          // console.log('⚠️ RAG failed, falling back to standard OpenAI');
-        } catch (ragError) {
-          // Keep this for debugging production issues
-          console.error("RAG error, using standard OpenAI:", ragError);
-        }
-      }
-
-      // Standard OpenAI response (fallback or when RAG disabled)
-
-      // 🧠 DEDICATED MEMORY EXTRACTION STEP (BEFORE generating response)
-      // Run extraction FIRST to ensure we have the latest customer info
-      console.log(
-        "🧠 VoiceChat: Starting dedicated memory extraction for:",
-        lastUserMessage
-      );
-      try {
-        const extractionResponse = await fetch(
-          "https://api.openai.com/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-              model: llmModel,
-              messages: [
-                {
-                  role: "system",
-                  content:
-                    `Extract customer information and requirements from the text. Return ONLY a valid JSON object.
-
-STANDARD CUSTOMER FIELDS (extract if present):
-- name: Customer's name
-- phone: Mobile number (10 digits for India, starting with 6-9)
-- email: Email address
-- address: Physical address or location
-- pincode: Postal/ZIP code
-- model: Product/service identifier (car model, property type, course name, etc.)
-- orderDetails: Any domain-specific requirements (budget, preferences, specifications)
-
-PHONE NUMBER EXTRACTION:
-- Extract 10-digit Indian mobile numbers (starting with 6-9)
-- Handle formats: "9876543210", "98765 43210", "987-654-3210", "+91 9876543210"
-- Handle spoken digits: "nine eight seven six five four three two one zero" → "9876543210"
-- Remove all spaces, hyphens, and country codes to get clean 10 digits
-
-EXAMPLES:
-
-E-Commerce:
-Input: "I'm Priya, need red dress size M, my number is 9876543210"
-Output: {"name": "Priya", "phone": "9876543210", "orderDetails": {"product": "red dress", "size": "M"}}
-
-Real Estate:
-Input: "Looking for 3 BHK flat in Pune under 80 lakhs"
-Output: {"orderDetails": {"propertyType": "flat", "bedrooms": "3 BHK", "location": "Pune", "budget": "80 lakhs"}}
-
-Automotive:
-Input: "I am Rahul, want to test ride Magnus EX, pincode 305001"
-Output: {"name": "Rahul", "pincode": "305001", "model": "Magnus EX"}
-
-Healthcare:
-Input: "Book appointment for Dr. Sharma, my email is john@email.com"
-Output: {"email": "john@email.com", "orderDetails": {"doctor": "Dr. Sharma", "type": "appointment"}}
-
-If no info found, return {}
-Be flexible - extract whatever information is relevant to the user's request.`,
-                },
-                {
-                  role: "user",
-                  content: lastUserMessage,
-                },
-              ],
-              temperature: 0, // Keep at 0 for consistent JSON extraction
-              max_tokens: 150, // Short response needed for JSON only
-            }),
-          }
-        );
-
-        if (extractionResponse.ok) {
-          const data = await extractionResponse.json();
-          const jsonStr = data.choices[0].message.content.trim();
-          // Handle markdown code blocks if AI returns them
-          const cleanJson = jsonStr.replace(/```json\n?|```\n?/g, '').trim();
-          if (cleanJson && cleanJson !== "{}") {
-            try {
-              const updates = JSON.parse(cleanJson);
-              
-              // Clean phone number if extracted
-              if (updates.phone) {
-                // Remove all non-digits
-                let cleanPhone = updates.phone.replace(/\D/g, '');
-                // Remove country code if present (91 prefix)
-                if (cleanPhone.startsWith('91') && cleanPhone.length === 12) {
-                  cleanPhone = cleanPhone.substring(2);
-                }
-                // Validate it's a 10-digit number starting with 6-9
-                if (/^[6-9]\d{9}$/.test(cleanPhone)) {
-                  updates.phone = cleanPhone;
-                  console.log("✅ Cleaned phone number:", cleanPhone);
-                } else {
-                  console.warn("⚠️ Invalid phone format, discarding:", updates.phone);
-                  delete updates.phone;
-                }
-              }
-              
-              if (Object.keys(updates).length > 0) {
-                console.log(
-                  "🧠 VoiceChat: Dedicated Memory Extraction found updates:",
-                  updates
-                );
-                const newContext = {
-                  ...customerContextRef.current,
-                  ...updates,
-                  lastUpdated: new Date().toISOString(),
-                };
-                setCustomerContext(newContext);
-                customerContextRef.current = newContext; // Sync ref immediately
-                console.log("✅ Updated customer context:", newContext);
-              }
-            } catch (parseErr) {
-              console.error("Failed to parse extracted JSON:", cleanJson, parseErr);
-            }
-          }
-        }
-      } catch (err) {
-        console.error("❌ Memory extraction failed:", err);
-      }
-      
-      // 📱 REGEX FALLBACK: Try to extract phone from the message directly
-      // This handles cases where AI extraction might miss obvious patterns
-      if (!customerContextRef.current.phone || customerContextRef.current.phone === '') {
-        // Try multiple phone patterns
-        const phonePatterns = [
-          /\b(\+?91[-\s]?)?([6-9]\d{9})\b/,           // Standard format
-          /\b([6-9]\d{4}[\s-]?\d{5})\b/,              // With space/dash in middle
-          /\b([6-9]\d{2}[\s-]?\d{3}[\s-]?\d{4})\b/,  // Multiple separators
-        ];
-        
-        for (const pattern of phonePatterns) {
-          const match = lastUserMessage.match(pattern);
-          if (match) {
-            // Extract just the digits
-            const cleanPhone = match[0].replace(/\D/g, '');
-            // Remove country code if present
-            const phone = cleanPhone.startsWith('91') && cleanPhone.length === 12 
-              ? cleanPhone.substring(2) 
-              : cleanPhone;
-            
-            if (/^[6-9]\d{9}$/.test(phone)) {
-              console.log("📱 Regex fallback found phone:", phone);
-              const newContext = {
-                ...customerContextRef.current,
-                phone: phone,
-                lastUpdated: new Date().toISOString(),
-              };
-              setCustomerContext(newContext);
-              customerContextRef.current = newContext;
-              break;
-            }
-          }
-        }
-      }
-
-      // Build messages array with LIMITED conversation history (last 6 messages = 3 exchanges)
-      // This significantly reduces token usage while maintaining context
+      // Build recent history (last 6 messages = 3 exchanges)
       const recentHistory = conversationHistoryRef.current.slice(-6);
-      
-      // 🔍 SCAN RECENT HISTORY: Check last few messages for phone numbers if still missing
-      // Sometimes users mention phone in previous messages
-      if (!customerContextRef.current.phone || customerContextRef.current.phone === '') {
-        console.log("🔍 Scanning conversation history for phone number...");
-        for (let i = recentHistory.length - 1; i >= 0; i--) {
-          const msg = recentHistory[i];
-          if (msg.role === 'user') {
-            const phoneMatch = msg.content.match(/\b(\+?91[-\s]?)?([6-9]\d{9})\b/);
-            if (phoneMatch) {
-              const cleanPhone = phoneMatch[2];
-              console.log("📱 Found phone in history:", cleanPhone);
-              const newContext = {
-                ...customerContextRef.current,
-                phone: cleanPhone,
-                lastUpdated: new Date().toISOString(),
-              };
-              setCustomerContext(newContext);
-              customerContextRef.current = newContext;
-              break;
-            }
-          }
-        }
-      }
 
-      // NOW generate the chat response with UPDATED customer context
-      const contextString = JSON.stringify(customerContextRef.current);
-      console.log("🧠 VoiceChat: Sending Context to AI:", contextString);
-
-      const promptWithContext = `${enhancedSystemPrompt}\n\n### CURRENT CUSTOMER INFORMATION ###\n${contextString}\n\nIMPORTANT: Use the above customer information to fill any placeholders in your responses. If a field is empty or null, ASK the user for that information instead of using placeholders.`;
-
-      const messages = [
-        {
-          role: "system",
-          content: promptWithContext,
-        },
-        ...recentHistory,
-      ];
-
-      // Add current user message
-      messages.push({
-        role: "user",
-        content: lastUserMessage,
+      console.log("🧠 VoiceChat: Sending to backend:", {
+        message: lastUserMessage,
+        customerContext: customerContextRef.current,
+        historyLength: recentHistory.length,
       });
 
+      // CALL BACKEND API - it handles all extraction and processing
       const response = await fetch(
-        "https://api.openai.com/v1/chat/completions",
+        `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat/message`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
           },
           body: JSON.stringify({
-            model: llmModel,
-            messages: messages,
-            temperature: temperature,
-            max_tokens: maxTokens,
+            message: lastUserMessage,
+            agentId: agentId || "default",
+            customerContext: customerContextRef.current,
+            conversationHistory: recentHistory,
+            options: {
+              language: selectedLanguage,
+              useRAG: ragEnabled,
+              systemPrompt: systemPrompt || "You are a helpful AI assistant.",
+              temperature: temperature,
+              maxTokens: maxTokens,
+              provider: selectedLLM, // 'openai' or 'agentforce'
+            },
           }),
         }
       );
 
       if (!response.ok) {
-        throw new Error("OpenAI API request failed");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.details || "Backend API request failed");
       }
 
       const data = await response.json();
-      let aiResponse = data.choices[0].message.content;
-      console.log("🤖 VoiceChat: RAW AI Output:", aiResponse);
+      console.log("✅ Backend response:", data);
 
-      // Log the AI response to debug language switching
-      // console.log('🤖 AI Response:', aiResponse);
-      // console.log('🔍 Starts with LANGUAGE_SWITCH?', aiResponse.startsWith('LANGUAGE_SWITCH:'));
-
-      // Check if AI wants to switch language
-      if (aiResponse.startsWith("LANGUAGE_SWITCH:")) {
-        // Extract language code - it should be right after "LANGUAGE_SWITCH:" and before space or newline
-        const match = aiResponse.match(/^LANGUAGE_SWITCH:([a-z]{2})[\s\n]/i);
-
-        if (match) {
-          const newLanguageCode = match[1].toLowerCase();
-
-          // Update the language
-          if (languageNames[newLanguageCode]) {
-            // CRITICAL: Update ref FIRST (synchronous), then state (async)
-            currentLanguageRef.current = newLanguageCode;
-            setSelectedLanguage(newLanguageCode);
-
-            // Remove the switch command from response
-            aiResponse = aiResponse
-              .replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, "")
-              .trim();
-          }
-        }
+      // Update customer context with backend's extracted data
+      // Backend does all the merging, so we just use what it returns
+      if (data.customerContext) {
+        console.log("🧠 Backend updated customer context:", data.customerContext);
+        setCustomerContext(data.customerContext);
+        customerContextRef.current = data.customerContext;
       }
 
-      // 🧠 ROBUST MEMORY EXTRACTION
-      // Check for [MEMORY: {...}] block at the end of response (Case insensitive)
-      const memoryMatch = aiResponse.match(/\[MEMORY:\s*({[\s\S]*?})\]/i);
-      if (memoryMatch) {
-        try {
-          let jsonString = memoryMatch[1];
-          // Attempt to sanitize bad JSON from LLM:
-          // 1. Replace single quotes with double quotes
-          // 2. Quote unquoted keys (simple alphanumeric)
-          jsonString = jsonString
-            .replace(/'/g, '"')
-            .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
-
-          const updates = JSON.parse(jsonString);
-
-          console.log("🧠 VoiceChat: Parsed Memory Updates:", updates);
-
-          // Only update if we have valid data
-          if (Object.keys(updates).length > 0) {
-            // Update context synchronously
-            const newContext = {
-              ...customerContextRef.current,
-              ...updates,
-              lastUpdated: new Date().toISOString(),
-            };
-
-            setCustomerContext(newContext);
-            customerContextRef.current = newContext;
-            console.log("✅ VoiceChat: Updated Customer Context:", newContext);
-          }
-
-          // Remove the memory block from the text so it's not spoken
-          aiResponse = aiResponse.replace(memoryMatch[0], "").trim();
-        } catch (e) {
-          console.error("❌ Failed to parse AI memory block:", e);
-          console.error("   Raw JSON string was:", memoryMatch[1]);
-        }
+      // Handle language switch
+      if (data.languageSwitch) {
+        const newLanguageCode = data.languageSwitch.toLowerCase();
+        currentLanguageRef.current = newLanguageCode;
+        setSelectedLanguage(newLanguageCode);
       }
 
-      return aiResponse;
+      return data.response;
     } catch (error) {
-      console.error("OpenAI error:", error);
-      throw new Error("Failed to get AI response");
+      console.error("❌ Backend API error:", error);
+      throw new Error("Failed to get AI response: " + error.message);
     }
   };
 
@@ -1741,7 +1269,7 @@ Be flexible - extract whatever information is relevant to the user's request.`,
         {
           query: "", // Empty query indicates silence
           conversationHistory: conversationHistoryRef.current,
-          systemPrompt: agentPrompt || "You are a helpful assistant.",
+          systemPrompt: systemPrompt || "You are a helpful assistant.",
           useRAG: ragEnabled,
           agentId: agentId,
           customerContext: customerContextRef.current,

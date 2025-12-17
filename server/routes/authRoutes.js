@@ -12,7 +12,7 @@ const router = express.Router();
 router.post(
   "/signup",
   (req, res, next) => {
-    console.log("🟢 AUTH ROUTE: /signup called");
+    // console.log("🟢 AUTH ROUTE: /signup called");
     next();
   },
   signup
@@ -21,7 +21,7 @@ router.post(
 router.post(
   "/login",
   (req, res, next) => {
-    console.log("🟢 AUTH ROUTE: /login called");
+    // console.log("🟢 AUTH ROUTE: /login called");
     next();
   },
   login
@@ -30,7 +30,7 @@ router.post(
 router.post(
   "/logout",
   (req, res, next) => {
-    console.log("🟢 AUTH ROUTE: /logout called");
+    // console.log("🟢 AUTH ROUTE: /logout called");
     next();
   },
   logout
@@ -39,7 +39,7 @@ router.post(
 router.get(
   "/verify",
   (req, res, next) => {
-    console.log("🟢 AUTH ROUTE: /verify called");
+    // console.log("🟢 AUTH ROUTE: /verify called");
     next();
   },
   verifyToken
@@ -48,7 +48,7 @@ router.get(
 router.post(
   "/google",
   (req, res, next) => {
-    console.log("🟢 AUTH ROUTE: /google called");
+    // console.log("🟢 AUTH ROUTE: /google called");
     next();
   },
   googleLogin
