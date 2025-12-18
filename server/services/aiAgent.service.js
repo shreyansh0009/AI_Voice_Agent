@@ -248,6 +248,9 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
       console.log("📋 Server: Current customer context:", updatedContext);
       console.log("🎯 Conversation state:", conversationState);
 
+      // Detect intent and route to appropriate script section (for multi-section scripts)
+      const intentSection = this.detectIntentAndSection(userMessage, conversationHistory, systemPrompt);
+
       // Build enhanced system prompt - add context and guidance to user's script
       const enhancedSystemPrompt = this.buildEnhancedPrompt({
         basePrompt: systemPrompt,
@@ -255,6 +258,7 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
         stageGuidance: stageGuidance,
         trackingInfo: trackingInfo,
         language: currentLanguageName,
+        intentSection: intentSection,
       });
 
       // If RAG is enabled, try to use knowledge base
@@ -302,12 +306,129 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
   }
 
   /**
+   * Detect user intent and extract relevant script section
+   * Dynamically routes to the appropriate flow (sales, support, info, etc.)
+   */
+  detectIntentAndSection(userMessage, conversationHistory, systemPrompt) {
+    // If conversation already started, don't re-detect intent
+    if (conversationHistory && conversationHistory.length > 2) {
+      return { section: null, intent: null }; // Continue with current flow
+    }
+
+    // Extract sections from script (Section 0, 1, 1.1, SALES:, SUPPORT:, etc.)
+    const sections = this.extractScriptSections(systemPrompt);
+    
+    if (sections.length === 0) {
+      return { section: null, intent: null }; // No sections found, use full script
+    }
+
+    // Detect intent from user's first message
+    const messageLower = userMessage.toLowerCase();
+    
+    // Intent keywords mapping (dynamic, not hardcoded for specific domains)
+    const intentKeywords = {
+      sales: ['buy', 'purchase', 'interested', 'looking for', 'want to buy', 'price', 'cost', 'afford', 'budget', 'models', 'variants', 'booking', 'book', 'test ride', 'demo', 'खरीदना', 'खरीदूंगा', 'लेना है'],
+      support: ['issue', 'problem', 'not working', 'broken', 'repair', 'service', 'complaint', 'help', 'fix', 'error', 'charging', 'battery', 'समस्या', 'ठीक करो', 'खराब'],
+      query: ['information', 'details', 'tell me about', 'what is', 'features', 'specifications', 'specs', 'warranty', 'जानकारी', 'बताइए'],
+      service: ['service center', 'appointment', 'booking', 'schedule', 'visit', 'mechanic', 'technician', 'सर्विस सेंटर'],
+    };
+
+    // Find matching intent
+    let detectedIntent = null;
+    let maxMatches = 0;
+
+    for (const [intent, keywords] of Object.entries(intentKeywords)) {
+      const matches = keywords.filter(keyword => messageLower.includes(keyword)).length;
+      if (matches > maxMatches) {
+        maxMatches = matches;
+        detectedIntent = intent;
+      }
+    }
+
+    if (!detectedIntent) {
+      return { section: null, intent: null }; // No clear intent, use full script
+    }
+
+    // Find matching section in script
+    const matchingSection = sections.find(sec => 
+      sec.title.toLowerCase().includes(detectedIntent) ||
+      sec.title.toLowerCase().includes(detectedIntent + 's') // plural
+    );
+
+    if (matchingSection) {
+      console.log(`🎯 Intent detected: ${detectedIntent}, routing to section: ${matchingSection.title}`);
+      return { 
+        section: matchingSection.content, 
+        intent: detectedIntent,
+        sectionTitle: matchingSection.title 
+      };
+    }
+
+    return { section: null, intent: detectedIntent };
+  }
+
+  /**
+   * Extract sections from script
+   * Supports: "SECTION 1:", "## Sales Flow", "SUPPORT:", etc.
+   */
+  extractScriptSections(systemPrompt) {
+    const sections = [];
+    
+    // Pattern 1: "SECTION 0:", "SECTION 1:", "SECTION 1.1:", etc.
+    const sectionPattern = /(?:^|\n)(SECTION\s+[\d.]+[:\s]+[^\n]+)([\s\S]*?)(?=\n(?:SECTION\s+[\d.]+|$))/gi;
+    
+    // Pattern 2: "## Sales Flow", "## Support Flow", etc. (Markdown headings)
+    const markdownPattern = /(?:^|\n)(##\s+[^\n]+)([\s\S]*?)(?=\n##|$)/gi;
+    
+    // Pattern 3: "SALES:", "SUPPORT:", "QUERY:", etc.
+    const labelPattern = /(?:^|\n)([A-Z]+\s*:)([\s\S]*?)(?=\n[A-Z]+\s*:|$)/g;
+
+    let match;
+    
+    // Try pattern 1
+    while ((match = sectionPattern.exec(systemPrompt)) !== null) {
+      sections.push({
+        title: match[1].trim(),
+        content: match[2].trim()
+      });
+    }
+
+    // Try pattern 2 if no sections found
+    if (sections.length === 0) {
+      while ((match = markdownPattern.exec(systemPrompt)) !== null) {
+        sections.push({
+          title: match[1].replace(/^##\s*/, '').trim(),
+          content: match[2].trim()
+        });
+      }
+    }
+
+    // Try pattern 3 if still no sections
+    if (sections.length === 0) {
+      while ((match = labelPattern.exec(systemPrompt)) !== null) {
+        sections.push({
+          title: match[1].replace(':', '').trim(),
+          content: match[2].trim()
+        });
+      }
+    }
+
+    return sections;
+  }
+
+  /**
    * Build enhanced system prompt by adding context to base prompt
    * Keeps hardcoded rules separate and reusable
    */
-  buildEnhancedPrompt({ basePrompt, customerContext, stageGuidance, trackingInfo, language }) {
-    return `${basePrompt}
-${customerContext}${stageGuidance}${trackingInfo}
+  buildEnhancedPrompt({ basePrompt, customerContext, stageGuidance, trackingInfo, language, intentSection }) {
+    // If intent-based section detected, use that instead of full script
+    const scriptToUse = intentSection?.section || basePrompt;
+    const intentGuidance = intentSection?.sectionTitle 
+      ? `\n🎯 DETECTED INTENT: ${intentSection.intent} - Following "${intentSection.sectionTitle}" flow\n`
+      : '';
+
+    return `${scriptToUse}
+${customerContext}${stageGuidance}${trackingInfo}${intentGuidance}
 
 SYSTEM INSTRUCTIONS (Auto-added for voice chat):
 - Current language: ${language}
