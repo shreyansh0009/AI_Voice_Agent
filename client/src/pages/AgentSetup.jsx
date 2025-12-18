@@ -69,6 +69,9 @@ export default function AgentSetupSingle() {
   const [uploadError, setUploadError] = useState(null);
   const [uploadSuccess, setUploadSuccess] = useState(null);
 
+  // Save button state - prevent multiple clicks
+  const [isSaving, setIsSaving] = useState(false);
+
   // Fetch agents from backend
   useEffect(() => {
     fetchAgents();
@@ -274,6 +277,11 @@ export default function AgentSetupSingle() {
 
   // Function to save/create agent
   async function handleSaveAgent() {
+    // Prevent multiple simultaneous saves
+    if (isSaving) return;
+
+    setIsSaving(true);
+
     const agentData = {
       name: agentName,
       domain: agentDomain,
@@ -317,6 +325,11 @@ export default function AgentSetupSingle() {
     } catch (err) {
       console.error("Error saving agent:", err);
       alert("Failed to save agent.");
+    } finally {
+      // Re-enable button after 2 seconds to prevent rapid clicking
+      setTimeout(() => {
+        setIsSaving(false);
+      }, 3000);
     }
   }
 
@@ -1568,9 +1581,10 @@ export default function AgentSetupSingle() {
           <div className="space-y-3">
             <button
               onClick={handleSaveAgent}
-              className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors text-sm"
+              disabled={isSaving}
+              className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors text-sm disabled:bg-blue-400 disabled:cursor-not-allowed"
             >
-              {isNewAgent ? "Create Agent" : "Update Agent"}
+              {isSaving ? "Saving..." : isNewAgent ? "Create Agent" : "Update Agent"}
             </button>
             <div className="text-xs text-slate-400">
               {isNewAgent

@@ -32,16 +32,23 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Prevent multiple simultaneous submissions
+    if (loading) return;
+    
     setError("");
     setLoading(true);
 
     try {
       await auth.login(email, password);
-      setLoading(false);
       navigate(from, { replace: true });
     } catch (err) {
-      setLoading(false);
       setError(err.response?.data?.message || "Login failed");
+    } finally {
+      // Re-enable button after 2 seconds to prevent rapid clicking
+      setTimeout(() => {
+        setLoading(false);
+      }, 2000);
     }
   };
 
