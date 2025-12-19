@@ -223,37 +223,12 @@ const VoiceChat = ({
     if (apiKey) {
       try {
         // Initialize with browser-compatible options
-        deepgramRef.current = createClient(apiKey);
-        // console.log('✅ Deepgram client initialized with API key:', apiKey.substring(0, 10) + '...');
-
-        // Test connection by creating a quick test connection
-        const testConnection = () => {
-          try {
-            const testConn = deepgramRef.current.listen.live({
-              model: "nova-2",
-              language: "en",
-              smart_format: true,
-              punctuate: true,
-            });
-
-            testConn.on("open", () => {
-              // console.log('✅ Deepgram WebSocket test successful');
-              testConn.finish();
-            });
-
-            testConn.on("error", (err) => {
-              console.error("❌ Deepgram WebSocket test failed:", err);
-              setError(
-                "Deepgram connection test failed. Please check your API key."
-              );
-            });
-          } catch (err) {
-            console.error("❌ Failed to create test connection:", err);
+        deepgramRef.current = createClient(apiKey, {
+          global: { 
+            url: 'https://api.deepgram.com',
           }
-        };
-
-        // Test after a short delay
-        setTimeout(testConnection, 1000);
+        });
+        console.log('✅ Deepgram client initialized');
       } catch (err) {
         console.error("❌ Failed to initialize Deepgram:", err);
         setError("Failed to initialize Deepgram client: " + err.message);
@@ -288,7 +263,28 @@ const VoiceChat = ({
   const startListening = async () => {
     try {
       setError("");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Enhanced audio constraints for better fast-speech recognition AND low-volume detection
+      const audioConstraints = {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000, // Higher sample rate for better quality
+          channelCount: 1, // Mono for speech
+          // Request higher quality audio
+          advanced: [
+            { echoCancellation: { exact: true } },
+            { noiseSuppression: { exact: true } },
+            { autoGainControl: { exact: true } }
+          ],
+          // Enhanced for low-volume detection
+          latency: 0.01, // Low latency for real-time processing
+          sampleSize: 16, // 16-bit audio
+        }
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(audioConstraints);
 
       // Store stream reference for cleanup
       mediaStreamRef.current = stream;
@@ -300,8 +296,8 @@ const VoiceChat = ({
           window.webkitAudioContext)();
         const audioSource = audioContext.createMediaStreamSource(stream);
         const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.8;
+        analyser.fftSize = 512; // Increased for better frequency resolution
+        analyser.smoothingTimeConstant = 0.7; // Reduced for faster response
         audioSource.connect(analyser);
         analyserRef.current = analyser;
 
@@ -313,6 +309,7 @@ const VoiceChat = ({
       const mimeType = "audio/webm;codecs=opus";
       mediaRecorderRef.current = new MediaRecorder(stream, {
         mimeType: mimeType,
+        audioBitsPerSecond: 128000, // Higher bitrate for clarity
       });
 
       audioChunksRef.current = [];
@@ -343,10 +340,10 @@ const VoiceChat = ({
       // Set recording flag BEFORE starting VAD (so VAD doesn't exit immediately)
       isRecordingRef.current = true;
 
-      // In continuous mode, use timeslice to collect chunks periodically
+      // In continuous mode, use smaller timeslice for better fast-speech capture
       if (continuousModeRef.current) {
-        // console.log('🎙️ Starting continuous recording with 100ms timeslice');
-        mediaRecorderRef.current.start(100); // Collect data every 100ms
+        // console.log('🎙️ Starting continuous recording with 50ms timeslice');
+        mediaRecorderRef.current.start(50); // Reduced to 50ms for faster capture
         // Set up Voice Activity Detection AFTER starting recording
         setupVoiceActivityDetection(stream);
       } else {
@@ -372,17 +369,25 @@ const VoiceChat = ({
 
   /**
    * Setup Voice Activity Detection for continuous mode
-   * Optimized for office environments with background noise
+   * Optimized for office environments with background noise AND whisper/low-volume detection
    */
   const setupVoiceActivityDetection = (stream) => {
     // Create audio context for analyzing audio levels
     const audioContext = new (window.AudioContext ||
       window.webkitAudioContext)();
     const audioSource = audioContext.createMediaStreamSource(stream);
+    
+    // Add gain node for amplifying low-volume speech
+    const gainNode = audioContext.createGain();
+    gainNode.gain.value = 2.5; // Amplify by 2.5x for better whisper detection
+    
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 2048; // Increased for better frequency resolution
-    analyser.smoothingTimeConstant = 0.8; // Smooth out noise spikes
-    audioSource.connect(analyser);
+    analyser.smoothingTimeConstant = 0.7; // Reduced for faster response to whispers
+    
+    // Connect: source -> gain -> analyser
+    audioSource.connect(gainNode);
+    gainNode.connect(analyser);
 
     // Store analyser for visualization
     analyserRef.current = analyser;
@@ -398,10 +403,11 @@ const VoiceChat = ({
     let speechStartTime = null;
 
     // Adaptive thresholds based on sensitivity setting (1-10 scale)
+    // Lower thresholds for better whisper detection
     // Higher sensitivity number = less sensitive (higher threshold)
-    const SPEECH_THRESHOLD = 25 + voiceSensitivity * 5; // Range: 30-75
-    const SILENCE_DURATION = 2000; // 2 seconds of silence before stopping
-    const MIN_SPEECH_DURATION = 300; // Minimum 300ms of speech to avoid false triggers
+    const SPEECH_THRESHOLD = 15 + voiceSensitivity * 3; // Reduced range: 18-45 (was 30-75)
+    const SILENCE_DURATION = 1500; // Reduced to 1.5 seconds for faster response
+    const MIN_SPEECH_DURATION = 200; // Reduced to 200ms for better whisper detection
 
     // Calibration for background noise
     let backgroundNoiseLevel = 0;
@@ -819,127 +825,51 @@ const VoiceChat = ({
       }
     }
 
-    // 3. Use DEEPGRAM for English and Hindi (Existing Logic)
+    // 3. Use DEEPGRAM for English and Hindi (REST API for browser compatibility)
     try {
-      if (!deepgramRef.current) {
-        console.error("Deepgram client not initialized");
-        throw new Error("Deepgram not initialized");
+      // Use ref to get the most current language
+      const languageToUse = currentLanguageRef.current;
+      console.log('🎤 Deepgram STT STARTING with language:', languageToUse);
+
+      // Use REST API instead of WebSocket for better browser compatibility
+      const apiKey = import.meta.env.VITE_DEEPGRAM_API_KEY;
+      
+      // Build URL with query parameters
+      const url = new URL('https://api.deepgram.com/v1/listen');
+      url.searchParams.append('model', 'nova-2');
+      url.searchParams.append('language', languageToUse === "hi" ? "hi" : "en");
+      url.searchParams.append('smart_format', 'true');
+      url.searchParams.append('punctuate', 'true');
+      url.searchParams.append('filler_words', 'false');
+
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${apiKey}`,
+          'Content-Type': 'audio/webm',
+        },
+        body: audioBlob,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Deepgram API error:', response.status, errorText);
+        throw new Error(`Deepgram API error: ${response.status}`);
       }
 
-      // Convert blob to array buffer
-      const arrayBuffer = await audioBlob.arrayBuffer();
+      const data = await response.json();
+      const transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
+      
+      if (!transcript.trim()) {
+        const languageNames = { en: "English", hi: "Hindi" };
+        const currentLangName = languageNames[languageToUse] || languageToUse;
+        throw new Error(
+          `No speech detected. Please speak in ${currentLangName} or select a different language.`
+        );
+      }
 
-      return new Promise((resolve, reject) => {
-        let transcriptText = "";
-
-        // Use ref to get the most current language (might have been switched)
-        const languageToUse = currentLanguageRef.current;
-        console.log('🎤 Deepgram STT STARTING with language:', languageToUse);
-        console.log('📊 selectedLanguage state:', selectedLanguage);
-        console.log('📊 currentLanguageRef.current:', currentLanguageRef.current);
-
-        let connection;
-        try {
-          connection = deepgramRef.current.listen.live({
-            model: "nova-2",
-            smart_format: true,
-            punctuate: true,
-            language: languageToUse === "hi" ? "hi" : "en", // Force specific codes if needed, though 'languageToUse' is already 'hi' or 'en'
-          });
-        } catch (err) {
-          console.error("❌ Failed to create Deepgram connection:", err);
-          reject(
-            new Error(
-              "Failed to connect to speech recognition service. Please check your internet connection and API key."
-            )
-          );
-          return;
-        }
-
-        connection.on("open", () => {
-          // console.log('✅ Deepgram WebSocket opened');
-          // Send the audio data
-          try {
-            connection.send(arrayBuffer);
-            // console.log('📤 Audio data sent to Deepgram');
-          } catch (err) {
-            console.error("❌ Failed to send audio:", err);
-            reject(err);
-            return;
-          }
-
-          // Close connection after sending (give it time to process)
-          setTimeout(() => {
-            try {
-              connection.finish();
-            } catch (err) {
-              console.error("Error finishing connection:", err);
-            }
-          }, 1500);
-        });
-
-        connection.on("Results", (data) => {
-          // Try multiple ways to extract transcript
-          let transcript = null;
-
-          // Method 1: Check channel.alternatives[0].transcript
-          if (data.channel?.alternatives?.[0]?.transcript) {
-            transcript = data.channel.alternatives[0].transcript;
-          }
-
-          if (transcript && transcript.trim().length > 0) {
-            transcriptText += transcript + " ";
-          }
-        });
-
-        connection.on("close", () => {
-          // console.log('🔌 Deepgram WebSocket closed');
-          const finalTranscript = transcriptText.trim();
-          if (finalTranscript) {
-            // console.log('✅ Transcript:', finalTranscript);
-            resolve(finalTranscript);
-          } else {
-            // Only reject if we expected a result. For silence, Deepgram returns empty, but user interface handles empty/short?
-            // Existing logic rejects with specific message.
-            const languageNames = {
-              en: "English",
-              hi: "Hindi",
-            };
-            const currentLangName =
-              languageNames[languageToUse] || languageToUse;
-            reject(
-              new Error(
-                `No speech detected. Please speak in ${currentLangName} or select a different language.`
-              )
-            );
-          }
-        });
-
-        connection.on("error", (error) => {
-          console.error("❌ Deepgram streaming error:", error);
-          console.error("Error details:", {
-            message: error.message,
-            url: error.url,
-            readyState: error.readyState,
-            statusCode: error.statusCode,
-          });
-          reject(
-            new Error(
-              `Speech recognition error: ${
-                error.message || "Connection failed"
-              }. Please check your API key and internet connection.`
-            )
-          );
-        });
-
-        // Timeout after 15 seconds
-        setTimeout(() => {
-          if (!transcriptText.trim()) {
-            connection.finish();
-            reject(new Error("Transcription timeout - no speech detected"));
-          }
-        }, 15000);
-      });
+      console.log('✅ Deepgram transcript:', transcript);
+      return transcript;
     } catch (error) {
       console.error("Speech-to-text error:", error);
       throw new Error("Failed to convert speech to text: " + error.message);
@@ -1103,6 +1033,11 @@ const VoiceChat = ({
           target_language_code: sarvamLanguage,
           speaker: voice, // Use voice prop directly
           model: voiceModel === "bulbulv2" ? "bulbul:v2" : "bulbul:v1", // Map model prop
+          // Enhanced settings for better clarity
+          enable_preprocessing: true,
+          pace: speedRate || 1.0, // Use configured speed rate (default 1.0 for natural)
+          pitch: 0, // Neutral pitch for clarity
+          loudness: 1.5, // Slightly louder for better audibility
         },
         {
           headers: {
@@ -1126,6 +1061,11 @@ const VoiceChat = ({
       // Create audio URL and play
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
+      
+      // Enhanced audio settings for better clarity
+      audio.volume = 1.0; // Full volume
+      audio.preservesPitch = true; // Maintain pitch quality
+      audio.playbackRate = speedRate || 1.0; // Use configured speed (default 1.0)
 
       return new Promise((resolve, reject) => {
         audio.onended = () => {
