@@ -30,6 +30,11 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Vercel automatically parses JSON body, but ensure it's available
+    if (!req.body) {
+      req.body = {};
+    }
+
     // Apply authentication middleware
     await new Promise((resolve, reject) => {
       authenticate(req, res, (err) => {

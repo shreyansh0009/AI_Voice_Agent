@@ -50,6 +50,11 @@ router.post(
 
 // TTS endpoint for Tabbly
 router.post("/tts/tabbly", authenticate, (req, res, next) => {
+  console.log("🎯 Tabbly TTS route hit!", {
+    method: req.method,
+    path: req.path,
+    body: req.body,
+  });
   speechController.ttsWithTabbly(req, res).catch(next);
 });
 

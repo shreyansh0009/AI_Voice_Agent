@@ -3,40 +3,14 @@
   "builds": [
     {
       "src": "app.js",
-      "use": "@vercel/node",
-      "config": {
-        "maxDuration": 60
-      }
-    },
-    {
-      "src": "api/speech/tts/tabbly.js",
-      "use": "@vercel/node",
-      "config": {
-        "maxDuration": 60
-      }
-    },
-    {
-      "src": "api/speech/stt/sarvam.js",
-      "use": "@vercel/node",
-      "config": {
-        "maxDuration": 60
-      }
+      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
-      "src": "/api/speech/tts/tabbly",
-      "dest": "api/speech/tts/tabbly.js",
-      "methods": ["POST", "OPTIONS"]
-    },
-    {
-      "src": "/api/speech/stt/sarvam",
-      "dest": "api/speech/stt/sarvam.js",
-      "methods": ["POST", "OPTIONS"]
-    },
-    {
       "src": "/(.*)",
-      "dest": "app.js"
+      "dest": "/app.js"
     }
   ]
 }
+
