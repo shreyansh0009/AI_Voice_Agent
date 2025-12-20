@@ -68,9 +68,8 @@ const VoiceChat = ({
       setConversation([welcomeMsg]);
       conversationHistoryRef.current = [welcomeMsg];
 
-      // Speak it automatically (optional - usually better to wait for user interaction or click)
-      // For now, just showing it is enough as per user request "conversation with entered welcome message"
-      // If auto-speak is desired: speakTextWithSarvam(welcomeMessage);
+      // Don't auto-speak - wait for user to say something first
+      // The welcome message will be spoken as response to user's first message
     }
   }, [welcomeMessage, conversation.length, isListening, isProcessing]);
 
