@@ -83,6 +83,16 @@ CRITICAL RULES:
 3. Even if the user provides ONLY a pincode like "305001" → extract as {"pincode": "305001"}
 4. If user says just a product name like "Magnus EX" → extract as {"model": "Magnus EX"}
 5. In conversation, users often answer questions with short responses - extract them!
+6. Extract names from greetings: "Hello I'm Rahul" → {"name": "Rahul"}
+7. Extract names from introductions: "Hi, this is John" → {"name": "John"}
+8. Extract names from "My name is X" or "I am X" patterns
+
+NAME EXTRACTION PATTERNS:
+- "Hello I'm Rahul" → {"name": "Rahul"}
+- "Hi this is John speaking" → {"name": "John"}
+- "My name is Priya" → {"name": "Priya"}
+- "I am Kumar" → {"name": "Kumar"}
+- Just "Rahul" (if it's a response to name question) → {"name": "Rahul"}
 
 PHONE NUMBER EXTRACTION:
 - Extract 10-digit Indian mobile numbers (starting with 6-9)
@@ -199,21 +209,49 @@ class AIAgentService {
       // Extract customer info from the current message FIRST
       const updatedContext = await this.extractCustomerInfo(userMessage, customerContext);
       
+      // Preserve originalQuery and conversationIntent if they already exist
+      if (customerContext.originalQuery && !updatedContext.originalQuery) {
+        updatedContext.originalQuery = customerContext.originalQuery;
+      }
+      if (customerContext.conversationIntent && !updatedContext.conversationIntent) {
+        updatedContext.conversationIntent = customerContext.conversationIntent;
+      }
+      
+      // Extract and remember the user's original query/problem from first/early messages
+      // Check for problem statements even in first few exchanges
+      if (!updatedContext.originalQuery && conversationHistory.length <= 3) {
+        const isProblemStatement = userMessage.toLowerCase().match(/\b(not working|broken|issue|problem|charging|starting|error|need|want|buy|purchase|book|interested)\b/);
+        if (isProblemStatement && userMessage.trim().length > 10) {
+          updatedContext.originalQuery = userMessage;
+          updatedContext.conversationIntent = await this.extractUserIntent(userMessage);
+          console.log("🎯 Captured original query:", updatedContext.originalQuery);
+        }
+      }
+      
       // Determine conversation stage and next required field
       const conversationState = this.determineConversationState(updatedContext, systemPrompt);
       
       // Build customer context summary for the prompt
       const contextSummary = [];
+      
+      // Add original query/intent at the top so AI never forgets it
+      if (updatedContext.originalQuery) {
+        contextSummary.push(`🎯 ORIGINAL USER REQUEST: "${updatedContext.originalQuery}"`);
+      }
+      if (updatedContext.conversationIntent) {
+        contextSummary.push(`📌 USER'S INTENT: ${updatedContext.conversationIntent}`);
+      }
+      
       if (updatedContext.name)
-        contextSummary.push(`✅ Name: ${updatedContext.name}`);
+        contextSummary.push(`✅ Name: ${updatedContext.name} (ALREADY COLLECTED - DO NOT ASK AGAIN)`);
       if (updatedContext.phone)
-        contextSummary.push(`✅ Phone: ${updatedContext.phone}`);
+        contextSummary.push(`✅ Phone: ${updatedContext.phone} (ALREADY COLLECTED - DO NOT ASK AGAIN)`);
       if (updatedContext.pincode)
-        contextSummary.push(`✅ Pincode: ${updatedContext.pincode}`);
+        contextSummary.push(`✅ Pincode: ${updatedContext.pincode} (ALREADY COLLECTED - DO NOT ASK AGAIN)`);
       if (updatedContext.email)
-        contextSummary.push(`✅ Email: ${updatedContext.email}`);
+        contextSummary.push(`✅ Email: ${updatedContext.email} (ALREADY COLLECTED - DO NOT ASK AGAIN)`);
       if (updatedContext.address)
-        contextSummary.push(`✅ Address: ${updatedContext.address}`);
+        contextSummary.push(`✅ Address: ${updatedContext.address} (ALREADY COLLECTED - DO NOT ASK AGAIN)`);
       if (
         updatedContext.orderDetails &&
         Object.keys(updatedContext.orderDetails).length > 0
@@ -273,7 +311,11 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
 
           if (ragResponse) {
             console.log("🤖 Using RAG response with knowledge base");
-            const processedResponse = this.processLanguageSwitch(ragResponse, LANGUAGE_CODES);
+            
+            // Remove numbered lists for voice output
+            const cleanedResponse = this.removeNumberedLists(ragResponse);
+            
+            const processedResponse = this.processLanguageSwitch(cleanedResponse, LANGUAGE_CODES);
             return {
               ...processedResponse,
               customerContext: updatedContext, // Include updated context
@@ -451,6 +493,51 @@ You must ALWAYS follow this exact pattern:
 2. Immediately ask the EXACT next question from your script
 3. NO explanations, NO generalizations, NO advice, NO elaboration
 
+🚫 ABSOLUTE PROHIBITIONS - NEVER DO THESE:
+1. NEVER ask for information already in CUSTOMER INFORMATION section
+2. NEVER ask again what's already in QUESTIONS ALREADY ASKED section
+3. NEVER forget the user's ORIGINAL REQUEST - it's the reason for this conversation
+4. NEVER ask "What's your problem/query/issue?" if ORIGINAL USER REQUEST is present
+5. If user says "I already told you X" - CHECK CUSTOMER INFORMATION and acknowledge it
+
+⚠️ HANDLING "I ALREADY TOLD YOU":
+When user says "I already told you my name/number/etc.":
+1. IMMEDIATELY check CUSTOMER INFORMATION section above
+2. If the info IS there (✅ Name: John) → Say "You're right, {Name}. [proceed to next question]"
+3. If info is NOT there → Apologize and ask again politely
+4. NEVER argue or ask again if data is clearly present
+
+📚 EXAMPLES OF CORRECT vs INCORRECT RESPONSES:
+
+❌ WRONG (Re-asking when info already collected):
+CUSTOMER INFORMATION shows: ✅ Name: John
+Agent: "May I have your name please?"
+WRONG! Name is already collected!
+
+✅ CORRECT (Using collected info):
+CUSTOMER INFORMATION shows: ✅ Name: John
+Agent: "Thank you John. What's your mobile number?"
+
+❌ WRONG (Forgetting original query):
+ORIGINAL USER REQUEST: "My scooter isn't starting"
+Agent after 3 messages: "How can I help you today?"
+WRONG! User already said their problem!
+
+✅ CORRECT (Remembering context):
+ORIGINAL USER REQUEST: "My scooter isn't starting"  
+Agent: "I'll help you with that. May I have your name first?"
+
+❌ WRONG (Ignoring "already told you"):
+User: "I already told my name"
+CUSTOMER INFORMATION shows: ✅ Name: Rahul
+Agent: "Sorry, I don't have your name. Can you please share it again?"
+WRONG! Name is right there!
+
+✅ CORRECT (Acknowledging collected data):
+User: "I already told my name"
+CUSTOMER INFORMATION shows: ✅ Name: Rahul
+Agent: "You're right, Rahul. What's your mobile number?"
+
 📚 EXAMPLES OF CORRECT vs INCORRECT RESPONSES:
 
 ❌ WRONG (Too generalized, not following script):
@@ -559,8 +646,98 @@ CRITICAL RULES:
 
     let aiResponse = response.choices[0].message.content;
 
+    // Remove numbered lists for voice output (but AI keeps them mentally)
+    aiResponse = this.removeNumberedLists(aiResponse);
+
     // Process language switching
     return this.processLanguageSwitch(aiResponse, languageNames);
+  }
+
+  /**
+   * Remove numbered lists from voice output
+   * Converts "1. Scooter 2. Bike 3. Car" to "Scooter, Bike, or Car"
+   * Converts "1) First option 2) Second option" to "First option or Second option"
+   */
+  removeNumberedLists(text) {
+    // Pattern 1: "1. Item1 2. Item2 3. Item3" → "Item1, Item2, or Item3"
+    // Pattern 2: "1) Item1 2) Item2" → "Item1 or Item2"
+    // Pattern 3: Multiline numbered lists
+    
+    let processed = text;
+
+    // Handle inline numbered lists (all on one line)
+    // Match: "1. Item1 2. Item2 3. Item3" or "1) Item1 2) Item2 3) Item3"
+    const inlinePattern = /(?:^|\s)(\d+[.)]\s*[^0-9\n]+?)(?=\s*\d+[.)]|\s*$)/g;
+    const matches = [...processed.matchAll(inlinePattern)];
+    
+    if (matches.length >= 2) {
+      // Extract items without numbers
+      const items = matches.map(match => 
+        match[1].replace(/^\d+[.)]\s*/, '').trim()
+      );
+      
+      // Join with commas and "or" for last item
+      let replacement;
+      if (items.length === 2) {
+        replacement = `${items[0]} or ${items[1]}`;
+      } else {
+        const lastItem = items.pop();
+        replacement = `${items.join(', ')}, or ${lastItem}`;
+      }
+      
+      // Replace the entire numbered list with the natural language version
+      const fullMatch = matches[0].index;
+      const lastMatch = matches[matches.length - 1];
+      const endIndex = lastMatch.index + lastMatch[0].length;
+      
+      processed = processed.slice(0, fullMatch) + replacement + processed.slice(endIndex);
+    }
+
+    // Handle multiline numbered lists
+    // Match lines starting with "1. ", "2. ", etc.
+    const lines = processed.split('\n');
+    const listItems = [];
+    let inList = false;
+    let listStartIndex = -1;
+    let listEndIndex = -1;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      const numberedLineMatch = line.match(/^(\d+)[.)]\s*(.+)$/);
+      
+      if (numberedLineMatch) {
+        if (!inList) {
+          inList = true;
+          listStartIndex = i;
+        }
+        listItems.push(numberedLineMatch[2].trim());
+        listEndIndex = i;
+      } else if (inList && line.length > 0) {
+        // End of list
+        break;
+      }
+    }
+
+    if (listItems.length >= 2) {
+      // Convert to natural language
+      let replacement;
+      if (listItems.length === 2) {
+        replacement = `${listItems[0]} or ${listItems[1]}`;
+      } else {
+        const lastItem = listItems.pop();
+        replacement = `${listItems.join(', ')}, or ${lastItem}`;
+      }
+      
+      // Replace the list lines with natural language version
+      lines.splice(listStartIndex, listEndIndex - listStartIndex + 1, replacement);
+      processed = lines.join('\n');
+    }
+
+    // Clean up any remaining standalone numbers at start of sentences
+    // "1. " → "", "2) " → "" (if somehow missed above)
+    processed = processed.replace(/(?:^|\n)\d+[.)]\s+/g, '');
+
+    return processed.trim();
   }
 
   /**
@@ -903,6 +1080,43 @@ CRITICAL RULES:
       nextAction: 'your script\'s next steps (qualification, booking, etc.)',
       isComplete: true,
     };
+  }
+
+  /**
+   * Extract user's intent/purpose from their message
+   * Returns a brief summary of what the user wants
+   */
+  async extractUserIntent(userMessage) {
+    try {
+      // Simple keyword-based extraction for common intents
+      const messageLower = userMessage.toLowerCase();
+      
+      // Purchase/Sales intents
+      if (messageLower.match(/\b(buy|purchase|book|test ride|demo|interested|looking for|want to buy)\b/)) {
+        return "Purchase/Booking inquiry";
+      }
+      
+      // Support/Issue intents
+      if (messageLower.match(/\b(not working|broken|issue|problem|repair|service|complaint|fix|error)\b/)) {
+        return "Technical support/Issue resolution";
+      }
+      
+      // Information/Query intents
+      if (messageLower.match(/\b(information|details|tell me|what is|features|specs|warranty|price)\b/)) {
+        return "Information request";
+      }
+      
+      // Service center intents
+      if (messageLower.match(/\b(service center|appointment|schedule|visit|location)\b/)) {
+        return "Service center inquiry";
+      }
+      
+      // Generic fallback - just return the original message (trimmed)
+      return userMessage.length > 50 ? userMessage.substring(0, 47) + "..." : userMessage;
+    } catch (error) {
+      console.error("Intent extraction error:", error);
+      return userMessage;
+    }
   }
 
   /**
