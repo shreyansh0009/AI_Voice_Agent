@@ -223,11 +223,11 @@ const VoiceChat = ({
       try {
         // Initialize with browser-compatible options
         deepgramRef.current = createClient(apiKey, {
-          global: { 
-            url: 'https://api.deepgram.com',
-          }
+          global: {
+            url: "https://api.deepgram.com",
+          },
         });
-        console.log('✅ Deepgram client initialized');
+        console.log("✅ Deepgram client initialized");
       } catch (err) {
         console.error("❌ Failed to initialize Deepgram:", err);
         setError("Failed to initialize Deepgram client: " + err.message);
@@ -262,7 +262,7 @@ const VoiceChat = ({
   const startListening = async () => {
     try {
       setError("");
-      
+
       // Enhanced audio constraints for better fast-speech recognition AND low-volume detection
       const audioConstraints = {
         audio: {
@@ -275,15 +275,17 @@ const VoiceChat = ({
           advanced: [
             { echoCancellation: { exact: true } },
             { noiseSuppression: { exact: true } },
-            { autoGainControl: { exact: true } }
+            { autoGainControl: { exact: true } },
           ],
           // Enhanced for low-volume detection
           latency: 0.01, // Low latency for real-time processing
           sampleSize: 16, // 16-bit audio
-        }
+        },
       };
-      
-      const stream = await navigator.mediaDevices.getUserMedia(audioConstraints);
+
+      const stream = await navigator.mediaDevices.getUserMedia(
+        audioConstraints
+      );
 
       // Store stream reference for cleanup
       mediaStreamRef.current = stream;
@@ -375,15 +377,15 @@ const VoiceChat = ({
     const audioContext = new (window.AudioContext ||
       window.webkitAudioContext)();
     const audioSource = audioContext.createMediaStreamSource(stream);
-    
+
     // Add gain node for amplifying low-volume speech
     const gainNode = audioContext.createGain();
     gainNode.gain.value = 2.5; // Amplify by 2.5x for better whisper detection
-    
+
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 2048; // Increased for better frequency resolution
     analyser.smoothingTimeConstant = 0.7; // Reduced for faster response to whispers
-    
+
     // Connect: source -> gain -> analyser
     audioSource.connect(gainNode);
     gainNode.connect(analyser);
@@ -703,7 +705,7 @@ const VoiceChat = ({
       conversationHistoryRef.current.push(aiMessage);
 
       // Track if AI asked a question (for retry logic)
-      const isQuestion = aiResponse.includes('?');
+      const isQuestion = aiResponse.includes("?");
       if (isQuestion) {
         setLastQuestion(aiResponse);
       } else {
@@ -727,11 +729,15 @@ const VoiceChat = ({
 
       // In continuous mode, restart listening after AI finishes speaking
       if (continuousModeRef.current && mediaStreamRef.current) {
-        console.log(`🔄 Continuous mode: Restarting listening with language: ${currentLanguageRef.current}`);
+        console.log(
+          `🔄 Continuous mode: Restarting listening with language: ${currentLanguageRef.current}`
+        );
         // Small delay to avoid overlap
         setTimeout(() => {
           if (continuousModeRef.current && !isRecordingRef.current) {
-            console.log(`▶️ About to call startListening() with currentLanguageRef: ${currentLanguageRef.current}`);
+            console.log(
+              `▶️ About to call startListening() with currentLanguageRef: ${currentLanguageRef.current}`
+            );
             startListening();
           }
         }, 500);
@@ -828,37 +834,38 @@ const VoiceChat = ({
     try {
       // Use ref to get the most current language
       const languageToUse = currentLanguageRef.current;
-      console.log('🎤 Deepgram STT STARTING with language:', languageToUse);
+      console.log("🎤 Deepgram STT STARTING with language:", languageToUse);
 
       // Use REST API instead of WebSocket for better browser compatibility
       const apiKey = import.meta.env.VITE_DEEPGRAM_API_KEY;
-      
+
       // Build URL with query parameters
-      const url = new URL('https://api.deepgram.com/v1/listen');
-      url.searchParams.append('model', 'nova-2');
-      url.searchParams.append('language', languageToUse === "hi" ? "hi" : "en");
-      url.searchParams.append('smart_format', 'true');
-      url.searchParams.append('punctuate', 'true');
-      url.searchParams.append('filler_words', 'false');
+      const url = new URL("https://api.deepgram.com/v1/listen");
+      url.searchParams.append("model", "nova-2");
+      url.searchParams.append("language", languageToUse === "hi" ? "hi" : "en");
+      url.searchParams.append("smart_format", "true");
+      url.searchParams.append("punctuate", "true");
+      url.searchParams.append("filler_words", "false");
 
       const response = await fetch(url.toString(), {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Authorization': `Token ${apiKey}`,
-          'Content-Type': 'audio/webm',
+          Authorization: `Token ${apiKey}`,
+          "Content-Type": "audio/webm",
         },
         body: audioBlob,
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Deepgram API error:', response.status, errorText);
+        console.error("Deepgram API error:", response.status, errorText);
         throw new Error(`Deepgram API error: ${response.status}`);
       }
 
       const data = await response.json();
-      const transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
-      
+      const transcript =
+        data.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
+
       if (!transcript.trim()) {
         const languageNames = { en: "English", hi: "Hindi" };
         const currentLangName = languageNames[languageToUse] || languageToUse;
@@ -867,7 +874,7 @@ const VoiceChat = ({
         );
       }
 
-      console.log('✅ Deepgram transcript:', transcript);
+      console.log("✅ Deepgram transcript:", transcript);
       return transcript;
     } catch (error) {
       console.error("Speech-to-text error:", error);
@@ -898,7 +905,9 @@ const VoiceChat = ({
 
       // CALL BACKEND API - it handles all extraction and processing
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat/message`,
+        `${
+          import.meta.env.VITE_API_URL || "http://localhost:5000"
+        }/api/chat/message`,
         {
           method: "POST",
           headers: {
@@ -924,7 +933,9 @@ const VoiceChat = ({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.details || "Backend API request failed");
+        throw new Error(
+          errorData.error || errorData.details || "Backend API request failed"
+        );
       }
 
       const data = await response.json();
@@ -933,7 +944,10 @@ const VoiceChat = ({
       // Update customer context with backend's extracted data
       // Backend does all the merging, so we just use what it returns
       if (data.customerContext) {
-        console.log("🧠 Backend updated customer context:", data.customerContext);
+        console.log(
+          "🧠 Backend updated customer context:",
+          data.customerContext
+        );
         setCustomerContext(data.customerContext);
         customerContextRef.current = data.customerContext;
       }
@@ -941,18 +955,25 @@ const VoiceChat = ({
       // Handle language switch
       if (data.languageSwitch) {
         const newLanguageCode = data.languageSwitch.toLowerCase();
-        console.log(`🌐 [BEFORE] Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`);
-        
+        console.log(
+          `🌐 [BEFORE] Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`
+        );
+
         currentLanguageRef.current = newLanguageCode;
         setSelectedLanguage(newLanguageCode);
-        
-        console.log(`🌐 [AFTER] currentLanguageRef.current is now: ${currentLanguageRef.current}`);
-        
+
+        console.log(
+          `🌐 [AFTER] currentLanguageRef.current is now: ${currentLanguageRef.current}`
+        );
+
         // CRITICAL: If in continuous mode and listening, restart with new language
         if (continuousModeRef.current && mediaStreamRef.current) {
           console.log("🔄 Restarting listening with new language...");
           // Stop current recording
-          if (isRecordingRef.current && mediaRecorderRef.current?.state === "recording") {
+          if (
+            isRecordingRef.current &&
+            mediaRecorderRef.current?.state === "recording"
+          ) {
             mediaRecorderRef.current.stop();
             isRecordingRef.current = false;
           }
@@ -1060,7 +1081,7 @@ const VoiceChat = ({
       // Create audio URL and play
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
-      
+
       // Enhanced audio settings for better clarity
       audio.volume = 1.0; // Full volume
       audio.preservesPitch = true; // Maintain pitch quality
@@ -1130,7 +1151,9 @@ const VoiceChat = ({
         .trim();
 
       const response = await axios.post(
-        "/api/speech/tts/tabbly",
+        `${
+          import.meta.env.VITE_API_URL || "http://localhost:5000"
+        }/api/speech/tts/tabbly`,
         {
           text: sanitizedText,
           voice: voice, // Use voice prop (Ashley, Brian, Emma, etc.)
@@ -1241,7 +1264,8 @@ const VoiceChat = ({
         }
       );
 
-      const retryResponse = response.data.response || "Could you please respond?";
+      const retryResponse =
+        response.data.response || "Could you please respond?";
 
       // Add retry message to conversation
       const aiMessage = { role: "assistant", content: retryResponse };
@@ -1269,7 +1293,6 @@ const VoiceChat = ({
         handleSilenceTimeout();
       }, 10000);
       setSilenceTimeoutId(timeoutId);
-
     } catch (error) {
       console.error("Error handling silence timeout:", error);
       setIsProcessing(false);
@@ -1340,7 +1363,8 @@ const VoiceChat = ({
         customerContext.address ||
         customerContext.pincode ||
         customerContext.model ||
-        (customerContext.orderDetails && Object.keys(customerContext.orderDetails).length > 0)) && (
+        (customerContext.orderDetails &&
+          Object.keys(customerContext.orderDetails).length > 0)) && (
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-blue-900 flex items-center gap-2">
@@ -1405,19 +1429,30 @@ const VoiceChat = ({
               </div>
             )}
             {/* Display orderDetails dynamically */}
-            {customerContext.orderDetails && Object.keys(customerContext.orderDetails).length > 0 && (
-              <div className="col-span-2 mt-2 pt-2 border-t border-blue-300">
-                <span className="text-blue-700 font-medium text-xs uppercase">Requirements:</span>
-                <div className="mt-1 grid grid-cols-2 gap-2">
-                  {Object.entries(customerContext.orderDetails).map(([key, value]) => (
-                    <div key={key} className="flex items-center gap-2">
-                      <span className="text-blue-600 font-medium capitalize">{key}:</span>
-                      <span className="text-blue-900">{typeof value === 'object' ? JSON.stringify(value) : value}</span>
-                    </div>
-                  ))}
+            {customerContext.orderDetails &&
+              Object.keys(customerContext.orderDetails).length > 0 && (
+                <div className="col-span-2 mt-2 pt-2 border-t border-blue-300">
+                  <span className="text-blue-700 font-medium text-xs uppercase">
+                    Requirements:
+                  </span>
+                  <div className="mt-1 grid grid-cols-2 gap-2">
+                    {Object.entries(customerContext.orderDetails).map(
+                      ([key, value]) => (
+                        <div key={key} className="flex items-center gap-2">
+                          <span className="text-blue-600 font-medium capitalize">
+                            {key}:
+                          </span>
+                          <span className="text-blue-900">
+                            {typeof value === "object"
+                              ? JSON.stringify(value)
+                              : value}
+                          </span>
+                        </div>
+                      )
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
           </div>
           <p className="text-xs text-blue-600 mt-2">
             💡 This information is remembered throughout the entire
