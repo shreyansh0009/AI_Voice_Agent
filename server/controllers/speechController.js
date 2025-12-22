@@ -75,11 +75,7 @@ class SpeechController {
       });
 
       // Call TTS Service
-      const audioBuffer = await ttsService.speakWithTabbly(
-        text,
-        voice,
-        model
-      );
+      const audioBuffer = await ttsService.speakWithTabbly(text, voice, model);
 
       // Send audio buffer as WAV
       res.set({
@@ -89,6 +85,49 @@ class SpeechController {
       res.send(audioBuffer);
     } catch (error) {
       console.error("Error in Tabbly TTS:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * Handle Text to Speech request using ElevenLabs
+   * POST /api/speech/tts/elevenlabs
+   */
+  async ttsWithElevenLabs(req, res) {
+    try {
+      const { text, voice, model } = req.body;
+
+      if (!text || text.trim() === "") {
+        return res.status(400).json({
+          success: false,
+          error: "No text provided for TTS",
+        });
+      }
+
+      console.log("🔊 Received TTS request for ElevenLabs:", {
+        voice: voice || "21m00Tcm4TlvDq8ikWAM",
+        model: model || "eleven_multilingual_v2",
+        textLength: text.length,
+      });
+
+      // Call TTS Service
+      const audioBuffer = await ttsService.speakWithElevenLabs(
+        text,
+        voice,
+        model
+      );
+
+      // Send audio buffer as MP3
+      res.set({
+        "Content-Type": "audio/mpeg",
+        "Content-Length": audioBuffer.length,
+      });
+      res.send(audioBuffer);
+    } catch (error) {
+      console.error("Error in ElevenLabs TTS:", error);
       res.status(500).json({
         success: false,
         error: error.message,

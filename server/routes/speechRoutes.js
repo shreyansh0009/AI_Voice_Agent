@@ -58,4 +58,14 @@ router.post("/tts/tabbly", authenticate, (req, res, next) => {
   speechController.ttsWithTabbly(req, res).catch(next);
 });
 
+// TTS endpoint for ElevenLabs
+router.post("/tts/elevenlabs", authenticate, (req, res, next) => {
+  console.log("🎯 ElevenLabs TTS route hit!", {
+    method: req.method,
+    path: req.path,
+    body: req.body,
+  });
+  speechController.ttsWithElevenLabs(req, res).catch(next);
+});
+
 export default router;

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -8,7 +9,18 @@ class TTSService {
     this.tabblyApiKey = process.env.TABBLY_API_KEY;
     this.tabblyMemberId = process.env.TABBLY_MEMBER_ID;
     this.tabblyOrgId = process.env.TABBLY_ORGANIZATION_ID;
+    this.elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
     this.model = "bulbul:v2";
+
+    // Initialize ElevenLabs client if API key is available
+    if (this.elevenLabsApiKey) {
+      this.elevenLabsClient = new ElevenLabsClient({
+        apiKey: this.elevenLabsApiKey,
+      });
+      console.log("✅ ElevenLabs client initialized");
+    } else {
+      console.error("❌ ELEVENLABS_API_KEY not configured");
+    }
 
     if (!this.sarvamApiKey) {
       console.error("❌ SARVAM_API_KEY not configured");
@@ -36,8 +48,7 @@ class TTSService {
     if (!text || text.trim() === "") return null;
 
     try {
-      const targetLang =
-        this.languageMap[language] || this.languageMap["en"];
+      const targetLang = this.languageMap[language] || this.languageMap["en"];
 
       const response = await axios.post(
         "https://api.sarvam.ai/text-to-speech",
@@ -82,7 +93,9 @@ class TTSService {
         throw new Error("Tabbly API key not configured");
       }
 
-      console.log(`🔊 Generating Tabbly TTS (Voice: ${voice}, Model: ${model})...`);
+      console.log(
+        `🔊 Generating Tabbly TTS (Voice: ${voice}, Model: ${model})...`
+      );
       console.log(`📝 Text to convert: "${text.substring(0, 100)}..."`);
 
       // Prepare request body - DON'T send model_id, let API use default
@@ -124,10 +137,10 @@ class TTSService {
       // If buffer is suspiciously small, log it as text to see if it's an error
       if (bufferSize < 1000) {
         console.warn("⚠️ Suspicious small audio buffer, converting to text:");
-        const textResponse = Buffer.from(response.data).toString('utf8');
+        const textResponse = Buffer.from(response.data).toString("utf8");
         console.warn(textResponse);
       }
-      
+
       // Return the audio buffer
       return response.data;
     } catch (err) {
@@ -135,6 +148,67 @@ class TTSService {
       throw new Error(
         err.response?.data?.message || "Tabbly TTS generation failed"
       );
+    }
+  }
+
+  /**
+   * Generate speech using ElevenLabs Official SDK
+   * @param {string} text - Text to convert to speech
+   * @param {string} voiceId - ElevenLabs Voice ID
+   * @param {string} modelId - Model ID (eleven_multilingual_v2, eleven_turbo_v2, etc.)
+   * @returns {Buffer} Audio buffer (MP3 format)
+   */
+  async speakWithElevenLabs(
+    text,
+    voiceId = "21m00Tcm4TlvDq8ikWAM",
+    modelId = "eleven_multilingual_v2"
+  ) {
+    if (!text || text.trim() === "") return null;
+
+    try {
+      if (!this.elevenLabsClient) {
+        throw new Error("ElevenLabs API key not configured");
+      }
+
+      console.log(
+        `🔊 Generating ElevenLabs TTS (Voice: ${voiceId}, Model: ${modelId})...`
+      );
+      console.log(`📝 Text to convert: "${text.substring(0, 100)}..."`);
+
+      // Use official ElevenLabs SDK
+      const audioStream = await this.elevenLabsClient.textToSpeech.convert(
+        voiceId,
+        {
+          text: text,
+          modelId: modelId,
+          outputFormat: "mp3_44100_128",
+        }
+      );
+
+      // Convert ReadableStream to Buffer
+      const chunks = [];
+      const reader = audioStream.getReader();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+
+      // Combine all chunks into a single Buffer
+      const audioBuffer = Buffer.concat(
+        chunks.map((chunk) => Buffer.from(chunk))
+      );
+
+      console.log("✅ ElevenLabs TTS generated successfully", {
+        bufferSize: audioBuffer.length,
+        format: "mp3_44100_128",
+      });
+
+      return audioBuffer;
+    } catch (err) {
+      console.error("❌ ElevenLabs TTS Error:", err.message || err);
+      throw new Error(err.message || "ElevenLabs TTS generation failed");
     }
   }
 }

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { BiPlay } from 'react-icons/bi';
+import { BiPlay } from "react-icons/bi";
 
 const SelectField = ({ label, value, onChange, options = [] }) => (
   <div className="mb-4">
@@ -18,7 +18,15 @@ const SelectField = ({ label, value, onChange, options = [] }) => (
   </div>
 );
 
-const SliderField = ({ label, value, onChange, min = 0, max = 1, step = 0.01, info = "" }) => (
+const SliderField = ({
+  label,
+  value,
+  onChange,
+  min = 0,
+  max = 1,
+  step = 0.01,
+  info = "",
+}) => (
   <div className="mb-6">
     <div className="flex items-center justify-between mb-2">
       <label className="block text-xs font-medium">{label}</label>
@@ -33,12 +41,12 @@ const SliderField = ({ label, value, onChange, min = 0, max = 1, step = 0.01, in
       onChange={(e) => onChange(e.target.value)}
       className="w-full h-2 rounded-lg appearance-none cursor-pointer"
       style={{
-        background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${((value - min) / (max - min)) * 100}%, #e2e8f0 ${((value - min) / (max - min)) * 100}%, #e2e8f0 100%)`
+        background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${
+          ((value - min) / (max - min)) * 100
+        }%, #e2e8f0 ${((value - min) / (max - min)) * 100}%, #e2e8f0 100%)`,
       }}
     />
-    {info && (
-      <p className="text-xs text-slate-500 mt-2">{info}</p>
-    )}
+    {info && <p className="text-xs text-slate-500 mt-2">{info}</p>}
   </div>
 );
 
@@ -60,7 +68,7 @@ export default function Audio({
   bufferSize,
   onBufferSizeChange,
   speedRate,
-  onSpeedRateChange
+  onSpeedRateChange,
 }) {
   const languageOptions = [
     { value: "English (India)", label: "English (India)" },
@@ -120,29 +128,37 @@ export default function Audio({
         { value: "anirudh", label: "Anirudh" },
         { value: "anjali", label: "Anjali" },
         { value: "ishaan", label: "Ishaan" },
-      ]
+      ],
     },
     Tabbly: {
-      models: [
-        { value: "tabbly-tts", label: "tabbly-tts" },
-      ],
+      models: [{ value: "tabbly-tts", label: "tabbly-tts" }],
       voices: [
         { value: "Riya", label: "Riya" },
         { value: "Ashley", label: "Ashley" },
         { value: "Alex", label: "Alex" },
-      ]
+      ],
     },
     ElevenLabs: {
       models: [
         { value: "eleven_multilingual_v2", label: "Multilingual v2" },
+        { value: "eleven_turbo_v2_5", label: "Turbo v2.5" },
+        { value: "eleven_turbo_v2", label: "Turbo v2" },
         { value: "eleven_monolingual_v1", label: "Monolingual v1" },
       ],
       voices: [
-        { value: "Rachel", label: "Rachel" },
-        { value: "Drew", label: "Drew" },
-        { value: "Clyde", label: "Clyde" },
-        { value: "Paul", label: "Paul" },
-      ]
+        { value: "21m00Tcm4TlvDq8ikWAM", label: "Rachel (Female, US)" },
+        { value: "AZnzlk1XvdvUeBnXmlld", label: "Domi (Female, US)" },
+        { value: "EXAVITQu4vr4xnSDxMaL", label: "Bella (Female, US)" },
+        { value: "ErXwobaYiN019PkySvjV", label: "Antoni (Male, US)" },
+        { value: "MF3mGyEYCl7XYWbV9V6O", label: "Elli (Female, US)" },
+        { value: "TxGEqnHWrfWFTfGW9XjX", label: "Josh (Male, US)" },
+        { value: "VR6AewLTigWG4xSOukaG", label: "Arnold (Male, US)" },
+        { value: "pNInz6obpgDQGcFmaJgB", label: "Adam (Male, US)" },
+        { value: "yoZ06aMxZJJ28mfd3POQ", label: "Sam (Male, US)" },
+        { value: "onwK4e9ZLuTAKqWW03F9", label: "Daniel (Male, UK)" },
+        { value: "N2lVS1w4EtoT3dr4eOWO", label: "Callum (Male, UK)" },
+        { value: "XB0fDUnXU5powFXDhCwa", label: "Charlotte (Female, UK)" },
+      ],
     },
     Google: {
       models: [
@@ -155,7 +171,7 @@ export default function Audio({
         { value: "en-US-Standard-B", label: "US Standard B" },
         { value: "en-US-Wavenet-A", label: "US Wavenet A" },
         { value: "en-IN-Standard-A", label: "India Standard A" },
-      ]
+      ],
     },
     Azure: {
       models: [
@@ -167,8 +183,8 @@ export default function Audio({
         { value: "en-US-GuyNeural", label: "Guy (US)" },
         { value: "en-IN-NeerjaNeural", label: "Neerja (India)" },
         { value: "hi-IN-SwaraNeural", label: "Swara (Hindi)" },
-      ]
-    }
+      ],
+    },
   };
 
   // Get current provider's models and voices
@@ -193,11 +209,28 @@ export default function Audio({
   return (
     <div className="max-w-5xl">
       <div className="mb-8">
-        <h2 className="text-lg font-semibold mb-4">Select language and transcriber</h2>
+        <h2 className="text-lg font-semibold mb-4">
+          Select language and transcriber
+        </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-          <SelectField label="Language" value={language} onChange={onLanguageChange} options={languageOptions} />
-          <SelectField label="Provider" value={transcriberProvider} onChange={onTranscriberProviderChange} options={transcriberProviderOptions} />
-          <SelectField label="Model" value={transcriberModel} onChange={onTranscriberModelChange} options={transcriberModelOptions} />
+          <SelectField
+            label="Language"
+            value={language}
+            onChange={onLanguageChange}
+            options={languageOptions}
+          />
+          <SelectField
+            label="Provider"
+            value={transcriberProvider}
+            onChange={onTranscriberProviderChange}
+            options={transcriberProviderOptions}
+          />
+          <SelectField
+            label="Model"
+            value={transcriberModel}
+            onChange={onTranscriberModelChange}
+            options={transcriberModelOptions}
+          />
         </div>
         <div className="mb-4">
           <label className="block text-sm font-medium mb-2">Keywords</label>
@@ -209,24 +242,25 @@ export default function Audio({
             placeholder="Enter keywords..."
           />
           <p className="text-xs text-slate-500 mt-2">
-            Enter certain keywords/proper nouns you'd want to boost while understanding user speech
+            Enter certain keywords/proper nouns you'd want to boost while
+            understanding user speech
           </p>
         </div>
       </div>
       <div className="mb-8">
         <h2 className="text-lg font-semibold mb-4">Select voice</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-          <SelectField 
-            label="Provider" 
-            value={voiceProvider} 
-            onChange={handleProviderChange} 
-            options={voiceProviderOptions} 
+          <SelectField
+            label="Provider"
+            value={voiceProvider}
+            onChange={handleProviderChange}
+            options={voiceProviderOptions}
           />
-          <SelectField 
-            label="Model" 
-            value={voiceModel} 
-            onChange={onVoiceModelChange} 
-            options={currentModels} 
+          <SelectField
+            label="Model"
+            value={voiceModel}
+            onChange={onVoiceModelChange}
+            options={currentModels}
           />
           <div>
             <label className="block text-sm font-medium mb-2">Voice</label>
@@ -237,19 +271,43 @@ export default function Audio({
                 className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {currentVoices.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
-              <button onClick={handlePlayVoice} className="px-3 py-2 border border-slate-300 rounded-md hover:bg-slate-50 transition-colors" title="Play voice sample">
+              <button
+                onClick={handlePlayVoice}
+                className="px-3 py-2 border border-slate-300 rounded-md hover:bg-slate-50 transition-colors"
+                title="Play voice sample"
+              >
                 <BiPlay className="text-xl" />
               </button>
             </div>
-            <button className="text-xs text-blue-600 hover:text-blue-700 mt-2 flex items-center gap-1">More voices →</button>
+            <button className="text-xs text-blue-600 hover:text-blue-700 mt-2 flex items-center gap-1">
+              More voices →
+            </button>
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
-          <SliderField label="Buffer Size" value={bufferSize} onChange={onBufferSizeChange} min={50} max={500} step={1} info="Increasing buffer size enables agent to speak long responses fluently, but increases latency" />
-          <SliderField label="Speed rate" value={speedRate} onChange={onSpeedRateChange} min={0.5} max={2.0} step={0.1} info="The speed control feature lets you adjust how fast or slow your agent speaks." />
+          <SliderField
+            label="Buffer Size"
+            value={bufferSize}
+            onChange={onBufferSizeChange}
+            min={50}
+            max={500}
+            step={1}
+            info="Increasing buffer size enables agent to speak long responses fluently, but increases latency"
+          />
+          <SliderField
+            label="Speed rate"
+            value={speedRate}
+            onChange={onSpeedRateChange}
+            min={0.5}
+            max={2.0}
+            step={0.1}
+            info="The speed control feature lets you adjust how fast or slow your agent speaks."
+          />
         </div>
       </div>
     </div>

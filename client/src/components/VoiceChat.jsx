@@ -1071,12 +1071,14 @@ const VoiceChat = ({
   };
 
   /**
-   * Text-to-Speech - Routes to appropriate provider (Sarvam or Tabbly)
+   * Text-to-Speech - Routes to appropriate provider (Sarvam, Tabbly, or ElevenLabs)
    */
   const speakText = async (text) => {
     // Route to appropriate TTS provider
     if (voiceProvider === "Tabbly") {
       return await speakWithTabbly(text);
+    } else if (voiceProvider === "ElevenLabs") {
+      return await speakWithElevenLabs(text);
     } else {
       // Default to Sarvam
       return await speakWithSarvam(text);
@@ -1368,6 +1370,139 @@ const VoiceChat = ({
           error.response.data?.message ||
           error.response.statusText;
         throw new Error(`Tabbly TTS failed: ${errorMsg}`);
+      } else {
+        throw new Error("Failed to generate speech: " + error.message);
+      }
+    }
+  };
+
+  /**
+   * Text-to-Speech using ElevenLabs (via backend)
+   */
+  const speakWithElevenLabs = async (text) => {
+    try {
+      setIsSpeaking(true);
+
+      // Sanitize text to remove markdown and system instructions
+      const sanitizedText = text
+        .replace(/\*\*/g, "") // Remove bold
+        .replace(/\*/g, "") // Remove italics
+        .replace(/`/g, "") // Remove code blocks
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // Remove links but keep text
+        .replace(/LANGUAGE_SWITCH:[^ ]+/g, "") // Remove language switch commands
+        .replace(/\[MEMORY:.*\]/g, "") // Remove memory blocks
+        .replace(/[#_]/g, "") // Remove dashes/underscores/hashes
+        .replace(/\n\n/g, ". ") // Convert paragraph breaks to full stops for pauses
+        .replace(/\s+/g, " ") // Normalize whitespace
+        .trim();
+
+      const response = await axios.post(
+        `${
+          import.meta.env.VITE_API_URL || "http://localhost:5000"
+        }/api/speech/tts/elevenlabs`,
+        {
+          text: sanitizedText,
+          voice: voice, // Use voice prop (ElevenLabs voice ID)
+          model: voiceModel || "eleven_multilingual_v2",
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          responseType: "arraybuffer", // Important: Get binary MP3 data
+        }
+      );
+
+      console.log("✅ ElevenLabs TTS response received:", {
+        dataSize: response.data.byteLength,
+        contentType: response.headers["content-type"],
+      });
+
+      // Convert response to blob (MP3 format)
+      const audioBlob = new Blob([response.data], { type: "audio/mpeg" });
+      console.log("🔊 Audio blob created:", {
+        size: audioBlob.size,
+        type: audioBlob.type,
+      });
+
+      // Create audio URL and play
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+
+      console.log("🎵 Attempting to play ElevenLabs audio from URL:", audioUrl);
+
+      return new Promise((resolve, reject) => {
+        audio.onended = () => {
+          console.log("✅ ElevenLabs audio playback completed");
+          setIsSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+          resolve();
+        };
+
+        audio.onerror = (error) => {
+          console.error("Audio playback error:", error);
+          console.error("Audio element:", audio);
+          setIsSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+          reject(error);
+        };
+
+        audio.onloadedmetadata = () => {
+          console.log("🎵 ElevenLabs audio metadata loaded:", {
+            duration: audio.duration,
+            readyState: audio.readyState,
+          });
+        };
+
+        // Mobile-friendly audio playback
+        const playAudio = async () => {
+          try {
+            // Ensure AudioContext is resumed for mobile
+            if (
+              audioContextRef.current &&
+              audioContextRef.current.state === "suspended"
+            ) {
+              await audioContextRef.current.resume();
+            }
+
+            // Try to play
+            await audio.play();
+          } catch (playError) {
+            console.error("Error playing audio:", playError);
+
+            // If autoplay blocked, show user-friendly message
+            if (playError.name === "NotAllowedError") {
+              console.warn(
+                "🔇 Autoplay blocked on mobile. Audio playback requires user interaction."
+              );
+              setIsSpeaking(false);
+              reject(
+                new Error(
+                  "Audio playback blocked. Please tap the screen and try again."
+                )
+              );
+            } else {
+              setIsSpeaking(false);
+              reject(playError);
+            }
+          }
+        };
+
+        playAudio();
+      });
+    } catch (error) {
+      console.error("ElevenLabs TTS error:", error);
+      setIsSpeaking(false);
+
+      // Show user-friendly error
+      if (error.response) {
+        console.error("ElevenLabs API error response:", error.response.data);
+        const errorMsg =
+          error.response.data?.error?.message ||
+          error.response.data?.message ||
+          error.response.statusText;
+        throw new Error(`ElevenLabs TTS failed: ${errorMsg}`);
       } else {
         throw new Error("Failed to generate speech: " + error.message);
       }
