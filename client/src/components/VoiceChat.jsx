@@ -24,10 +24,41 @@ const VoiceChat = ({
   bufferSize = 153,
   speedRate = 0.8,
 }) => {
-  // Initialize language from localStorage or default to prop
+  /**
+   * Maps human-readable language names to short language codes
+   * Used for STT/TTS services that expect codes like "en", "hi", etc.
+   */
+  const languageNameToCode = (langName) => {
+    const mapping = {
+      "English (India)": "en",
+      "English (US)": "en",
+      "English (UK)": "en",
+      English: "en",
+      Hindi: "hi",
+      Tamil: "ta",
+      Telugu: "te",
+      Kannada: "kn",
+      Malayalam: "ml",
+      Bengali: "bn",
+      Marathi: "mr",
+      Gujarati: "gu",
+      Punjabi: "pa",
+      Spanish: "es",
+      French: "fr",
+      German: "de",
+    };
+    // If it's already a short code (2 chars), return as-is
+    if (langName && langName.length <= 3 && !langName.includes(" ")) {
+      return langName.toLowerCase();
+    }
+    return mapping[langName] || "en"; // Default to English if unknown
+  };
+
+  // Initialize language from localStorage or default to prop (converted to code)
   const [selectedLanguage, setSelectedLanguage] = useState(() => {
     const saved = localStorage.getItem("voiceChat_selectedLanguage");
-    return saved || language;
+    // Convert saved value or language prop to short code
+    return languageNameToCode(saved || language);
   });
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -115,15 +146,19 @@ const VoiceChat = ({
   const isRecordingRef = useRef(false); // Track recording state immediately
   const audioLevelIntervalRef = useRef(null); // For updating audio level visualization
   const analyserRef = useRef(null); // Store analyser for audio level updates
+  const audioContextRef = useRef(null); // For mobile audio playback unlock
+  const isAudioUnlockedRef = useRef(false); // Track if audio is unlocked for mobile
   // Initialize continuousModeRef with saved value
   const savedContinuousMode = localStorage.getItem("voiceChat_continuousMode");
   const continuousModeRef = useRef(
     savedContinuousMode ? JSON.parse(savedContinuousMode) : false
   );
 
-  // Initialize currentLanguageRef from localStorage
+  // Initialize currentLanguageRef from localStorage (convert to short code if needed)
   const savedLanguage = localStorage.getItem("voiceChat_selectedLanguage");
-  const currentLanguageRef = useRef(savedLanguage || "en");
+  const currentLanguageRef = useRef(
+    languageNameToCode(savedLanguage || language)
+  );
 
   // Debug: Log every render with current ref value
   // console.log(`🔄 VoiceChat render - currentLanguageRef.current: ${currentLanguageRef.current}, selectedLanguage state: ${selectedLanguage}`);
@@ -257,11 +292,57 @@ const VoiceChat = ({
   }, []);
 
   /**
+   * Unlock audio playback for mobile browsers
+   * Mobile browsers require a user gesture to enable audio playback.
+   * This function should be called from a click/touch event handler.
+   */
+  const unlockAudio = async () => {
+    if (isAudioUnlockedRef.current) {
+      return; // Already unlocked
+    }
+
+    try {
+      // Create and resume an AudioContext (required for mobile)
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext ||
+          window.webkitAudioContext)();
+      }
+
+      if (audioContextRef.current.state === "suspended") {
+        await audioContextRef.current.resume();
+      }
+
+      // Play a silent audio to unlock autoplay
+      const silentAudio = new Audio(
+        "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA="
+      );
+      silentAudio.volume = 0.01;
+
+      try {
+        await silentAudio.play();
+        silentAudio.pause();
+        silentAudio.currentTime = 0;
+      } catch (e) {
+        // Silent fail is okay - the AudioContext resume is the main unlock
+        console.log("Silent audio play skipped:", e.message);
+      }
+
+      isAudioUnlockedRef.current = true;
+      console.log("🔓 Audio playback unlocked for mobile");
+    } catch (error) {
+      console.error("Failed to unlock audio:", error);
+    }
+  };
+
+  /**
    * Start listening to user's voice
    */
   const startListening = async () => {
     try {
       setError("");
+
+      // Unlock audio playback for mobile browsers (must be done during user gesture)
+      await unlockAudio();
 
       // Enhanced audio constraints for better fast-speech recognition AND low-volume detection
       const audioConstraints = {
@@ -1101,11 +1182,41 @@ const VoiceChat = ({
           reject(error);
         };
 
-        audio.play().catch((error) => {
-          console.error("Error playing audio:", error);
-          setIsSpeaking(false);
-          reject(error);
-        });
+        // Mobile-friendly audio playback
+        const playAudio = async () => {
+          try {
+            // Ensure AudioContext is resumed for mobile
+            if (
+              audioContextRef.current &&
+              audioContextRef.current.state === "suspended"
+            ) {
+              await audioContextRef.current.resume();
+            }
+
+            // Try to play
+            await audio.play();
+          } catch (playError) {
+            console.error("Error playing audio:", playError);
+
+            // If autoplay blocked, try with user interaction fallback
+            if (playError.name === "NotAllowedError") {
+              console.warn(
+                "🔇 Autoplay blocked on mobile. Audio playback requires user interaction."
+              );
+              setIsSpeaking(false);
+              reject(
+                new Error(
+                  "Audio playback blocked. Please tap the screen and try again."
+                )
+              );
+            } else {
+              setIsSpeaking(false);
+              reject(playError);
+            }
+          }
+        };
+
+        playAudio();
       });
     } catch (error) {
       console.error("Sarvam TTS error:", error);
@@ -1209,11 +1320,41 @@ const VoiceChat = ({
           });
         };
 
-        audio.play().catch((error) => {
-          console.error("Error playing audio:", error);
-          setIsSpeaking(false);
-          reject(error);
-        });
+        // Mobile-friendly audio playback
+        const playAudio = async () => {
+          try {
+            // Ensure AudioContext is resumed for mobile
+            if (
+              audioContextRef.current &&
+              audioContextRef.current.state === "suspended"
+            ) {
+              await audioContextRef.current.resume();
+            }
+
+            // Try to play
+            await audio.play();
+          } catch (playError) {
+            console.error("Error playing audio:", playError);
+
+            // If autoplay blocked, show user-friendly message
+            if (playError.name === "NotAllowedError") {
+              console.warn(
+                "🔇 Autoplay blocked on mobile. Audio playback requires user interaction."
+              );
+              setIsSpeaking(false);
+              reject(
+                new Error(
+                  "Audio playback blocked. Please tap the screen and try again."
+                )
+              );
+            } else {
+              setIsSpeaking(false);
+              reject(playError);
+            }
+          }
+        };
+
+        playAudio();
       });
     } catch (error) {
       console.error("Tabbly TTS error:", error);
