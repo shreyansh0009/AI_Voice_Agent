@@ -793,9 +793,9 @@ const VoiceChat = ({
         setLastQuestion(null);
       }
 
-      // Step 3: Speak the response using configured TTS provider
+      // NOTE: TTS is now handled progressively during streaming in getAIResponse()
+      // No need to call speakText here - sentences are spoken as they arrive
       setTranscript("");
-      await speakText(aiResponse);
 
       setIsProcessing(false);
 
@@ -964,7 +964,8 @@ const VoiceChat = ({
   };
 
   /**
-   * Get AI response using OpenAI or RAG
+   * Get AI response using streaming for lower latency
+   * Starts TTS as soon as first sentence is complete
    */
   const getAIResponse = async () => {
     try {
@@ -977,18 +978,17 @@ const VoiceChat = ({
       // Build recent history (last 6 messages = 3 exchanges)
       const recentHistory = conversationHistoryRef.current.slice(-6);
 
-      console.log("🧠 VoiceChat: Sending to backend:", {
+      console.log("🧠 VoiceChat: Sending to backend (streaming):", {
         message: lastUserMessage,
-        customerContext: customerContextRef.current,
         historyLength: recentHistory.length,
-        language: currentLanguageRef.current, // Show what language we're sending
+        language: currentLanguageRef.current,
       });
 
-      // CALL BACKEND API - it handles all extraction and processing
+      // Use streaming endpoint for lower latency
       const response = await fetch(
         `${
           import.meta.env.VITE_API_URL || "http://localhost:5000"
-        }/api/chat/message`,
+        }/api/chat/stream`,
         {
           method: "POST",
           headers: {
@@ -1001,87 +1001,284 @@ const VoiceChat = ({
             customerContext: customerContextRef.current,
             conversationHistory: recentHistory,
             options: {
-              language: currentLanguageRef.current, // Use ref, not state, for immediate updates
+              language: currentLanguageRef.current,
               useRAG: ragEnabled,
               systemPrompt: systemPrompt || "You are a helpful AI assistant.",
               temperature: temperature,
-              maxTokens: maxTokens,
-              provider: selectedLLM, // 'openai' or 'agentforce'
+              maxTokens: Math.min(maxTokens, 100), // Cap for faster response
+              provider: selectedLLM,
             },
           }),
         }
       );
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          errorData.error || errorData.details || "Backend API request failed"
-        );
+        // Fall back to regular endpoint if streaming fails
+        console.warn("⚠️ Streaming failed, falling back to regular endpoint");
+        return await getAIResponseFallback();
       }
 
-      const data = await response.json();
-      console.log("✅ Backend response:", data);
+      // Process Server-Sent Events
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = "";
+      let firstSentenceSpoken = false;
+      const sentenceQueue = [];
+      let isSpeakingQueue = false;
+      let sseBuffer = ""; // Buffer for incomplete SSE data
 
-      // Update customer context with backend's extracted data
-      // Backend does all the merging, so we just use what it returns
-      if (data.customerContext) {
-        console.log(
-          "🧠 Backend updated customer context:",
-          data.customerContext
-        );
-        setCustomerContext(data.customerContext);
-        customerContextRef.current = data.customerContext;
-      }
+      // Function to process sentence queue (speak sentences in order)
+      const processSentenceQueue = async () => {
+        if (isSpeakingQueue || sentenceQueue.length === 0) return;
 
-      // Handle language switch
-      if (data.languageSwitch) {
-        const newLanguageCode = data.languageSwitch.toLowerCase();
-        console.log(
-          `🌐 [BEFORE] Language switching from ${currentLanguageRef.current} to ${newLanguageCode}`
-        );
+        isSpeakingQueue = true;
 
-        currentLanguageRef.current = newLanguageCode;
-        setSelectedLanguage(newLanguageCode);
-
-        console.log(
-          `🌐 [AFTER] currentLanguageRef.current is now: ${currentLanguageRef.current}`
-        );
-
-        // CRITICAL: If in continuous mode and listening, restart with new language
-        if (continuousModeRef.current && mediaStreamRef.current) {
-          console.log("🔄 Restarting listening with new language...");
-          // Stop current recording
-          if (
-            isRecordingRef.current &&
-            mediaRecorderRef.current?.state === "recording"
-          ) {
-            mediaRecorderRef.current.stop();
-            isRecordingRef.current = false;
+        while (sentenceQueue.length > 0) {
+          const sentence = sentenceQueue.shift();
+          if (sentence && sentence.trim()) {
+            console.log(
+              "🔊 Speaking sentence:",
+              sentence.substring(0, 50) + "..."
+            );
+            await speakText(sentence);
           }
-          // Restart will happen automatically after speaking completes
-          // (in processAudio's continuous mode logic)
+        }
+
+        isSpeakingQueue = false;
+      };
+
+      // Read the stream
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        // Accumulate data in buffer
+        sseBuffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE messages (end with \n\n)
+        const messages = sseBuffer.split("\n\n");
+
+        // Keep the last incomplete message in buffer
+        sseBuffer = messages.pop() || "";
+
+        for (const message of messages) {
+          const lines = message.split("\n");
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const jsonStr = line.slice(6);
+                if (!jsonStr.trim()) continue;
+
+                const data = JSON.parse(jsonStr);
+
+                if (data.type === "sentence") {
+                  // Got a complete sentence - queue for speaking
+                  console.log(
+                    "📝 Received sentence #" + (data.index || "?") + ":",
+                    data.content.substring(0, 50)
+                  );
+                  fullResponse += data.content + " ";
+
+                  // Start speaking immediately (in parallel with receiving more)
+                  sentenceQueue.push(data.content);
+                  if (!firstSentenceSpoken) {
+                    firstSentenceSpoken = true;
+                    setTranscript(""); // Clear "Getting AI response..."
+                  }
+                  processSentenceQueue(); // Non-blocking
+                }
+
+                if (data.type === "done") {
+                  // Stream complete - use the cleaned full response from server
+                  if (data.fullResponse) {
+                    fullResponse = data.fullResponse;
+                  }
+                  if (data.customerContext) {
+                    setCustomerContext(data.customerContext);
+                    customerContextRef.current = data.customerContext;
+                  }
+                  if (data.languageSwitch) {
+                    currentLanguageRef.current =
+                      data.languageSwitch.toLowerCase();
+                    setSelectedLanguage(data.languageSwitch.toLowerCase());
+                  }
+                  console.log(
+                    "✅ Streaming complete.",
+                    data.sentenceCount || "?",
+                    "sentences"
+                  );
+                }
+
+                if (data.type === "error") {
+                  console.error("❌ Stream error:", data.message);
+                  throw new Error(data.message);
+                }
+              } catch (parseError) {
+                // Log but don't crash for parse errors
+                console.warn(
+                  "SSE parse warning:",
+                  parseError.message,
+                  "Line:",
+                  line
+                );
+              }
+            }
+          }
         }
       }
 
-      return data.response;
+      // Wait for all sentences to be spoken
+      while (isSpeakingQueue || sentenceQueue.length > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        await processSentenceQueue();
+      }
+
+      return fullResponse.trim();
     } catch (error) {
-      console.error("❌ Backend API error:", error);
-      throw new Error("Failed to get AI response: " + error.message);
+      console.error("❌ Streaming API error:", error);
+      // Fall back to regular endpoint
+      return await getAIResponseFallback();
     }
+  };
+
+  /**
+   * Fallback to regular (non-streaming) AI response
+   * This speaks the entire response at once (not progressively)
+   */
+  const getAIResponseFallback = async () => {
+    const lastUserMessage =
+      conversationHistoryRef.current[conversationHistoryRef.current.length - 1]
+        ?.content || "";
+
+    const recentHistory = conversationHistoryRef.current.slice(-6);
+
+    const response = await fetch(
+      `${
+        import.meta.env.VITE_API_URL || "http://localhost:5000"
+      }/api/chat/message`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+        },
+        body: JSON.stringify({
+          message: lastUserMessage,
+          agentId: agentId || "default",
+          customerContext: customerContextRef.current,
+          conversationHistory: recentHistory,
+          options: {
+            language: currentLanguageRef.current,
+            useRAG: ragEnabled,
+            systemPrompt: systemPrompt || "You are a helpful AI assistant.",
+            temperature: temperature,
+            maxTokens: maxTokens,
+            provider: selectedLLM,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.error || errorData.details || "Backend API request failed"
+      );
+    }
+
+    const data = await response.json();
+
+    if (data.customerContext) {
+      setCustomerContext(data.customerContext);
+      customerContextRef.current = data.customerContext;
+    }
+
+    if (data.languageSwitch) {
+      currentLanguageRef.current = data.languageSwitch.toLowerCase();
+      setSelectedLanguage(data.languageSwitch.toLowerCase());
+    }
+
+    // In fallback mode, we need to speak the response here
+    // since streaming didn't handle it
+    if (data.response) {
+      setTranscript("");
+      await speakText(data.response);
+    }
+
+    return data.response;
+  };
+
+  /**
+   * Preprocess text for TTS to handle abbreviations, symbols, and numbers
+   */
+  const preprocessForTTS = (text) => {
+    if (!text) return text;
+
+    let processed = text;
+
+    // Indian currency - ₹ symbol and amounts
+    processed = processed.replace(/₹\s*([\d,.]+)\s*Cr\.?/gi, "$1 crore rupees");
+    processed = processed.replace(/₹\s*([\d,.]+)\s*Crore/gi, "$1 crore rupees");
+    processed = processed.replace(/₹\s*([\d,.]+)\s*L\.?/gi, "$1 lakh rupees");
+    processed = processed.replace(/₹\s*([\d,.]+)\s*Lakh/gi, "$1 lakh rupees");
+    processed = processed.replace(/₹\s*([\d,.]+)\s*K/gi, "$1 thousand rupees");
+    processed = processed.replace(/₹\s*([\d,.]+)/g, "$1 rupees");
+
+    // Crore/Lakh without ₹
+    processed = processed.replace(/([\d,.]+)\s*Cr\.?\b/gi, "$1 crore");
+    processed = processed.replace(/([\d,.]+)\s*L\.?\b/gi, "$1 lakh");
+
+    // Real estate abbreviations - spell out
+    processed = processed.replace(/\bBHK\b/gi, "B H K");
+    processed = processed.replace(/\bsqft\b/gi, "square feet");
+    processed = processed.replace(/\bsq\.?\s*ft\.?\b/gi, "square feet");
+    processed = processed.replace(/\bEMI\b/gi, "E M I");
+    processed = processed.replace(/\bGST\b/gi, "G S T");
+
+    // Common abbreviations
+    processed = processed.replace(/\bkm\b/gi, "kilometers");
+    processed = processed.replace(/\bmin\b/gi, "minutes");
+    processed = processed.replace(/\bapprox\.?\b/gi, "approximately");
+    processed = processed.replace(/\betc\.?\b/gi, "etcetera");
+
+    // Remove special characters
+    processed = processed.replace(/[•◦▪▸►]/g, "");
+    processed = processed.replace(/[–—]/g, "-");
+
+    // Numbered lists
+    processed = processed.replace(/^\d+[.):\s]+/gm, "");
+    processed = processed.replace(/\s+\d+[.):\s]+/g, ", ");
+
+    // Remove markdown
+    processed = processed.replace(/\*\*/g, "");
+    processed = processed.replace(/\*/g, "");
+    processed = processed.replace(/`/g, "");
+    processed = processed.replace(/#+\s*/g, "");
+    processed = processed.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+
+    // Clean up whitespace
+    processed = processed.replace(/,\s*,/g, ",");
+    processed = processed.replace(/\s+/g, " ");
+
+    return processed.trim();
   };
 
   /**
    * Text-to-Speech - Routes to appropriate provider (Sarvam, Tabbly, or ElevenLabs)
    */
   const speakText = async (text) => {
+    // Preprocess text for better TTS pronunciation
+    const processedText = preprocessForTTS(text);
+
     // Route to appropriate TTS provider
     if (voiceProvider === "Tabbly") {
-      return await speakWithTabbly(text);
+      return await speakWithTabbly(processedText);
     } else if (voiceProvider === "ElevenLabs") {
-      return await speakWithElevenLabs(text);
+      return await speakWithElevenLabs(processedText);
     } else {
       // Default to Sarvam
-      return await speakWithSarvam(text);
+      return await speakWithSarvam(processedText);
     }
   };
 

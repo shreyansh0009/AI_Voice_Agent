@@ -46,14 +46,14 @@ if (config.env === "development") {
 }
 
 // Add logging for ALL requests in production too for debugging
-app.use((req, res, next) => {
-  console.log(`📥 ${req.method} ${req.path}`, {
-    body: req.body,
-    headers: req.headers,
-    query: req.query,
-  });
-  next();
-});
+// app.use((req, res, next) => {
+//   console.log(`📥 ${req.method} ${req.path}`, {
+//     body: req.body,
+//     headers: req.headers,
+//     query: req.query,
+//   });
+//   next();
+// });
 
 // Create required directories
 [config.uploadsDir, config.dataDir].forEach((dir) => {

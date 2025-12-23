@@ -140,9 +140,12 @@ export default function Audio({
     },
     ElevenLabs: {
       models: [
-        { value: "eleven_multilingual_v2", label: "Multilingual v2" },
-        { value: "eleven_turbo_v2_5", label: "Turbo v2.5" },
-        { value: "eleven_turbo_v2", label: "Turbo v2" },
+        { value: "eleven_turbo_v2_5", label: "Turbo v2.5 (Fastest)" },
+        { value: "eleven_turbo_v2", label: "Turbo v2 (Fast)" },
+        {
+          value: "eleven_multilingual_v2",
+          label: "Multilingual v2 (Best Quality)",
+        },
         { value: "eleven_monolingual_v1", label: "Monolingual v1" },
       ],
       voices: [

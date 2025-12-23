@@ -13,14 +13,14 @@ dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 /**
  * AI Agent Service - Handles conversation logic for both web voice chat and phone calls
- * 
+ *
  * Architecture:
  * - Dynamic flow extraction from user's agent prompt (no hardcoded state machines)
  * - Automatic customer info extraction and validation
  * - Multi-language support with translation layer
  * - RAG-enabled knowledge base integration
  * - Conversation state tracking to prevent loops and repetition
- * 
+ *
  * Configuration:
  * - All AI parameters centralized in AI_CONFIG
  * - System prompts defined as constants for reusability
@@ -158,15 +158,17 @@ class AIAgentService {
 
       // Handle empty/unclear user input (silence, distortion, STT failure)
       // Note: Accept Unicode for multi-language support (Hindi, Tamil, etc.)
-      const isEmptyOrUnclear = !userMessage || 
-                               userMessage.trim().length < 2 || 
-                               /^[\s\p{P}]+$/u.test(userMessage) || // Only whitespace/punctuation (Unicode-aware)
-                               userMessage.toLowerCase().match(/^(um|uh|hmm|err|ah)+$/); // Just filler words
+      const isEmptyOrUnclear =
+        !userMessage ||
+        userMessage.trim().length < 2 ||
+        /^[\s\p{P}]+$/u.test(userMessage) || // Only whitespace/punctuation (Unicode-aware)
+        userMessage.toLowerCase().match(/^(um|uh|hmm|err|ah)+$/); // Just filler words
 
       if (isEmptyOrUnclear && lastQuestion) {
         // User didn't respond clearly - re-ask the question
-        const retryPrompt = RETRY_PHRASES[Math.floor(Math.random() * RETRY_PHRASES.length)];
-        
+        const retryPrompt =
+          RETRY_PHRASES[Math.floor(Math.random() * RETRY_PHRASES.length)];
+
         return {
           response: `${retryPrompt} ${lastQuestion}`,
           customerContext: customerContext, // Return unchanged context
@@ -178,7 +180,8 @@ class AIAgentService {
       if (isEmptyOrUnclear && !lastQuestion) {
         // No clear input and no previous question - generic prompt
         return {
-          response: "I'm sorry, I didn't catch that. Could you please speak clearly?",
+          response:
+            "I'm sorry, I didn't catch that. Could you please speak clearly?",
           customerContext: customerContext, // Return unchanged context
           languageSwitch: null,
           isRetry: true,
@@ -188,16 +191,23 @@ class AIAgentService {
       // If Agentforce is selected, route there (with translation wrapper)
       if (provider === "agentforce") {
         // Extract customer info even for Agentforce
-        const updatedContext = await this.extractCustomerInfo(userMessage, customerContext);
-        
-        const agentforceResponse = await this.getAgentforceResponse(userMessage, language, {
-          useRAG,
-          customerContext: updatedContext,
-          agentId,
-          conversationHistory,
-          systemPrompt,
-        });
-        
+        const updatedContext = await this.extractCustomerInfo(
+          userMessage,
+          customerContext
+        );
+
+        const agentforceResponse = await this.getAgentforceResponse(
+          userMessage,
+          language,
+          {
+            useRAG,
+            customerContext: updatedContext,
+            agentId,
+            conversationHistory,
+            systemPrompt,
+          }
+        );
+
         return {
           ...agentforceResponse,
           customerContext: updatedContext,
@@ -207,51 +217,83 @@ class AIAgentService {
       const currentLanguageName = LANGUAGE_CODES[language] || "English";
 
       // Extract customer info from the current message FIRST
-      const updatedContext = await this.extractCustomerInfo(userMessage, customerContext);
-      
+      const updatedContext = await this.extractCustomerInfo(
+        userMessage,
+        customerContext
+      );
+
       // Preserve originalQuery and conversationIntent if they already exist
       if (customerContext.originalQuery && !updatedContext.originalQuery) {
         updatedContext.originalQuery = customerContext.originalQuery;
       }
-      if (customerContext.conversationIntent && !updatedContext.conversationIntent) {
+      if (
+        customerContext.conversationIntent &&
+        !updatedContext.conversationIntent
+      ) {
         updatedContext.conversationIntent = customerContext.conversationIntent;
       }
-      
+
       // Extract and remember the user's original query/problem from first/early messages
       // Check for problem statements even in first few exchanges
       if (!updatedContext.originalQuery && conversationHistory.length <= 3) {
-        const isProblemStatement = userMessage.toLowerCase().match(/\b(not working|broken|issue|problem|charging|starting|error|need|want|buy|purchase|book|interested)\b/);
+        const isProblemStatement = userMessage
+          .toLowerCase()
+          .match(
+            /\b(not working|broken|issue|problem|charging|starting|error|need|want|buy|purchase|book|interested)\b/
+          );
         if (isProblemStatement && userMessage.trim().length > 10) {
           updatedContext.originalQuery = userMessage;
-          updatedContext.conversationIntent = await this.extractUserIntent(userMessage);
-          console.log("🎯 Captured original query:", updatedContext.originalQuery);
+          updatedContext.conversationIntent = await this.extractUserIntent(
+            userMessage
+          );
+          console.log(
+            "🎯 Captured original query:",
+            updatedContext.originalQuery
+          );
         }
       }
-      
+
       // Determine conversation stage and next required field
-      const conversationState = this.determineConversationState(updatedContext, systemPrompt);
-      
+      const conversationState = this.determineConversationState(
+        updatedContext,
+        systemPrompt
+      );
+
       // Build customer context summary for the prompt
       const contextSummary = [];
-      
+
       // Add original query/intent at the top so AI never forgets it
       if (updatedContext.originalQuery) {
-        contextSummary.push(`🎯 ORIGINAL USER REQUEST: "${updatedContext.originalQuery}"`);
+        contextSummary.push(
+          `🎯 ORIGINAL USER REQUEST: "${updatedContext.originalQuery}"`
+        );
       }
       if (updatedContext.conversationIntent) {
-        contextSummary.push(`📌 USER'S INTENT: ${updatedContext.conversationIntent}`);
+        contextSummary.push(
+          `📌 USER'S INTENT: ${updatedContext.conversationIntent}`
+        );
       }
-      
+
       if (updatedContext.name)
-        contextSummary.push(`✅ Name: ${updatedContext.name} (ALREADY COLLECTED - DO NOT ASK AGAIN)`);
+        contextSummary.push(
+          `✅ Name: ${updatedContext.name} (ALREADY COLLECTED - DO NOT ASK AGAIN)`
+        );
       if (updatedContext.phone)
-        contextSummary.push(`✅ Phone: ${updatedContext.phone} (ALREADY COLLECTED - DO NOT ASK AGAIN)`);
+        contextSummary.push(
+          `✅ Phone: ${updatedContext.phone} (ALREADY COLLECTED - DO NOT ASK AGAIN)`
+        );
       if (updatedContext.pincode)
-        contextSummary.push(`✅ Pincode: ${updatedContext.pincode} (ALREADY COLLECTED - DO NOT ASK AGAIN)`);
+        contextSummary.push(
+          `✅ Pincode: ${updatedContext.pincode} (ALREADY COLLECTED - DO NOT ASK AGAIN)`
+        );
       if (updatedContext.email)
-        contextSummary.push(`✅ Email: ${updatedContext.email} (ALREADY COLLECTED - DO NOT ASK AGAIN)`);
+        contextSummary.push(
+          `✅ Email: ${updatedContext.email} (ALREADY COLLECTED - DO NOT ASK AGAIN)`
+        );
       if (updatedContext.address)
-        contextSummary.push(`✅ Address: ${updatedContext.address} (ALREADY COLLECTED - DO NOT ASK AGAIN)`);
+        contextSummary.push(
+          `✅ Address: ${updatedContext.address} (ALREADY COLLECTED - DO NOT ASK AGAIN)`
+        );
       if (
         updatedContext.orderDetails &&
         Object.keys(updatedContext.orderDetails).length > 0
@@ -270,15 +312,22 @@ class AIAgentService {
 
       // Analyze conversation history to track what was already asked
       const alreadyAsked = this.analyzeConversationHistory(conversationHistory);
-      const trackingInfo = alreadyAsked.length > 0 
-        ? `\n\nQUESTIONS ALREADY ASKED (Never repeat these):\n${alreadyAsked.join('\n')}\n`
-        : '';
+      const trackingInfo =
+        alreadyAsked.length > 0
+          ? `\n\nQUESTIONS ALREADY ASKED (Never repeat these):\n${alreadyAsked.join(
+              "\n"
+            )}\n`
+          : "";
 
       // Add conversation stage guidance
       const stageGuidance = conversationState.nextAction
-        ? `\n\n🎯 CURRENT STEP (${conversationState.currentStep}/${conversationState.totalSteps}): ${conversationState.nextAction}
-📋 COMPLETED: ${conversationState.completedSteps?.join(', ') || 'None'}
-⏭️  REMAINING: ${conversationState.remainingSteps?.slice(0, 3).join(', ') || 'None'}
+        ? `\n\n🎯 CURRENT STEP (${conversationState.currentStep}/${
+            conversationState.totalSteps
+          }): ${conversationState.nextAction}
+📋 COMPLETED: ${conversationState.completedSteps?.join(", ") || "None"}
+⏭️  REMAINING: ${
+            conversationState.remainingSteps?.slice(0, 3).join(", ") || "None"
+          }
 
 CRITICAL: You MUST complete the current step before proceeding. Follow your numbered flow exactly.\n`
         : `\n\n✅ All flow steps completed. ${conversationState.nextAction}\n`;
@@ -287,7 +336,11 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
       console.log("🎯 Conversation state:", conversationState);
 
       // Detect intent and route to appropriate script section (for multi-section scripts)
-      const intentSection = this.detectIntentAndSection(userMessage, conversationHistory, systemPrompt);
+      const intentSection = this.detectIntentAndSection(
+        userMessage,
+        conversationHistory,
+        systemPrompt
+      );
 
       // Build enhanced system prompt - add context and guidance to user's script
       const enhancedSystemPrompt = this.buildEnhancedPrompt({
@@ -311,11 +364,14 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
 
           if (ragResponse) {
             console.log("🤖 Using RAG response with knowledge base");
-            
+
             // Remove numbered lists for voice output
             const cleanedResponse = this.removeNumberedLists(ragResponse);
-            
-            const processedResponse = this.processLanguageSwitch(cleanedResponse, LANGUAGE_CODES);
+
+            const processedResponse = this.processLanguageSwitch(
+              cleanedResponse,
+              LANGUAGE_CODES
+            );
             return {
               ...processedResponse,
               customerContext: updatedContext, // Include updated context
@@ -336,7 +392,7 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
         enhancedSystemPrompt,
         { temperature, maxTokens, languageNames: LANGUAGE_CODES }
       );
-      
+
       return {
         ...aiResponse,
         customerContext: updatedContext, // Include updated context
@@ -359,20 +415,75 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
 
     // Extract sections from script (Section 0, 1, 1.1, SALES:, SUPPORT:, etc.)
     const sections = this.extractScriptSections(systemPrompt);
-    
+
     if (sections.length === 0) {
       return { section: null, intent: null }; // No sections found, use full script
     }
 
     // Detect intent from user's first message
     const messageLower = userMessage.toLowerCase();
-    
+
     // Intent keywords mapping (dynamic, not hardcoded for specific domains)
     const intentKeywords = {
-      sales: ['buy', 'purchase', 'interested', 'looking for', 'want to buy', 'price', 'cost', 'afford', 'budget', 'models', 'variants', 'booking', 'book', 'test ride', 'demo', 'खरीदना', 'खरीदूंगा', 'लेना है'],
-      support: ['issue', 'problem', 'not working', 'broken', 'repair', 'service', 'complaint', 'help', 'fix', 'error', 'charging', 'battery', 'समस्या', 'ठीक करो', 'खराब'],
-      query: ['information', 'details', 'tell me about', 'what is', 'features', 'specifications', 'specs', 'warranty', 'जानकारी', 'बताइए'],
-      service: ['service center', 'appointment', 'booking', 'schedule', 'visit', 'mechanic', 'technician', 'सर्विस सेंटर'],
+      sales: [
+        "buy",
+        "purchase",
+        "interested",
+        "looking for",
+        "want to buy",
+        "price",
+        "cost",
+        "afford",
+        "budget",
+        "models",
+        "variants",
+        "booking",
+        "book",
+        "test ride",
+        "demo",
+        "खरीदना",
+        "खरीदूंगा",
+        "लेना है",
+      ],
+      support: [
+        "issue",
+        "problem",
+        "not working",
+        "broken",
+        "repair",
+        "service",
+        "complaint",
+        "help",
+        "fix",
+        "error",
+        "charging",
+        "battery",
+        "समस्या",
+        "ठीक करो",
+        "खराब",
+      ],
+      query: [
+        "information",
+        "details",
+        "tell me about",
+        "what is",
+        "features",
+        "specifications",
+        "specs",
+        "warranty",
+        "जानकारी",
+        "बताइए",
+      ],
+      service: [
+        "service center",
+        "appointment",
+        "booking",
+        "schedule",
+        "visit",
+        "mechanic",
+        "technician",
+        "सर्विस सेंटर",
+      ],
     };
 
     // Find matching intent
@@ -380,7 +491,9 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
     let maxMatches = 0;
 
     for (const [intent, keywords] of Object.entries(intentKeywords)) {
-      const matches = keywords.filter(keyword => messageLower.includes(keyword)).length;
+      const matches = keywords.filter((keyword) =>
+        messageLower.includes(keyword)
+      ).length;
       if (matches > maxMatches) {
         maxMatches = matches;
         detectedIntent = intent;
@@ -392,17 +505,20 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
     }
 
     // Find matching section in script
-    const matchingSection = sections.find(sec => 
-      sec.title.toLowerCase().includes(detectedIntent) ||
-      sec.title.toLowerCase().includes(detectedIntent + 's') // plural
+    const matchingSection = sections.find(
+      (sec) =>
+        sec.title.toLowerCase().includes(detectedIntent) ||
+        sec.title.toLowerCase().includes(detectedIntent + "s") // plural
     );
 
     if (matchingSection) {
-      console.log(`🎯 Intent detected: ${detectedIntent}, routing to section: ${matchingSection.title}`);
-      return { 
-        section: matchingSection.content, 
+      console.log(
+        `🎯 Intent detected: ${detectedIntent}, routing to section: ${matchingSection.title}`
+      );
+      return {
+        section: matchingSection.content,
         intent: detectedIntent,
-        sectionTitle: matchingSection.title 
+        sectionTitle: matchingSection.title,
       };
     }
 
@@ -415,23 +531,24 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
    */
   extractScriptSections(systemPrompt) {
     const sections = [];
-    
+
     // Pattern 1: "SECTION 0:", "SECTION 1:", "SECTION 1.1:", etc.
-    const sectionPattern = /(?:^|\n)(SECTION\s+[\d.]+[:\s]+[^\n]+)([\s\S]*?)(?=\n(?:SECTION\s+[\d.]+|$))/gi;
-    
+    const sectionPattern =
+      /(?:^|\n)(SECTION\s+[\d.]+[:\s]+[^\n]+)([\s\S]*?)(?=\n(?:SECTION\s+[\d.]+|$))/gi;
+
     // Pattern 2: "## Sales Flow", "## Support Flow", etc. (Markdown headings)
     const markdownPattern = /(?:^|\n)(##\s+[^\n]+)([\s\S]*?)(?=\n##|$)/gi;
-    
+
     // Pattern 3: "SALES:", "SUPPORT:", "QUERY:", etc.
     const labelPattern = /(?:^|\n)([A-Z]+\s*:)([\s\S]*?)(?=\n[A-Z]+\s*:|$)/g;
 
     let match;
-    
+
     // Try pattern 1
     while ((match = sectionPattern.exec(systemPrompt)) !== null) {
       sections.push({
         title: match[1].trim(),
-        content: match[2].trim()
+        content: match[2].trim(),
       });
     }
 
@@ -439,8 +556,8 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
     if (sections.length === 0) {
       while ((match = markdownPattern.exec(systemPrompt)) !== null) {
         sections.push({
-          title: match[1].replace(/^##\s*/, '').trim(),
-          content: match[2].trim()
+          title: match[1].replace(/^##\s*/, "").trim(),
+          content: match[2].trim(),
         });
       }
     }
@@ -449,8 +566,8 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
     if (sections.length === 0) {
       while ((match = labelPattern.exec(systemPrompt)) !== null) {
         sections.push({
-          title: match[1].replace(':', '').trim(),
-          content: match[2].trim()
+          title: match[1].replace(":", "").trim(),
+          content: match[2].trim(),
         });
       }
     }
@@ -462,12 +579,19 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
    * Build enhanced system prompt by adding context to base prompt
    * Keeps hardcoded rules separate and reusable
    */
-  buildEnhancedPrompt({ basePrompt, customerContext, stageGuidance, trackingInfo, language, intentSection }) {
+  buildEnhancedPrompt({
+    basePrompt,
+    customerContext,
+    stageGuidance,
+    trackingInfo,
+    language,
+    intentSection,
+  }) {
     // If intent-based section detected, use that instead of full script
     const scriptToUse = intentSection?.section || basePrompt;
-    const intentGuidance = intentSection?.sectionTitle 
+    const intentGuidance = intentSection?.sectionTitle
       ? `\n🎯 DETECTED INTENT: ${intentSection.intent} - Following "${intentSection.sectionTitle}" flow\n`
-      : '';
+      : "";
 
     return `${scriptToUse}
 ${customerContext}${stageGuidance}${trackingInfo}${intentGuidance}
@@ -621,7 +745,9 @@ CRITICAL RULES:
     const { temperature, maxTokens, languageNames } = options;
 
     // Build messages array with FULL conversation history for better context
-    const recentHistory = conversationHistory.slice(-AI_CONFIG.CONVERSATION_HISTORY_LIMIT);
+    const recentHistory = conversationHistory.slice(
+      -AI_CONFIG.CONVERSATION_HISTORY_LIMIT
+    );
     const messages = [
       {
         role: "system",
@@ -662,40 +788,41 @@ CRITICAL RULES:
     // Pattern 1: "1. Item1 2. Item2 3. Item3" → "Item1, Item2, or Item3"
     // Pattern 2: "1) Item1 2) Item2" → "Item1 or Item2"
     // Pattern 3: Multiline numbered lists
-    
+
     let processed = text;
 
     // Handle inline numbered lists (all on one line)
     // Match: "1. Item1 2. Item2 3. Item3" or "1) Item1 2) Item2 3) Item3"
     const inlinePattern = /(?:^|\s)(\d+[.)]\s*[^0-9\n]+?)(?=\s*\d+[.)]|\s*$)/g;
     const matches = [...processed.matchAll(inlinePattern)];
-    
+
     if (matches.length >= 2) {
       // Extract items without numbers
-      const items = matches.map(match => 
-        match[1].replace(/^\d+[.)]\s*/, '').trim()
+      const items = matches.map((match) =>
+        match[1].replace(/^\d+[.)]\s*/, "").trim()
       );
-      
+
       // Join with commas and "or" for last item
       let replacement;
       if (items.length === 2) {
         replacement = `${items[0]} or ${items[1]}`;
       } else {
         const lastItem = items.pop();
-        replacement = `${items.join(', ')}, or ${lastItem}`;
+        replacement = `${items.join(", ")}, or ${lastItem}`;
       }
-      
+
       // Replace the entire numbered list with the natural language version
       const fullMatch = matches[0].index;
       const lastMatch = matches[matches.length - 1];
       const endIndex = lastMatch.index + lastMatch[0].length;
-      
-      processed = processed.slice(0, fullMatch) + replacement + processed.slice(endIndex);
+
+      processed =
+        processed.slice(0, fullMatch) + replacement + processed.slice(endIndex);
     }
 
     // Handle multiline numbered lists
     // Match lines starting with "1. ", "2. ", etc.
-    const lines = processed.split('\n');
+    const lines = processed.split("\n");
     const listItems = [];
     let inList = false;
     let listStartIndex = -1;
@@ -704,7 +831,7 @@ CRITICAL RULES:
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       const numberedLineMatch = line.match(/^(\d+)[.)]\s*(.+)$/);
-      
+
       if (numberedLineMatch) {
         if (!inList) {
           inList = true;
@@ -725,17 +852,21 @@ CRITICAL RULES:
         replacement = `${listItems[0]} or ${listItems[1]}`;
       } else {
         const lastItem = listItems.pop();
-        replacement = `${listItems.join(', ')}, or ${lastItem}`;
+        replacement = `${listItems.join(", ")}, or ${lastItem}`;
       }
-      
+
       // Replace the list lines with natural language version
-      lines.splice(listStartIndex, listEndIndex - listStartIndex + 1, replacement);
-      processed = lines.join('\n');
+      lines.splice(
+        listStartIndex,
+        listEndIndex - listStartIndex + 1,
+        replacement
+      );
+      processed = lines.join("\n");
     }
 
     // Clean up any remaining standalone numbers at start of sentences
     // "1. " → "", "2) " → "" (if somehow missed above)
-    processed = processed.replace(/(?:^|\n)\d+[.)]\s+/g, '');
+    processed = processed.replace(/(?:^|\n)\d+[.)]\s+/g, "");
 
     return processed.trim();
   }
@@ -849,7 +980,7 @@ CRITICAL RULES:
   determineConversationState(customerContext, systemPrompt) {
     // Extract numbered flow steps from script (supports any format)
     const flowSteps = this.extractFlowSteps(systemPrompt);
-    
+
     if (flowSteps.length === 0) {
       // Fallback: Auto-detect required fields from script
       return this.autoDetectRequiredFields(customerContext, systemPrompt);
@@ -862,7 +993,7 @@ CRITICAL RULES:
     for (let i = 0; i < flowSteps.length; i++) {
       const step = flowSteps[i];
       const isCompleted = this.isStepCompleted(step, customerContext);
-      
+
       if (isCompleted) {
         completedSteps.push({ index: i + 1, text: step });
       } else {
@@ -878,18 +1009,18 @@ CRITICAL RULES:
         currentStep: nextStep.index,
         totalSteps: flowSteps.length,
         nextAction: nextStep.text,
-        completedSteps: completedSteps.map(s => s.text),
-        remainingSteps: pendingSteps.map(s => s.text),
+        completedSteps: completedSteps.map((s) => s.text),
+        remainingSteps: pendingSteps.map((s) => s.text),
         isComplete: false,
       };
     }
 
     // All steps completed
     return {
-      stage: 'Flow Complete',
+      stage: "Flow Complete",
       currentStep: flowSteps.length,
       totalSteps: flowSteps.length,
-      nextAction: 'Proceed to conclusion (booking, transfer, etc.)',
+      nextAction: "Proceed to conclusion (booking, transfer, etc.)",
       isComplete: true,
     };
   }
@@ -897,29 +1028,30 @@ CRITICAL RULES:
   /**
    * Extract flow steps from script
    * Supports multiple formats:
-   * - "1. Step one" 
+   * - "1. Step one"
    * - "Step 1: Do this"
    * - "After X is given" (conversational templates)
    * - "FLOW: 1) First step"
    */
   extractFlowSteps(systemPrompt) {
     const steps = [];
-    const lines = systemPrompt.split('\n');
+    const lines = systemPrompt.split("\n");
 
     // Pattern 1: "1. Step" or "1) Step"
     const numberedPattern = /^\s*(\d+)[.)]\s+(.+)/;
-    
+
     // Pattern 2: "Step 1:" or "STEP 1:"
     const stepPattern = /^\s*(?:step|STEP)\s*(\d+)[:\-]\s*(.+)/i;
 
     // Pattern 3: "After X is given" or "If user says"
-    const conversationalPattern = /^\s*(?:After|If|When)\s+(.+?)(?:\s+is given|\s+says|\s+confirms?|\s+selects?)/i;
+    const conversationalPattern =
+      /^\s*(?:After|If|When)\s+(.+?)(?:\s+is given|\s+says|\s+confirms?|\s+selects?)/i;
 
     for (const line of lines) {
       const match1 = line.match(numberedPattern);
       const match2 = line.match(stepPattern);
       const match3 = line.match(conversationalPattern);
-      
+
       if (match1) {
         steps.push(match1[2].trim());
       } else if (match2) {
@@ -927,18 +1059,30 @@ CRITICAL RULES:
       } else if (match3) {
         // Convert "After name is given" → "Ask for name"
         const extracted = match3[1].trim();
-        if (extracted.includes('name')) {
-          steps.push('Ask for customer name');
-        } else if (extracted.includes('mobile') || extracted.includes('phone')) {
-          steps.push('Ask for mobile number');
-        } else if (extracted.includes('pincode') || extracted.includes('pin code')) {
-          steps.push('Ask for pincode');
-        } else if (extracted.includes('email')) {
-          steps.push('Ask for email');
-        } else if (extracted.includes('model') || extracted.includes('product')) {
-          steps.push('Ask for preferred model/product');
-        } else if (extracted.includes('location') || extracted.includes('address')) {
-          steps.push('Ask for location/address');
+        if (extracted.includes("name")) {
+          steps.push("Ask for customer name");
+        } else if (
+          extracted.includes("mobile") ||
+          extracted.includes("phone")
+        ) {
+          steps.push("Ask for mobile number");
+        } else if (
+          extracted.includes("pincode") ||
+          extracted.includes("pin code")
+        ) {
+          steps.push("Ask for pincode");
+        } else if (extracted.includes("email")) {
+          steps.push("Ask for email");
+        } else if (
+          extracted.includes("model") ||
+          extracted.includes("product")
+        ) {
+          steps.push("Ask for preferred model/product");
+        } else if (
+          extracted.includes("location") ||
+          extracted.includes("address")
+        ) {
+          steps.push("Ask for location/address");
         } else {
           steps.push(`Complete: ${extracted}`);
         }
@@ -950,7 +1094,8 @@ CRITICAL RULES:
       const bulletPattern = /^\s*[-•*]\s+(.+)/;
       for (const line of lines) {
         const match = line.match(bulletPattern);
-        if (match && match[1].trim().length > 10) { // Ignore short bullets
+        if (match && match[1].trim().length > 10) {
+          // Ignore short bullets
           steps.push(match[1].trim());
         }
       }
@@ -958,16 +1103,17 @@ CRITICAL RULES:
 
     // If still nothing, look for FLOW/STEPS/CONVERSATION FLOW sections
     if (steps.length === 0) {
-      const sectionPattern = /(?:FLOW|STEPS|CONVERSATION FLOW|SCRIPT):\s*\n([\s\S]*?)(?:\n\n|\n[A-Z]|$)/i;
+      const sectionPattern =
+        /(?:FLOW|STEPS|CONVERSATION FLOW|SCRIPT):\s*\n([\s\S]*?)(?:\n\n|\n[A-Z]|$)/i;
       const sectionMatch = systemPrompt.match(sectionPattern);
-      
+
       if (sectionMatch) {
         const sectionText = sectionMatch[1];
-        const sectionLines = sectionText.split('\n');
-        
+        const sectionLines = sectionText.split("\n");
+
         for (const line of sectionLines) {
           if (line.trim().length > 10) {
-            steps.push(line.replace(/^[-•*\d.)]\s*/, '').trim());
+            steps.push(line.replace(/^[-•*\d.)]\s*/, "").trim());
           }
         }
       }
@@ -983,50 +1129,75 @@ CRITICAL RULES:
     const stepLower = stepText.toLowerCase();
 
     // Check for name collection
-    if ((stepLower.includes('name') || stepLower.includes('introduce')) && 
-        !stepLower.includes('greet')) {
+    if (
+      (stepLower.includes("name") || stepLower.includes("introduce")) &&
+      !stepLower.includes("greet")
+    ) {
       return !!customerContext.name;
     }
 
     // Check for phone collection
-    if (stepLower.includes('phone') || stepLower.includes('mobile') || 
-        stepLower.includes('number') || stepLower.includes('contact')) {
+    if (
+      stepLower.includes("phone") ||
+      stepLower.includes("mobile") ||
+      stepLower.includes("number") ||
+      stepLower.includes("contact")
+    ) {
       return !!customerContext.phone;
     }
 
     // Check for location/address
-    if (stepLower.includes('location') || stepLower.includes('address') || 
-        stepLower.includes('area') || stepLower.includes('city')) {
+    if (
+      stepLower.includes("location") ||
+      stepLower.includes("address") ||
+      stepLower.includes("area") ||
+      stepLower.includes("city")
+    ) {
       return !!customerContext.address;
     }
 
     // Check for pincode
-    if (stepLower.includes('pincode') || stepLower.includes('pin code') || 
-        stepLower.includes('zip')) {
+    if (
+      stepLower.includes("pincode") ||
+      stepLower.includes("pin code") ||
+      stepLower.includes("zip")
+    ) {
       return !!customerContext.pincode;
     }
 
     // Check for email
-    if (stepLower.includes('email')) {
+    if (stepLower.includes("email")) {
       return !!customerContext.email;
     }
 
     // Check for budget/preference in orderDetails
-    if (stepLower.includes('budget') || stepLower.includes('price') || 
-        stepLower.includes('range')) {
+    if (
+      stepLower.includes("budget") ||
+      stepLower.includes("price") ||
+      stepLower.includes("range")
+    ) {
       return customerContext.orderDetails?.budget !== undefined;
     }
 
     // Check for property type / model / product
-    if (stepLower.includes('type') || stepLower.includes('model') || 
-        stepLower.includes('bhk') || stepLower.includes('product')) {
-      return customerContext.orderDetails?.propertyType !== undefined ||
-             customerContext.orderDetails?.model !== undefined ||
-             customerContext.orderDetails?.product !== undefined;
+    if (
+      stepLower.includes("type") ||
+      stepLower.includes("model") ||
+      stepLower.includes("bhk") ||
+      stepLower.includes("product")
+    ) {
+      return (
+        customerContext.orderDetails?.propertyType !== undefined ||
+        customerContext.orderDetails?.model !== undefined ||
+        customerContext.orderDetails?.product !== undefined
+      );
     }
 
     // Greeting steps are always "completed" after first exchange
-    if (stepLower.includes('greet') || stepLower.includes('introduce yourself')) {
+    if (
+      stepLower.includes("greet") ||
+      stepLower.includes("introduce yourself")
+    ) {
       return true; // Always move past greeting
     }
 
@@ -1040,22 +1211,36 @@ CRITICAL RULES:
   autoDetectRequiredFields(customerContext, systemPrompt) {
     // Parse script to understand required fields (simple approach)
     const scriptLower = systemPrompt.toLowerCase();
-    
+
     // Common required fields for most scripts
     const fieldChecks = [
-      { key: 'name', patterns: ['name', '{name}'], label: 'customer name' },
-      { key: 'phone', patterns: ['phone', 'mobile', 'number', '{mobile}'], label: 'phone number' },
-      { key: 'pincode', patterns: ['pincode', 'pin code', '{pincode}'], label: 'pincode' },
-      { key: 'address', patterns: ['address', 'location', '{address}'], label: 'address' },
-      { key: 'email', patterns: ['email', '{email}'], label: 'email' },
+      { key: "name", patterns: ["name", "{name}"], label: "customer name" },
+      {
+        key: "phone",
+        patterns: ["phone", "mobile", "number", "{mobile}"],
+        label: "phone number",
+      },
+      {
+        key: "pincode",
+        patterns: ["pincode", "pin code", "{pincode}"],
+        label: "pincode",
+      },
+      {
+        key: "address",
+        patterns: ["address", "location", "{address}"],
+        label: "address",
+      },
+      { key: "email", patterns: ["email", "{email}"], label: "email" },
     ];
 
     // Check which fields are mentioned in script and missing from context
     const requiredFields = [];
     for (const field of fieldChecks) {
-      const isInScript = field.patterns.some(pattern => scriptLower.includes(pattern));
+      const isInScript = field.patterns.some((pattern) =>
+        scriptLower.includes(pattern)
+      );
       const isMissing = !customerContext[field.key];
-      
+
       if (isInScript && isMissing) {
         requiredFields.push(field);
       }
@@ -1068,16 +1253,16 @@ CRITICAL RULES:
         stage: `Collecting Info (${requiredFields.length} fields remaining)`,
         nextField: nextField.label,
         nextFieldKey: nextField.key,
-        remainingFields: requiredFields.map(f => f.label),
+        remainingFields: requiredFields.map((f) => f.label),
         isComplete: false,
       };
     }
 
     // All required fields collected
     return {
-      stage: 'Information Complete',
+      stage: "Information Complete",
       nextField: null,
-      nextAction: 'your script\'s next steps (qualification, booking, etc.)',
+      nextAction: "your script's next steps (qualification, booking, etc.)",
       isComplete: true,
     };
   }
@@ -1090,29 +1275,47 @@ CRITICAL RULES:
     try {
       // Simple keyword-based extraction for common intents
       const messageLower = userMessage.toLowerCase();
-      
+
       // Purchase/Sales intents
-      if (messageLower.match(/\b(buy|purchase|book|test ride|demo|interested|looking for|want to buy)\b/)) {
+      if (
+        messageLower.match(
+          /\b(buy|purchase|book|test ride|demo|interested|looking for|want to buy)\b/
+        )
+      ) {
         return "Purchase/Booking inquiry";
       }
-      
+
       // Support/Issue intents
-      if (messageLower.match(/\b(not working|broken|issue|problem|repair|service|complaint|fix|error)\b/)) {
+      if (
+        messageLower.match(
+          /\b(not working|broken|issue|problem|repair|service|complaint|fix|error)\b/
+        )
+      ) {
         return "Technical support/Issue resolution";
       }
-      
+
       // Information/Query intents
-      if (messageLower.match(/\b(information|details|tell me|what is|features|specs|warranty|price)\b/)) {
+      if (
+        messageLower.match(
+          /\b(information|details|tell me|what is|features|specs|warranty|price)\b/
+        )
+      ) {
         return "Information request";
       }
-      
+
       // Service center intents
-      if (messageLower.match(/\b(service center|appointment|schedule|visit|location)\b/)) {
+      if (
+        messageLower.match(
+          /\b(service center|appointment|schedule|visit|location)\b/
+        )
+      ) {
         return "Service center inquiry";
       }
-      
+
       // Generic fallback - just return the original message (trimmed)
-      return userMessage.length > 50 ? userMessage.substring(0, 47) + "..." : userMessage;
+      return userMessage.length > 50
+        ? userMessage.substring(0, 47) + "..."
+        : userMessage;
     } catch (error) {
       console.error("Intent extraction error:", error);
       return userMessage;
@@ -1124,33 +1327,38 @@ CRITICAL RULES:
    */
   analyzeConversationHistory(conversationHistory) {
     const askedQuestions = [];
-    
+
     for (const msg of conversationHistory) {
-      if (msg.role === 'assistant') {
+      if (msg.role === "assistant") {
         const content = msg.content.toLowerCase();
-        
+
         // Detect if assistant asked for specific information
-        if (content.includes('name') && content.includes('?')) {
-          askedQuestions.push('- Asked for name');
+        if (content.includes("name") && content.includes("?")) {
+          askedQuestions.push("- Asked for name");
         }
-        if ((content.includes('phone') || content.includes('mobile') || content.includes('number')) && content.includes('?')) {
-          askedQuestions.push('- Asked for phone/mobile number');
+        if (
+          (content.includes("phone") ||
+            content.includes("mobile") ||
+            content.includes("number")) &&
+          content.includes("?")
+        ) {
+          askedQuestions.push("- Asked for phone/mobile number");
         }
-        if (content.includes('email') && content.includes('?')) {
-          askedQuestions.push('- Asked for email');
+        if (content.includes("email") && content.includes("?")) {
+          askedQuestions.push("- Asked for email");
         }
-        if (content.includes('address') && content.includes('?')) {
-          askedQuestions.push('- Asked for address');
+        if (content.includes("address") && content.includes("?")) {
+          askedQuestions.push("- Asked for address");
         }
-        if (content.includes('pincode') && content.includes('?')) {
-          askedQuestions.push('- Asked for pincode');
+        if (content.includes("pincode") && content.includes("?")) {
+          askedQuestions.push("- Asked for pincode");
         }
-        if (content.includes('location') && content.includes('?')) {
-          askedQuestions.push('- Asked for location');
+        if (content.includes("location") && content.includes("?")) {
+          askedQuestions.push("- Asked for location");
         }
       }
     }
-    
+
     // Remove duplicates
     return [...new Set(askedQuestions)];
   }
@@ -1162,7 +1370,7 @@ CRITICAL RULES:
   async extractCustomerInfo(text, existingContext = {}) {
     try {
       console.log("🔍 Extracting customer info from:", text);
-      
+
       const response = await this.openai.chat.completions.create({
         model: AI_CONFIG.EXTRACTION_MODEL,
         messages: [
@@ -1180,21 +1388,21 @@ CRITICAL RULES:
       });
       const jsonStr = response.choices[0].message.content.trim();
       console.log("🤖 AI extraction raw response:", jsonStr);
-      
+
       // Handle markdown code blocks if AI returns them
-      const cleanJson = jsonStr.replace(/```json\n?|```\n?/g, '').trim();
+      const cleanJson = jsonStr.replace(/```json\n?|```\n?/g, "").trim();
       console.log("🧹 Cleaned JSON:", cleanJson);
-      
+
       if (cleanJson && cleanJson !== "{}") {
         const updates = JSON.parse(cleanJson);
         console.log("📦 Parsed updates:", updates);
-        
+
         // Clean phone number if extracted
         if (updates.phone) {
           // Remove all non-digits
-          let cleanPhone = updates.phone.replace(/\D/g, '');
+          let cleanPhone = updates.phone.replace(/\D/g, "");
           // Remove country code if present (91 prefix)
-          if (cleanPhone.startsWith('91') && cleanPhone.length === 12) {
+          if (cleanPhone.startsWith("91") && cleanPhone.length === 12) {
             cleanPhone = cleanPhone.substring(2);
           }
           // Validate it's a 10-digit number starting with 6-9
@@ -1206,24 +1414,24 @@ CRITICAL RULES:
             delete updates.phone;
           }
         }
-        
+
         if (Object.keys(updates).length > 0) {
           // Merge with existing context, but don't overwrite with empty values
           const newContext = { ...existingContext };
-          
+
           // Only update fields that have actual values (not empty strings)
-          Object.keys(updates).forEach(key => {
+          Object.keys(updates).forEach((key) => {
             const value = updates[key];
-            if (value !== '' && value !== null && value !== undefined) {
+            if (value !== "" && value !== null && value !== undefined) {
               // For objects, merge them
-              if (typeof value === 'object' && !Array.isArray(value)) {
+              if (typeof value === "object" && !Array.isArray(value)) {
                 newContext[key] = { ...newContext[key], ...value };
               } else {
                 newContext[key] = value;
               }
             }
           });
-          
+
           newContext.lastUpdated = new Date().toISOString();
 
           console.log("📝 AI Extracted customer info:", updates);
@@ -1231,31 +1439,35 @@ CRITICAL RULES:
           return newContext;
         }
       }
-      
+
       console.log("ℹ️ No customer info extracted from AI (empty response)");
     } catch (error) {
-      console.error("❌ AI extraction failed, using regex fallback:", error.message);
-      
+      console.error(
+        "❌ AI extraction failed, using regex fallback:",
+        error.message
+      );
+
       // Fallback to regex patterns
       const updates = {};
 
       // Extract phone numbers (Indian format) - Multiple patterns
       const phonePatterns = [
-        /\b(\+?91[-\s]?)?([6-9]\d{9})\b/,           // Standard format
-        /\b([6-9]\d{4}[\s-]?\d{5})\b/,              // With space/dash in middle
-        /\b([6-9]\d{2}[\s-]?\d{3}[\s-]?\d{4})\b/,  // Multiple separators
+        /\b(\+?91[-\s]?)?([6-9]\d{9})\b/, // Standard format
+        /\b([6-9]\d{4}[\s-]?\d{5})\b/, // With space/dash in middle
+        /\b([6-9]\d{2}[\s-]?\d{3}[\s-]?\d{4})\b/, // Multiple separators
       ];
-      
+
       for (const pattern of phonePatterns) {
         const phoneMatch = text.match(pattern);
         if (phoneMatch) {
           // Extract just the digits
-          const cleanPhone = phoneMatch[0].replace(/\D/g, '');
+          const cleanPhone = phoneMatch[0].replace(/\D/g, "");
           // Remove country code if present
-          const phone = cleanPhone.startsWith('91') && cleanPhone.length === 12 
-            ? cleanPhone.substring(2) 
-            : cleanPhone;
-          
+          const phone =
+            cleanPhone.startsWith("91") && cleanPhone.length === 12
+              ? cleanPhone.substring(2)
+              : cleanPhone;
+
           if (/^[6-9]\d{9}$/.test(phone)) {
             updates.phone = phone;
             break;
@@ -1281,21 +1493,28 @@ CRITICAL RULES:
       let nameMatch = text.match(
         /(?:my name is|i am|this is|i'm|call me)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i
       );
-      
+
       // If no explicit name pattern, try to extract capitalized words (likely names)
       // Only if text is short (1-3 words) and starts with capital letter
       if (!nameMatch && text.trim().split(/\s+/).length <= 3) {
-        const capitalizedMatch = text.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\.?$/);
+        const capitalizedMatch = text.match(
+          /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\.?$/
+        );
         if (capitalizedMatch) {
           updates.name = capitalizedMatch[1];
         }
       } else if (nameMatch) {
         updates.name = nameMatch[1];
       }
-      
+
       // Extract model/product names (capitalized words with potential alphanumeric)
       // Examples: "Magnus EX", "Primus", "iPhone 15", "Model 3"
-      if (!updates.name && !updates.phone && !updates.pincode && !updates.email) {
+      if (
+        !updates.name &&
+        !updates.phone &&
+        !updates.pincode &&
+        !updates.email
+      ) {
         const modelMatch = text.match(/^([A-Z][a-zA-Z0-9\s]+?)(?:\s*[,.])?$/);
         if (modelMatch && modelMatch[1].trim().split(/\s+/).length <= 4) {
           updates.model = modelMatch[1].trim();
@@ -1305,30 +1524,214 @@ CRITICAL RULES:
       if (Object.keys(updates).length > 0) {
         // Merge with existing context, but don't overwrite with empty values
         const newContext = { ...existingContext };
-        
+
         // Only update fields that have actual values (not empty strings)
-        Object.keys(updates).forEach(key => {
+        Object.keys(updates).forEach((key) => {
           const value = updates[key];
-          if (value !== '' && value !== null && value !== undefined) {
+          if (value !== "" && value !== null && value !== undefined) {
             // For objects, merge them
-            if (typeof value === 'object' && !Array.isArray(value)) {
+            if (typeof value === "object" && !Array.isArray(value)) {
               newContext[key] = { ...newContext[key], ...value };
             } else {
               newContext[key] = value;
             }
           }
         });
-        
+
         newContext.lastUpdated = new Date().toISOString();
-        
+
         console.log("📝 Regex extracted customer info:", updates);
         console.log("✅ Merged context:", newContext);
         return newContext;
       }
     }
 
-    console.log("ℹ️ No customer info found in text, returning existing context");
+    console.log(
+      "ℹ️ No customer info found in text, returning existing context"
+    );
     return existingContext;
+  }
+
+  /**
+   * Process message with streaming response (for lower latency)
+   * Yields chunks as they arrive from OpenAI
+   * @yields {object} Chunks with type: 'content', 'context', 'language', 'done'
+   */
+  async *processMessageStream(
+    userMessage,
+    agentId = "default",
+    customerContext = {},
+    conversationHistory = [],
+    options = {}
+  ) {
+    try {
+      const {
+        language = "en",
+        useRAG = false,
+        systemPrompt = "You are a helpful AI assistant.",
+        temperature = 0.3,
+        maxTokens = 100, // Lower default for streaming
+        provider = "openai",
+      } = options;
+
+      // Quick validation
+      const isEmptyOrUnclear = !userMessage || userMessage.trim().length < 2;
+
+      if (isEmptyOrUnclear) {
+        yield {
+          type: "content",
+          content: "I didn't catch that. Could you please repeat?",
+        };
+        yield { type: "done" };
+        return;
+      }
+
+      // Extract customer info first (non-streaming)
+      const updatedContext = await this.extractCustomerInfo(
+        userMessage,
+        customerContext
+      );
+      yield { type: "context", customerContext: updatedContext };
+
+      const currentLanguageName = LANGUAGE_CODES[language] || "English";
+
+      // Build context summary (simplified for streaming)
+      const contextSummary = [];
+      if (updatedContext.name)
+        contextSummary.push(`Name: ${updatedContext.name}`);
+      if (updatedContext.phone)
+        contextSummary.push(`Phone: ${updatedContext.phone}`);
+      if (updatedContext.pincode)
+        contextSummary.push(`Pincode: ${updatedContext.pincode}`);
+
+      const customerContextString =
+        contextSummary.length > 0
+          ? `\n\nCUSTOMER INFO (collected): ${contextSummary.join(", ")}\n`
+          : "";
+
+      // Simplified prompt for speed
+      const enhancedSystemPrompt = `${systemPrompt}
+${customerContextString}
+RULES: Keep responses brief (1-2 sentences). Respond in ${currentLanguageName}. NO markdown.`;
+
+      // Build messages
+      const recentHistory = conversationHistory.slice(-10);
+      const messages = [
+        { role: "system", content: enhancedSystemPrompt },
+        ...recentHistory,
+        { role: "user", content: userMessage },
+      ];
+
+      // Stream from OpenAI
+      const stream = await this.openai.chat.completions.create({
+        model: AI_CONFIG.MODEL,
+        messages: messages,
+        temperature: temperature,
+        max_tokens: maxTokens,
+        stream: true, // Enable streaming
+      });
+
+      let fullResponse = "";
+      let detectedLanguageSwitch = null;
+
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content;
+        if (content) {
+          fullResponse += content;
+
+          // Check for language switch at start
+          if (
+            fullResponse.startsWith("LANGUAGE_SWITCH:") &&
+            !detectedLanguageSwitch
+          ) {
+            const match = fullResponse.match(/^LANGUAGE_SWITCH:([a-z]{2})/i);
+            if (match) {
+              detectedLanguageSwitch = match[1].toLowerCase();
+              yield { type: "language", code: detectedLanguageSwitch };
+              // Remove the prefix from what we're yielding
+              const cleanContent = content.replace(
+                /^LANGUAGE_SWITCH:[a-z]{2}\s*/i,
+                ""
+              );
+              if (cleanContent) {
+                yield { type: "content", content: cleanContent };
+              }
+              continue;
+            }
+          }
+
+          yield { type: "content", content };
+        }
+      }
+
+      yield { type: "done" };
+    } catch (error) {
+      console.error("❌ Stream processing error:", error);
+      yield { type: "error", message: error.message };
+    }
+  }
+
+  /**
+   * Response cache for common queries (simple in-memory cache)
+   */
+  responseCache = new Map();
+  cacheMaxAge = 5 * 60 * 1000; // 5 minutes
+
+  /**
+   * Get cached response if available and fresh
+   */
+  getCachedResponse(message, agentId) {
+    const key = `${agentId}:${message.toLowerCase().trim().substring(0, 100)}`;
+    const cached = this.responseCache.get(key);
+
+    if (cached && Date.now() - cached.timestamp < this.cacheMaxAge) {
+      return cached.data;
+    }
+
+    // Clean up stale entry
+    if (cached) {
+      this.responseCache.delete(key);
+    }
+
+    return null;
+  }
+
+  /**
+   * Cache a response for quick retrieval
+   */
+  cacheResponse(message, agentId, response) {
+    // Only cache short, common queries
+    const normalizedMessage = message.toLowerCase().trim();
+
+    // Don't cache personalized responses
+    if (
+      normalizedMessage.length > 100 ||
+      response.customerContext?.name ||
+      response.customerContext?.phone
+    ) {
+      return;
+    }
+
+    const key = `${agentId}:${normalizedMessage.substring(0, 100)}`;
+
+    this.responseCache.set(key, {
+      data: response,
+      timestamp: Date.now(),
+    });
+
+    // Limit cache size
+    if (this.responseCache.size > 100) {
+      const firstKey = this.responseCache.keys().next().value;
+      this.responseCache.delete(firstKey);
+    }
+  }
+
+  /**
+   * Clear response cache
+   */
+  clearCache() {
+    this.responseCache.clear();
+    console.log("🗑️ Response cache cleared");
   }
 }
 
