@@ -149,18 +149,12 @@ export default function Audio({
         { value: "eleven_monolingual_v1", label: "Monolingual v1" },
       ],
       voices: [
+        {
+          value: "1qEiC6qsybMkmnNdVMbK",
+          label: "Monika Sogam (Female, Hindi/Indian)",
+        },
         { value: "21m00Tcm4TlvDq8ikWAM", label: "Rachel (Female, US)" },
-        { value: "AZnzlk1XvdvUeBnXmlld", label: "Domi (Female, US)" },
-        { value: "EXAVITQu4vr4xnSDxMaL", label: "Bella (Female, US)" },
-        { value: "ErXwobaYiN019PkySvjV", label: "Antoni (Male, US)" },
-        { value: "MF3mGyEYCl7XYWbV9V6O", label: "Elli (Female, US)" },
-        { value: "TxGEqnHWrfWFTfGW9XjX", label: "Josh (Male, US)" },
-        { value: "VR6AewLTigWG4xSOukaG", label: "Arnold (Male, US)" },
         { value: "pNInz6obpgDQGcFmaJgB", label: "Adam (Male, US)" },
-        { value: "yoZ06aMxZJJ28mfd3POQ", label: "Sam (Male, US)" },
-        { value: "onwK4e9ZLuTAKqWW03F9", label: "Daniel (Male, UK)" },
-        { value: "N2lVS1w4EtoT3dr4eOWO", label: "Callum (Male, UK)" },
-        { value: "XB0fDUnXU5powFXDhCwa", label: "Charlotte (Female, UK)" },
       ],
     },
     Google: {

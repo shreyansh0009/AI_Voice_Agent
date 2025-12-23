@@ -55,9 +55,10 @@ function preprocessForTTS(text) {
   processed = processed.replace(/[–—]/g, "-"); // Dashes
   processed = processed.replace(/[""'']/g, '"'); // Smart quotes
 
-  // Numbered lists - convert to natural speech
-  processed = processed.replace(/^\d+[.):\s]+/gm, "");
-  processed = processed.replace(/\s+\d+[.):\s]+/g, ", ");
+  // Numbered lists - convert to natural speech (ONLY match actual list markers like "1. ", "2) ")
+  // Do NOT strip standalone numbers like "3 crores"
+  processed = processed.replace(/^\d+[.)]\s+/gm, ""); // Start of line: "1. " or "2) "
+  processed = processed.replace(/\n\d+[.)]\s+/g, ", "); // Mid-text: newline + "1. " or "2) "
 
   // Remove markdown formatting
   processed = processed.replace(/\*\*/g, ""); // Bold

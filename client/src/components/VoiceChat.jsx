@@ -71,6 +71,8 @@ const VoiceChat = ({
   const [selectedLLM, setSelectedLLM] = useState(llmProvider.toLowerCase()); // 'openai' or 'agentforce'
   const [lastQuestion, setLastQuestion] = useState(null); // Track last question asked by agent
   const [silenceTimeoutId, setSilenceTimeoutId] = useState(null); // Timeout for silence detection
+  const [silenceRetryCount, setSilenceRetryCount] = useState(0); // Track retry attempts (max 3)
+  const [isToggling, setIsToggling] = useState(false); // Debounce continuous mode toggle
 
   // Update RAG enabled state when prop changes
   useEffect(() => {
@@ -200,6 +202,32 @@ const VoiceChat = ({
   useEffect(() => {
     localStorage.setItem("voiceChat_sensitivity", voiceSensitivity.toString());
   }, [voiceSensitivity]);
+
+  // Handle tab visibility changes - resume listening when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && continuousModeRef.current) {
+        // Resume listening if continuous mode was active and we're not already recording
+        if (
+          !isRecordingRef.current &&
+          mediaStreamRef.current &&
+          !isProcessing &&
+          !isSpeaking
+        ) {
+          console.log("🔄 Tab became visible - resuming continuous listening");
+          setTimeout(() => {
+            if (continuousModeRef.current && !isRecordingRef.current) {
+              startListening();
+            }
+          }, 500);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [isProcessing, isSpeaking]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * Update audio level for visualization
@@ -688,7 +716,19 @@ const VoiceChat = ({
    * Toggle continuous mode on/off
    */
   const toggleContinuousMode = async () => {
+    // Debounce - prevent rapid toggling
+    if (isToggling) return;
+    setIsToggling(true);
+
     const newMode = !continuousMode;
+
+    // Clear any pending silence timeout when toggling mode
+    if (silenceTimeoutId) {
+      clearTimeout(silenceTimeoutId);
+      setSilenceTimeoutId(null);
+    }
+    // Reset retry count when mode changes
+    setSilenceRetryCount(0);
 
     if (newMode) {
       // Turning ON continuous mode
@@ -698,6 +738,7 @@ const VoiceChat = ({
       // Start listening immediately (ref is already updated)
       setTimeout(() => {
         startListening();
+        setIsToggling(false); // Release debounce lock
       }, 50);
     } else {
       // Turning OFF continuous mode - stop everything
@@ -712,6 +753,7 @@ const VoiceChat = ({
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
         mediaStreamRef.current = null;
       }
+      setIsToggling(false); // Release debounce lock
     }
   };
 
@@ -775,6 +817,8 @@ const VoiceChat = ({
         clearTimeout(silenceTimeoutId);
         setSilenceTimeoutId(null);
       }
+      // Reset retry count when user speaks
+      setSilenceRetryCount(0);
 
       // Step 2: Get AI response from OpenAI
       setTranscript("Getting AI response...");
@@ -1005,8 +1049,9 @@ const VoiceChat = ({
               useRAG: ragEnabled,
               systemPrompt: systemPrompt || "You are a helpful AI assistant.",
               temperature: temperature,
-              maxTokens: Math.min(maxTokens, 100), // Cap for faster response
+              maxTokens: Math.min(maxTokens, 200), // Cap for faster response but prevent cutoff
               provider: selectedLLM,
+              model: llmModel, // Add model selection
             },
           }),
         }
@@ -1175,6 +1220,7 @@ const VoiceChat = ({
             temperature: temperature,
             maxTokens: maxTokens,
             provider: selectedLLM,
+            model: llmModel, // Add model selection
           },
         }),
       }
@@ -1246,9 +1292,10 @@ const VoiceChat = ({
     processed = processed.replace(/[•◦▪▸►]/g, "");
     processed = processed.replace(/[–—]/g, "-");
 
-    // Numbered lists
-    processed = processed.replace(/^\d+[.):\s]+/gm, "");
-    processed = processed.replace(/\s+\d+[.):\s]+/g, ", ");
+    // Numbered lists - only match actual list markers like "1. " or "2) "
+    // Do NOT strip standalone numbers like "3 crores"
+    processed = processed.replace(/^\d+[.)]\s+/gm, "");
+    processed = processed.replace(/\n\d+[.)]\s+/g, ", ");
 
     // Remove markdown
     processed = processed.replace(/\*\*/g, "");
@@ -1708,11 +1755,26 @@ const VoiceChat = ({
 
   /**
    * Handle silence timeout - user didn't respond to a question
+   * Maximum 3 retries to prevent infinite loop
    */
+  const MAX_SILENCE_RETRIES = 3;
+
   const handleSilenceTimeout = async () => {
     if (!lastQuestion) return;
 
+    // Check if we've exceeded max retries
+    if (silenceRetryCount >= MAX_SILENCE_RETRIES) {
+      console.log("⏰ Max silence retries reached, stopping retry loop");
+      setSilenceRetryCount(0); // Reset for next conversation
+      setTranscript("");
+      // Don't retry anymore - wait for user to speak
+      return;
+    }
+
     try {
+      // Increment retry count
+      setSilenceRetryCount((prev) => prev + 1);
+
       setIsProcessing(true);
       setTranscript("Processing silence timeout...");
 
@@ -1760,12 +1822,18 @@ const VoiceChat = ({
         }, 500);
       }
 
-      // Set another timeout for this retry question
-      const timeoutId = setTimeout(() => {
-        console.log("⏰ Second silence timeout");
-        handleSilenceTimeout();
-      }, 10000);
-      setSilenceTimeoutId(timeoutId);
+      // Set another timeout for this retry question (only if under max retries)
+      if (silenceRetryCount < MAX_SILENCE_RETRIES - 1) {
+        const timeoutId = setTimeout(() => {
+          console.log(
+            `⏰ Silence timeout (retry ${
+              silenceRetryCount + 1
+            }/${MAX_SILENCE_RETRIES})`
+          );
+          handleSilenceTimeout();
+        }, 10000);
+        setSilenceTimeoutId(timeoutId);
+      }
     } catch (error) {
       console.error("Error handling silence timeout:", error);
       setIsProcessing(false);
@@ -1781,6 +1849,7 @@ const VoiceChat = ({
     setTranscript("");
     setError("");
     setLastQuestion(null);
+    setSilenceRetryCount(0); // Reset retry count
     if (silenceTimeoutId) {
       clearTimeout(silenceTimeoutId);
       setSilenceTimeoutId(null);

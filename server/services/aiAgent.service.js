@@ -742,7 +742,11 @@ CRITICAL RULES:
     systemPrompt,
     options
   ) {
-    const { temperature, maxTokens, languageNames } = options;
+    const { temperature, maxTokens, languageNames, model } = options;
+
+    // Use model from options, fallback to config
+    const selectedModel = model || AI_CONFIG.MODEL;
+    console.log(`🤖 Using LLM model: ${selectedModel}`);
 
     // Build messages array with FULL conversation history for better context
     const recentHistory = conversationHistory.slice(
@@ -762,7 +766,7 @@ CRITICAL RULES:
 
     // Call OpenAI API with stricter parameters to follow script
     const response = await this.openai.chat.completions.create({
-      model: AI_CONFIG.MODEL,
+      model: selectedModel,
       messages: messages,
       temperature: temperature || AI_CONFIG.DEFAULT_TEMPERATURE,
       max_tokens: maxTokens || AI_CONFIG.DEFAULT_MAX_TOKENS,
@@ -1570,9 +1574,13 @@ CRITICAL RULES:
         useRAG = false,
         systemPrompt = "You are a helpful AI assistant.",
         temperature = 0.3,
-        maxTokens = 100, // Lower default for streaming
+        maxTokens = 200, // Default for streaming - enough for complete responses
         provider = "openai",
+        model = AI_CONFIG.MODEL, // Add model selection
       } = options;
+
+      // Log selected model
+      console.log(`🤖 Streaming with model: ${model}`);
 
       // Quick validation
       const isEmptyOrUnclear = !userMessage || userMessage.trim().length < 2;
@@ -1612,7 +1620,13 @@ CRITICAL RULES:
       // Simplified prompt for speed
       const enhancedSystemPrompt = `${systemPrompt}
 ${customerContextString}
-RULES: Keep responses brief (1-2 sentences). Respond in ${currentLanguageName}. NO markdown.`;
+VOICE OUTPUT RULES:
+- Keep responses BRIEF (2-3 sentences max)
+- ALWAYS complete your sentences - never stop mid-sentence
+- Respond in ${currentLanguageName}
+- ALWAYS include actual numbers and prices (e.g., "1 crore", "13 crores", "2 BHK")
+- NO markdown formatting
+- Speak naturally without bullet points`;
 
       // Build messages
       const recentHistory = conversationHistory.slice(-10);
@@ -1622,9 +1636,9 @@ RULES: Keep responses brief (1-2 sentences). Respond in ${currentLanguageName}. 
         { role: "user", content: userMessage },
       ];
 
-      // Stream from OpenAI
+      // Stream from OpenAI with selected model
       const stream = await this.openai.chat.completions.create({
-        model: AI_CONFIG.MODEL,
+        model: model, // Use model from options
         messages: messages,
         temperature: temperature,
         max_tokens: maxTokens,
