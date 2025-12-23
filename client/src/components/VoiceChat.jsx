@@ -516,8 +516,8 @@ const VoiceChat = ({
     // Lower thresholds for better whisper detection
     // Higher sensitivity number = less sensitive (higher threshold)
     const SPEECH_THRESHOLD = 15 + voiceSensitivity * 3; // Reduced range: 18-45 (was 30-75)
-    const SILENCE_DURATION = 1500; // Reduced to 1.5 seconds for faster response
-    const MIN_SPEECH_DURATION = 200; // Reduced to 200ms for better whisper detection
+    const SILENCE_DURATION = 2500; // 2.5 seconds - gives time to complete sentences
+    const MIN_SPEECH_DURATION = 300; // 300ms minimum to confirm it's speech
 
     // Calibration for background noise
     let backgroundNoiseLevel = 0;
@@ -1144,6 +1144,9 @@ const VoiceChat = ({
                     customerContextRef.current = data.customerContext;
                   }
                   if (data.languageSwitch) {
+                    console.log(
+                      `🌐 Language switch detected: ${data.languageSwitch}`
+                    );
                     currentLanguageRef.current =
                       data.languageSwitch.toLowerCase();
                     setSelectedLanguage(data.languageSwitch.toLowerCase());
@@ -1303,6 +1306,15 @@ const VoiceChat = ({
     processed = processed.replace(/`/g, "");
     processed = processed.replace(/#+\s*/g, "");
     processed = processed.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+
+    // Remove internal metadata that should NOT be spoken
+    // Removes: Closure Log Entry, ActiveUseCase, JSON-like structures, system logs
+    processed = processed.replace(/Closure\s*Log\s*Entry[^}]*\}/gi, ""); // Closure Log Entry: {...}
+    processed = processed.replace(/ActiveUseCase\s*=\s*\w+/gi, ""); // ActiveUseCase = NULL
+    processed = processed.replace(/\{[^}]*ClosureType[^}]*\}/gi, ""); // Any JSON with ClosureType
+    processed = processed.replace(/\{[^}]*Timestamp[^}]*\}/gi, ""); // Any JSON with Timestamp
+    processed = processed.replace(/\[\s*MEMORY\s*:[^\]]*\]/gi, ""); // [MEMORY: {...}] blocks
+    processed = processed.replace(/\[\s*LOG\s*:[^\]]*\]/gi, ""); // [LOG: ...] blocks
 
     // Clean up whitespace
     processed = processed.replace(/,\s*,/g, ",");

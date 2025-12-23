@@ -1626,7 +1626,14 @@ VOICE OUTPUT RULES:
 - Respond in ${currentLanguageName}
 - ALWAYS include actual numbers and prices (e.g., "1 crore", "13 crores", "2 BHK")
 - NO markdown formatting
-- Speak naturally without bullet points`;
+- Speak naturally without bullet points
+
+CRITICAL LANGUAGE INSTRUCTION:
+- When responding in Hindi (or any non-English language), you MUST follow the EXACT SAME script/flow as you would in English
+- ONLY translate the script responses - do NOT generate new content or search for information
+- Your knowledge is LIMITED to the script and RAG context provided above - do NOT use external knowledge
+- If the user asks something outside the script, politely redirect them back to the script flow
+- Example: English script says "What is your name?" → Hindi should be "आपका नाम क्या है?" (just translation, same flow)`;
 
       // Build messages
       const recentHistory = conversationHistory.slice(-10);

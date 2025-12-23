@@ -67,12 +67,55 @@ function preprocessForTTS(text) {
   processed = processed.replace(/#+\s*/g, ""); // Headers
   processed = processed.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"); // Links
 
+  // Remove internal metadata that should NOT be spoken
+  // Removes: Closure Log Entry, ActiveUseCase, JSON-like structures, system logs
+  processed = processed.replace(/Closure\s*Log\s*Entry[^}]*\}/gi, ""); // Closure Log Entry: {...}
+  processed = processed.replace(/ActiveUseCase\s*=\s*\w+/gi, ""); // ActiveUseCase = NULL
+  processed = processed.replace(/\{[^}]*ClosureType[^}]*\}/gi, ""); // Any JSON with ClosureType
+  processed = processed.replace(/\{[^}]*Timestamp[^}]*\}/gi, ""); // Any JSON with Timestamp
+  processed = processed.replace(/\[\s*MEMORY\s*:[^\]]*\]/gi, ""); // [MEMORY: {...}] blocks
+  processed = processed.replace(/\[\s*LOG\s*:[^\]]*\]/gi, ""); // [LOG: ...] blocks
+
   // Clean up whitespace
   processed = processed.replace(/,\s*,/g, ",");
   processed = processed.replace(/\s+/g, " ");
   processed = processed.replace(/\s+([.,!?;:])/g, "$1");
 
   return processed.trim();
+}
+
+/**
+ * Detect language from text content
+ * Used when AI switches language without explicit LANGUAGE_SWITCH prefix
+ */
+function detectResponseLanguage(text) {
+  if (!text || text.length < 10) return null;
+
+  // Count Devanagari characters (Hindi)
+  const devanagariPattern = /[\u0900-\u097F]/g;
+  const devanagariMatches = text.match(devanagariPattern) || [];
+
+  // Count Latin characters (English)
+  const latinPattern = /[a-zA-Z]/g;
+  const latinMatches = text.match(latinPattern) || [];
+
+  const totalChars = devanagariMatches.length + latinMatches.length;
+  if (totalChars < 10) return null;
+
+  const hindiRatio = devanagariMatches.length / totalChars;
+  const englishRatio = latinMatches.length / totalChars;
+
+  // If more than 40% Hindi characters, consider it Hindi
+  if (hindiRatio > 0.4) {
+    return "hi";
+  }
+
+  // If more than 60% English characters, consider it English
+  if (englishRatio > 0.6) {
+    return "en";
+  }
+
+  return null;
 }
 
 /**
@@ -150,6 +193,16 @@ export const streamChat = async (req, res) => {
     const cleanedResponse = preprocessForTTS(fullResponse);
     console.log("📝 Original:", fullResponse.substring(0, 100));
     console.log("🔊 Cleaned:", cleanedResponse.substring(0, 100));
+
+    // Auto-detect language if not explicitly provided by AI
+    // This handles cases where user says "switch to Hindi" and AI responds in Hindi
+    if (!languageSwitch) {
+      const detectedLang = detectResponseLanguage(cleanedResponse);
+      if (detectedLang) {
+        languageSwitch = detectedLang;
+        console.log(`🌐 Auto-detected language: ${detectedLang}`);
+      }
+    }
 
     // Split into sentences for batching
     const sentencePattern = /[^.!?।॥]+[.!?।॥]?/g;
