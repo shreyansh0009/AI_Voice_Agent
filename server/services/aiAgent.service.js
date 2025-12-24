@@ -5,6 +5,10 @@ import path from "path";
 import ragService from "./ragService.js";
 import translationService from "./translationService.js";
 import agentforceService from "./agentforce.service.js";
+import promptBuilder from "./promptBuilder.js";
+import stateMachine from "./stateMachine.js";
+import inputValidator from "./inputValidator.js";
+import outputParser from "./outputParser.js";
 
 // Ensure we load the server/.env regardless of cwd or import order
 const __filename = fileURLToPath(import.meta.url);
@@ -128,8 +132,425 @@ class AIAgentService {
     }
   }
 
+  // ============================================================================
+  // NEW 3-PROMPT ARCHITECTURE (Bolna.ai style)
+  // ALL RULES ENFORCED IN BACKEND - LLM NEVER SEES RULES
+  // ============================================================================
+
   /**
-   * Process user message and get AI response
+   * Process user message using 3-Prompt Architecture
+   *
+   * KEY PRINCIPLES:
+   * 1. ALL RULES enforced in backend BEFORE LLM is called
+   * 2. State is EXPLICIT, never inferred from data
+   * 3. LLM only sees: System prompt + Persona + ONE step instruction
+   * 4. LLM never gets a chance to violate rules
+   *
+   * @param {string} userMessage - User's spoken text
+   * @param {string} sessionId - Unique session identifier (for state machine)
+   * @param {object} options - Configuration options
+   * @returns {Promise<object>} Response with state updates
+   */
+  async processMessageV2(userMessage, sessionId, options = {}) {
+    try {
+      const {
+        agentScript = "",
+        agentConfig = {},
+        language = "en",
+        temperature = 0.3,
+        maxTokens = 100,
+        model = AI_CONFIG.MODEL,
+      } = options;
+
+      console.log(`\n${"=".repeat(60)}`);
+      console.log(`🚀 processMessageV2 | Session: ${sessionId}`);
+      console.log(`📝 User: "${userMessage}"`);
+      console.log(`${"=".repeat(60)}`);
+
+      // ========================================
+      // STEP 1: Initialize or retrieve state
+      // ========================================
+      const state = stateMachine.getOrCreateState(sessionId, agentScript, {
+        ...agentConfig,
+        language,
+        useCase: agentConfig.useCase || "general",
+      });
+
+      console.log(
+        `📊 State: Step ${state.stepIndex + 1}/${state.totalSteps} | ${
+          state.currentStepId
+        }`
+      );
+      console.log(`🔒 Forbidden steps: [${state.forbiddenSteps.join(", ")}]`);
+
+      // ========================================
+      // STEP 2: Handle unclear/empty input
+      // RULE: Max 2 retries, then escalate
+      // ========================================
+      if (this.isUnclearInput(userMessage)) {
+        const { maxRetriesExceeded, retryCount } =
+          stateMachine.incrementRetry(sessionId);
+
+        if (maxRetriesExceeded) {
+          // RULE ENFORCED: Escalate after max retries
+          console.log(`🚨 RULE ENFORCED: Max retries exceeded → Escalating`);
+          return {
+            response:
+              "I'm having trouble understanding. Let me connect you with a human agent who can help.",
+            state: stateMachine.getStateSummary(sessionId),
+            isEscalated: true,
+            currentStep: "escalated",
+          };
+        }
+
+        console.log(`🔄 Retry ${retryCount}/${stateMachine.RULES.MAX_RETRIES}`);
+        return {
+          response: "I didn't catch that clearly. Could you please repeat?",
+          state: stateMachine.getStateSummary(sessionId),
+          isRetry: true,
+          retryCount,
+        };
+      }
+
+      // ========================================
+      // STEP 3: Detect language switch request
+      // RULE: Only switch if not locked
+      // ========================================
+      const requestedLanguage = this.detectLanguageSwitchRequest(userMessage);
+
+      // ========================================
+      // STEP 4: ENFORCE ALL RULES BEFORE LLM
+      // This is where backend takes control
+      // ========================================
+      const enforcement = stateMachine.enforceRulesBeforeLLM(
+        sessionId,
+        userMessage,
+        requestedLanguage
+      );
+
+      // If rules say don't proceed, return immediately (LLM never called)
+      if (!enforcement.proceed) {
+        console.log(`🛑 RULE ENFORCED: ${enforcement.action}`);
+        return {
+          response: enforcement.response,
+          state: stateMachine.getStateSummary(sessionId),
+          action: enforcement.action,
+          isEscalated: enforcement.action.includes("escalate"),
+        };
+      }
+
+      const effectiveLanguage = enforcement.effectiveLanguage || state.language;
+      console.log(`🌐 Effective language: ${effectiveLanguage}`);
+
+      // ========================================
+      // STEP 5: VALIDATE USER INPUT (NOT LLM OUTPUT)
+      // Backend validates, backend decides
+      // ========================================
+      const currentRequirements =
+        stateMachine.getCurrentStepRequirements(sessionId);
+
+      let validationResult = { allValid: true, validatedData: {}, errors: {} };
+      let shouldRepeatStep = false;
+      let validationError = null;
+
+      if (currentRequirements.length > 0) {
+        // This is a data collection step - VALIDATE USER INPUT
+        console.log(
+          `🔍 Validating input for: ${currentRequirements.join(", ")}`
+        );
+
+        validationResult = inputValidator.validateStepInput(
+          currentRequirements,
+          userMessage,
+          state.customerData
+        );
+
+        if (!validationResult.allValid) {
+          // ❌ VALIDATION FAILED - Repeat same step
+          shouldRepeatStep = true;
+          validationError = Object.values(validationResult.errors)[0];
+          console.log(`❌ Validation FAILED: ${validationError}`);
+
+          // Increment retry for this step
+          const { maxRetriesExceeded } = stateMachine.incrementRetry(sessionId);
+          if (maxRetriesExceeded) {
+            console.log(`🚨 Max retries on validation → Escalating`);
+            return {
+              response:
+                "I'm having trouble getting the right information. Let me connect you with someone who can help.",
+              state: stateMachine.getStateSummary(sessionId),
+              isEscalated: true,
+            };
+          }
+        } else {
+          // ✅ VALIDATION PASSED - Update data
+          if (Object.keys(validationResult.newData).length > 0) {
+            stateMachine.updateCustomerData(
+              sessionId,
+              validationResult.newData
+            );
+            console.log(
+              `✅ Validated data: ${JSON.stringify(validationResult.newData)}`
+            );
+          }
+        }
+      } else {
+        // Non-data step - try to extract any data anyway (opportunistic)
+        const opportunisticData = inputValidator.extractAllData(userMessage);
+        if (Object.keys(opportunisticData).length > 0) {
+          stateMachine.updateCustomerData(sessionId, opportunisticData);
+          console.log(
+            `📦 Opportunistic data: ${JSON.stringify(opportunisticData)}`
+          );
+        }
+      }
+
+      // ========================================
+      // STEP 6: DECIDE: Advance or Repeat?
+      // Backend makes this decision, not LLM
+      // ========================================
+      let stepComplete = false;
+
+      if (shouldRepeatStep) {
+        // Stay on same step - validation failed
+        stepComplete = false;
+        console.log(`🔄 Repeating step: ${state.currentStepId}`);
+      } else if (currentRequirements.length > 0) {
+        // Data collection step - check if all required data is NOW collected
+        const updatedState = stateMachine.getState(sessionId);
+        stepComplete = currentRequirements.every(
+          (field) => updatedState.customerData[field]
+        );
+
+        if (stepComplete) {
+          console.log(
+            `✅ Step requirements VALIDATED: ${currentRequirements.join(", ")}`
+          );
+        }
+      } else {
+        // Non-data step (greeting, confirmation, etc.) - advance on valid response
+        stepComplete = true;
+      }
+
+      // ========================================
+      // STEP 7: EXPLICITLY advance state
+      // ❌ NEVER infer state from data
+      // ✅ ALWAYS advance explicitly after VALIDATION passes
+      // ========================================
+      if (stepComplete && !stateMachine.isFlowComplete(sessionId)) {
+        stateMachine.advanceStep(sessionId);
+        console.log(`➡️ State EXPLICITLY advanced (validation passed)`);
+      }
+
+      // ========================================
+      // STEP 8: Check for confirmation step
+      // RULE: Only confirm once
+      // ========================================
+      const finalState = stateMachine.getState(sessionId);
+      if (finalState.currentStepId === "confirm_details") {
+        if (!stateMachine.canConfirm(sessionId)) {
+          // RULE ENFORCED: Skip confirmation if already done
+          console.log(`🚫 RULE ENFORCED: Confirmation already done → Skipping`);
+          stateMachine.advanceStep(sessionId);
+        } else {
+          // Mark that we're doing confirmation
+          stateMachine.markConfirmationDone(sessionId);
+        }
+      }
+
+      // ========================================
+      // STEP 9: Build minimal prompt (3-prompt architecture)
+      // LLM only sees: System + Persona + Current Step
+      // ❌ NO future steps, NO past steps, NO collected data
+      // ========================================
+      const postAdvanceState = stateMachine.getState(sessionId);
+
+      // Determine what instruction to send
+      let stepInstruction;
+      if (shouldRepeatStep && validationError) {
+        // Validation failed - use retry prompt with error
+        const failedField = currentRequirements[0];
+        stepInstruction = promptBuilder.getRetryPrompt(
+          failedField,
+          validationError
+        );
+        console.log(`🔄 Using retry prompt for: ${failedField}`);
+      } else {
+        // Normal step instruction
+        stepInstruction = promptBuilder.getStepInstruction(
+          postAdvanceState.currentStepId,
+          postAdvanceState.stepDetails?.[postAdvanceState.stepIndex]
+            ?.instruction
+        );
+      }
+
+      // Build MINIMAL prompt - only current instruction
+      const promptConfig = promptBuilder.buildConversationPrompt({
+        agentConfig: postAdvanceState.agentConfig,
+        stepConfig: {
+          instruction: stepInstruction,
+          language: effectiveLanguage,
+          customerName: postAdvanceState.customerData?.name || null, // Only name for personalization
+        },
+      });
+
+      console.log(`🎯 Step: ${postAdvanceState.currentStepId}`);
+      console.log(`📝 Instruction: "${stepInstruction.substring(0, 50)}..."`);
+      console.log(`📊 Prompt tokens: ~${promptConfig.metadata.totalTokens}`);
+
+      // ========================================
+      // STEP 10: Call LLM with JSON output format
+      // LLM MUST return: {"spoken_text": "...", "language": "..."}
+      // ========================================
+      const response = await this.openai.chat.completions.create({
+        model,
+        messages: promptConfig.messages,
+        temperature,
+        max_tokens: maxTokens,
+        response_format: { type: "json_object" }, // Force JSON output
+      });
+
+      const rawResponse = response.choices[0].message.content;
+      console.log(`🤖 Raw LLM output: ${rawResponse.substring(0, 100)}...`);
+
+      // ========================================
+      // STEP 11: PARSE WITH STRICT OUTPUT CONTRACT
+      // Extract spoken_text, discard everything else
+      // ========================================
+      const parsed = outputParser.parseResponse(
+        rawResponse,
+        effectiveLanguage,
+        stepInstruction // Fallback if parsing fails
+      );
+
+      console.log(
+        `✅ Parsed: "${parsed.spoken_text.substring(0, 50)}..." (${
+          parsed.language
+        })`
+      );
+
+      if (!parsed.parsed) {
+        console.log(`⚠️ JSON parsing failed - used extraction/fallback`);
+      }
+
+      // ========================================
+      // STEP 12: Return response with EXPLICIT state
+      // ========================================
+      const stateForResponse = stateMachine.getStateSummary(sessionId);
+
+      return {
+        // STRICT OUTPUT - Only spoken_text matters
+        response: parsed.spoken_text,
+
+        // EXPLICIT STATE (Non-Negotiable)
+        state: stateForResponse,
+        currentStepId: stateForResponse.currentStepId,
+        stepIndex: stateForResponse.stepIndex,
+        useCase: stateForResponse.useCase,
+        language: parsed.language || effectiveLanguage,
+
+        // Data
+        customerContext: postAdvanceState.customerData,
+
+        // Status
+        isFlowComplete: stateMachine.isFlowComplete(sessionId),
+        isEscalated: stateMachine.isEscalated(sessionId),
+
+        // Language switch (if happened)
+        languageSwitch:
+          requestedLanguage && stateMachine.canSwitchLanguage(sessionId)
+            ? requestedLanguage
+            : null,
+
+        // Debug info
+        _debug: {
+          rawResponse: rawResponse.substring(0, 200),
+          jsonParsed: parsed.parsed,
+          fallbackUsed: parsed.fallback || false,
+        },
+      };
+    } catch (error) {
+      console.error("❌ processMessageV2 error:", error);
+      throw new Error(`Failed to process message: ${error.message}`);
+    }
+  }
+
+  /**
+   * Check if user input is unclear/empty
+   */
+  isUnclearInput(message) {
+    if (!message || typeof message !== "string") return true;
+    const trimmed = message.trim();
+    if (trimmed.length < 2) return true;
+    if (/^[\s\p{P}]+$/u.test(trimmed)) return true; // Only punctuation
+    if (/^(um|uh|hmm|err|ah|huh)+$/i.test(trimmed)) return true; // Filler words
+    return false;
+  }
+
+  /**
+   * Detect if user is requesting a language switch
+   */
+  detectLanguageSwitchRequest(message) {
+    const messageLower = message.toLowerCase();
+
+    // English patterns
+    if (
+      messageLower.includes("switch to hindi") ||
+      messageLower.includes("speak hindi") ||
+      messageLower.includes("in hindi")
+    ) {
+      return "hi";
+    }
+    if (
+      messageLower.includes("switch to english") ||
+      messageLower.includes("speak english") ||
+      messageLower.includes("in english")
+    ) {
+      return "en";
+    }
+
+    // Hindi patterns
+    if (
+      messageLower.includes("हिंदी में") ||
+      messageLower.includes("हिन्दी में")
+    ) {
+      return "hi";
+    }
+    if (
+      messageLower.includes("अंग्रेजी में") ||
+      messageLower.includes("english में")
+    ) {
+      return "en";
+    }
+
+    // Tamil
+    if (messageLower.includes("தமிழில்") || messageLower.includes("in tamil")) {
+      return "ta";
+    }
+
+    // Telugu
+    if (
+      messageLower.includes("తెలుగులో") ||
+      messageLower.includes("in telugu")
+    ) {
+      return "te";
+    }
+
+    return null;
+  }
+
+  // ============================================================================
+  // LEGACY METHOD - DEPRECATED
+  // ============================================================================
+
+  /**
+   * @deprecated ⚠️ LEGACY - Use processMessageV2() instead
+   *
+   * This method uses the old "monster prompt" architecture that sends
+   * the FULL script to the LLM. It does not follow flows correctly.
+   *
+   * Keeping for backward compatibility during migration.
+   *
    * @param {string} userMessage - User's spoken text
    * @param {string} agentId - Agent configuration ID
    * @param {object} customerContext - Customer information (name, email, phone, etc.)
@@ -576,8 +997,20 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
   }
 
   /**
-   * Build enhanced system prompt by adding context to base prompt
-   * Keeps hardcoded rules separate and reusable
+   * @deprecated ⚠️ DEPRECATED - DO NOT USE
+   *
+   * This is the "monster prompt" that sends the FULL script + all rules to the LLM.
+   * This approach DOES NOT WORK because:
+   * 1. LLM sees full flow and decides on its own what to do
+   * 2. Rules are unenforceable by LLM
+   * 3. State is implicit (inferred) not explicit (tracked)
+   *
+   * USE INSTEAD: processMessageV2() with 3-prompt architecture
+   * - System prompt (static, short)
+   * - Persona prompt (per-agent tone/style)
+   * - Step prompt (dynamic, ONE step only)
+   *
+   * Keeping for backward compatibility only.
    */
   buildEnhancedPrompt({
     basePrompt,
