@@ -5,10 +5,22 @@ import path from "path";
 import ragService from "./ragService.js";
 import translationService from "./translationService.js";
 import agentforceService from "./agentforce.service.js";
-import promptBuilder from "./promptBuilder.js";
-import stateMachine from "./stateMachine.js";
-import inputValidator from "./inputValidator.js";
-import outputParser from "./outputParser.js";
+
+// ============================================================================
+// NEW ARCHITECTURE IMPORTS (Refactored for clarity)
+// ============================================================================
+import flowRegistry from "./flowRegistry.js"; // Loads JSON flows
+import stateEngine from "./stateEngine.js"; // Executes steps + transitions
+import promptBuilder from "./promptBuilder.js"; // Builds minimal LLM prompts
+import inputValidator from "./inputValidator.js"; // Validates user input
+import outputParser from "./outputParser.js"; // Parses LLM output (DEPRECATED - use responseContract)
+import responseContract from "./responseContract.js"; // Enforces HARD output contracts
+import intentClassifier from "./intentClassifier.js"; // Intent classification
+import slotExtractor from "./slotExtractor.js"; // Slot extraction
+
+// DEPRECATED: Old services (kept for backwards compatibility)
+import stateMachine from "./stateMachine.js"; // @deprecated - use stateEngine
+import flowEngine from "./flowEngine.js"; // @deprecated - use stateEngine + flowRegistry
 
 // Ensure we load the server/.env regardless of cwd or import order
 const __filename = fileURLToPath(import.meta.url);
@@ -133,7 +145,624 @@ class AIAgentService {
   }
 
   // ============================================================================
-  // NEW 3-PROMPT ARCHITECTURE (Bolna.ai style)
+  // V5: COMPLETE FLOW WITH RESPONSE CONTRACT (FINAL PRODUCTION VERSION)
+  // This eliminates script jumping by enforcing HARD output contracts
+  // ============================================================================
+
+  /**
+   * Process message with COMPLETE flow + response contract enforcement
+   *
+   * FLOW:
+   * User input
+   *   ↓
+   * intentClassifier (only if ActiveUseCase == NULL)
+   *   ↓
+   * slotExtractor
+   *   ↓
+   * inputValidator
+   *   ↓
+   * stateEngine.advance() OR repeatStep()
+   *   ↓
+   * responseContract.validate()
+   *   ↓
+   * TTS
+   *
+   * If contract validation fails → retry LLM with stricter instruction
+   * NEVER accept malformed output
+   *
+   * @param {string} userMessage - User's spoken text (null for first turn)
+   * @param {string} conversationId - Unique conversation ID
+   * @param {object} options - { useCase, language, agentId }
+   * @returns {Promise<object>} Contract-validated response
+   */
+  async processMessageV5(userMessage, conversationId, options = {}) {
+    const {
+      useCase = null, // null = auto-detect via intent
+      language = "en",
+      agentId = null,
+    } = options;
+
+    console.log(`\n${"=".repeat(60)}`);
+    console.log(`🚀 V5 COMPLETE FLOW | Conversation: ${conversationId}`);
+    console.log(`📝 User: "${userMessage || "(first turn)"}"`);
+    console.log(`${"=".repeat(60)}`);
+
+    try {
+      // ========================================
+      // STEP 1: INTENT CLASSIFICATION
+      // Only if useCase is null (need to detect flow)
+      // ========================================
+      let effectiveUseCase = useCase;
+
+      if (!effectiveUseCase && userMessage) {
+        const intentResult = await intentClassifier.classifyIntentSmart(
+          userMessage,
+          {
+            useCase: null,
+            openaiClient: this.openai,
+          }
+        );
+
+        console.log(
+          `🎯 Intent: ${intentResult.intent} (source: ${intentResult.source})`
+        );
+
+        effectiveUseCase = intentClassifier.mapIntentToUseCase(
+          intentResult.intent
+        );
+
+        // Handle special intents
+        if (intentClassifier.shouldEscalate(intentResult.intent)) {
+          return {
+            response:
+              language === "hi"
+                ? "मैं आपको एक एजेंट से जोड़ती हूँ।"
+                : "Let me connect you with an agent.",
+            language,
+            status: "escalated",
+            conversationId,
+            _source: "intent_escalation",
+          };
+        }
+      }
+
+      // Default use case
+      effectiveUseCase = effectiveUseCase || "automotive_sales";
+
+      // ========================================
+      // STEP 2: SLOT EXTRACTION + VALIDATION
+      // Extract ONLY what current step needs
+      // ========================================
+      const state = stateEngine.getOrCreateState(
+        conversationId,
+        effectiveUseCase,
+        { language, agentId }
+      );
+      const currentStep = stateEngine.getCurrentStep(state);
+
+      if (userMessage && currentStep) {
+        // Extract slots for current step
+        const slots = slotExtractor.extractSlotsByExpects(
+          currentStep,
+          userMessage
+        );
+
+        if (Object.keys(slots).length > 0) {
+          console.log(`📦 Slots extracted:`, slots);
+          stateEngine.updateData(conversationId, slots);
+        }
+
+        // Handle yes/no for confirm steps
+        if (currentStep.type === "confirm") {
+          const confirmation = slotExtractor.classifyConfirmation(userMessage);
+          console.log(`✅ Confirmation: ${confirmation}`);
+        }
+      }
+
+      // ========================================
+      // STEP 3: STATE ENGINE ADVANCE
+      // This returns the text from JSON - no LLM yet
+      // ========================================
+      const result = stateEngine.processTurn(conversationId, userMessage, {
+        useCase: effectiveUseCase,
+        language,
+        agentId,
+      });
+
+      console.log(`🎯 Step: ${result.stepId} | Status: ${result.status}`);
+
+      // ========================================
+      // STEP 4: RESPONSE CONTRACT VALIDATION
+      // Ensure the text passes our strict contract
+      // ========================================
+      if (result.text) {
+        // For JSON flow text, validate against contract
+        const contractResult = responseContract.extractResponse(
+          JSON.stringify({ type: "SPEAK", text: result.text })
+        );
+
+        if (contractResult.success) {
+          console.log(
+            `✅ Contract validated: "${contractResult.text.substring(
+              0,
+              50
+            )}..."`
+          );
+
+          return {
+            response: contractResult.text,
+            language: result.language,
+
+            // State
+            conversationId,
+            currentStepId: result.stepId,
+            stepType: result.stepType,
+            useCase: effectiveUseCase,
+            status: result.status,
+
+            // Data
+            customerContext: result.data,
+
+            // Validation
+            validationError: result.validationError,
+            retryCount: result.retryCount,
+
+            // Flags
+            isEnd: result.isEnd,
+            isComplete: result.status === "complete",
+            isEscalated: result.status === "escalated",
+
+            // Agent
+            agentConfig: result.agentConfig,
+
+            // Contract info
+            _contract: {
+              validated: true,
+              source: "state_engine",
+              llmUsed: false,
+            },
+          };
+        } else {
+          // Contract failed - this shouldn't happen with JSON flow text
+          // but handle it gracefully
+          console.warn(`⚠️ Contract validation failed:`, contractResult.errors);
+
+          // Use sanitized text if available
+          const fallbackText =
+            responseContract.validateResponse(
+              JSON.stringify({ type: "SPEAK", text: result.text })
+            ).sanitized?.text || result.text;
+
+          return {
+            response: fallbackText,
+            language: result.language,
+            conversationId,
+            currentStepId: result.stepId,
+            status: result.status,
+            _contract: {
+              validated: false,
+              errors: contractResult.errors,
+            },
+          };
+        }
+      }
+
+      // ========================================
+      // STEP 5: FLOW COMPLETE - Handle dynamic
+      // ========================================
+      return {
+        response:
+          language === "hi"
+            ? "धन्यवाद! क्या मैं आपकी और कोई मदद कर सकती हूँ?"
+            : "Thank you! Is there anything else I can help you with?",
+        language,
+        conversationId,
+        currentStepId: "flow_complete",
+        status: "complete",
+        customerContext: result.data,
+        _contract: {
+          validated: true,
+          source: "default_closing",
+        },
+      };
+    } catch (error) {
+      console.error("❌ V5 error:", error.message);
+
+      return {
+        response:
+          language === "hi"
+            ? "माफ़ कीजिए, कुछ समस्या हुई।"
+            : "I apologize, something went wrong.",
+        language,
+        conversationId,
+        status: "escalated",
+        _contract: {
+          validated: false,
+          error: error.message,
+        },
+      };
+    }
+  }
+
+  /**
+   * Call LLM with contract enforcement
+   * Used only for dynamic/RAG responses
+   *
+   * @param {string} instruction - What to say
+   * @param {boolean} isRetry - Is this a retry?
+   * @returns {Promise<string>} Contract-validated text
+   */
+  async callLLMWithContract(instruction, isRetry = false) {
+    const prompt = responseContract.buildContractPrompt(instruction, isRetry);
+
+    const response = await this.openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      max_tokens: 100,
+      response_format: { type: "json_object" },
+    });
+
+    const rawOutput = response.choices[0].message.content;
+    const extracted = responseContract.extractResponse(rawOutput);
+
+    if (extracted.success) {
+      return extracted.text;
+    }
+
+    // Retry with stricter prompt
+    if (!isRetry) {
+      console.log(`⚠️ Contract failed, retrying with strict prompt...`);
+      return await this.callLLMWithContract(instruction, true);
+    }
+
+    // Return the instruction as fallback
+    console.error(`❌ Contract failed twice, using fallback`);
+    return instruction;
+  }
+
+  // ============================================================================
+  // V4: CLEAN ORCHESTRATOR (Refactored Architecture - LEGACY)
+  // Uses: flowRegistry + stateEngine + promptBuilder + inputValidator + outputParser
+  // ============================================================================
+
+  /**
+   * Process message using the CLEAN ORCHESTRATED architecture
+   *
+   * ARCHITECTURE:
+   * - flowRegistry: Loads JSON flows (data, not code)
+   * - stateEngine: Executes steps, transitions, retries (LLM has ZERO control)
+   * - promptBuilder: Builds minimal prompts (only if LLM needed)
+   * - inputValidator: Validates user input in backend
+   * - outputParser: Parses LLM output strictly
+   *
+   * LLM is ONLY used for:
+   * - Dynamic queries after flow complete
+   * - RAG-based knowledge queries
+   * - NOT for flow text - that comes from JSON
+   *
+   * @param {string} userMessage - User's spoken text (null for first turn)
+   * @param {string} conversationId - Unique conversation ID
+   * @param {object} options - { useCase, language, agentId, useRAG }
+   * @returns {Promise<object>} { response, language, stepId, data, status }
+   */
+  async processMessageV4(userMessage, conversationId, options = {}) {
+    const {
+      useCase = "automotive_sales",
+      language = "en",
+      agentId = null,
+      useRAG = false,
+    } = options;
+
+    console.log(`\n${"=".repeat(60)}`);
+    console.log(`🚀 V4 ORCHESTRATOR | Conversation: ${conversationId}`);
+    console.log(`📝 User: "${userMessage || "(first turn)"}"`);
+    console.log(`📋 UseCase: ${useCase} | Lang: ${language}`);
+    console.log(`${"=".repeat(60)}`);
+
+    try {
+      // ========================================
+      // STEP 1: Execute state engine turn
+      // This returns text from JSON - NO LLM CALL
+      // ========================================
+      const result = stateEngine.processTurn(conversationId, userMessage, {
+        useCase,
+        language,
+        agentId,
+      });
+
+      console.log(`🎯 Step: ${result.stepId} | Status: ${result.status}`);
+      console.log(`📝 Text: "${result.text?.substring(0, 50)}..."`);
+
+      // ========================================
+      // STEP 2: If flow provided text, return directly
+      // NO LLM CALL NEEDED
+      // ========================================
+      if (result.text) {
+        return {
+          response: result.text,
+          language: result.language,
+
+          // State
+          conversationId,
+          currentStepId: result.stepId,
+          stepType: result.stepType,
+          useCase,
+          status: result.status,
+
+          // Data
+          customerContext: result.data,
+
+          // Validation
+          validationError: result.validationError,
+          retryCount: result.retryCount,
+
+          // Flags
+          isEnd: result.isEnd,
+          isComplete: result.status === "complete",
+          isEscalated: result.status === "escalated",
+
+          // Agent
+          agentConfig: result.agentConfig,
+
+          // Debug
+          _source: "state_engine",
+          _llmUsed: false,
+        };
+      }
+
+      // ========================================
+      // STEP 3: Flow complete - handle dynamic queries
+      // ========================================
+      if (result.status === "complete" && useRAG && userMessage) {
+        console.log(`🔍 Flow complete - using RAG for dynamic query`);
+
+        const ragResponse = await this.getRAGResponse(
+          userMessage,
+          [],
+          `You are ${
+            result.agentConfig?.name || "an assistant"
+          }. Answer briefly.`,
+          { agentId }
+        );
+
+        if (ragResponse) {
+          return {
+            response: ragResponse,
+            language: result.language,
+            conversationId,
+            currentStepId: "rag_response",
+            useCase,
+            status: "complete",
+            customerContext: result.data,
+            agentConfig: result.agentConfig,
+            _source: "rag",
+            _llmUsed: true,
+          };
+        }
+      }
+
+      // ========================================
+      // STEP 4: Default response for completed flow
+      // ========================================
+      return {
+        response:
+          language === "hi"
+            ? "धन्यवाद! क्या मैं आपकी और कोई मदद कर सकती हूँ?"
+            : "Thank you! Is there anything else I can help you with?",
+        language: result.language || language,
+        conversationId,
+        currentStepId: "flow_complete",
+        useCase,
+        status: "complete",
+        customerContext: result.data,
+        agentConfig: result.agentConfig,
+        _source: "default_closing",
+        _llmUsed: false,
+      };
+    } catch (error) {
+      console.error("❌ V4 Orchestrator error:", error.message);
+
+      return {
+        response:
+          language === "hi"
+            ? "माफ़ कीजिए, कुछ समस्या हुई। मैं आपको किसी से जोड़ती हूँ।"
+            : "I apologize, something went wrong. Let me connect you with someone.",
+        language,
+        conversationId,
+        currentStepId: "error",
+        status: "escalated",
+        _source: "error_fallback",
+        _error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Get available use cases (flows)
+   */
+  getAvailableUseCases() {
+    return flowRegistry.getAvailableFlows();
+  }
+
+  /**
+   * Get flow metadata
+   */
+  getFlowMetadata(useCase) {
+    return flowRegistry.getFlowMetadata(useCase);
+  }
+
+  /**
+   * Get all flows metadata
+   */
+  getAllFlowsMetadata() {
+    return flowRegistry.getAllFlowsMetadata();
+  }
+
+  // ============================================================================
+  // V3: JSON-DRIVEN FLOW ENGINE (DEPRECATED - Use V4)
+  // NO LLM NEEDED FOR FLOW TEXT - Everything comes from JSON
+  // ============================================================================
+
+  /**
+   * Process message using JSON-driven flow engine
+   *
+   * KEY DIFFERENCE FROM V2:
+   * - V2: Uses LLM to generate response text
+   * - V3: Uses pre-defined JSON flow text (NO LLM for flows!)
+   *
+   * LLM is ONLY used for:
+   * - Dynamic queries not covered by flow
+   * - RAG-based knowledge queries
+   *
+   * @param {string} userMessage - User's spoken text (null for first turn)
+   * @param {string} sessionId - Unique session identifier
+   * @param {object} options - { useCase, language, useRAG, agentId }
+   * @returns {Promise<object>} { response, language, stepId, data, isEnd }
+   */
+  async processMessageV3(userMessage, sessionId, options = {}) {
+    try {
+      const {
+        useCase = "automotive_sales",
+        language = "en",
+        useRAG = false,
+        agentId = null,
+      } = options;
+
+      console.log(`\n${"=".repeat(60)}`);
+      console.log(`🚀 processMessageV3 (JSON Flow) | Session: ${sessionId}`);
+      console.log(`📝 User: "${userMessage || "(first turn)"}"`);
+      console.log(`📋 UseCase: ${useCase}`);
+      console.log(`${"=".repeat(60)}`);
+
+      // ========================================
+      // STEP 1: Execute flow turn
+      // This returns the EXACT text from JSON - no LLM needed!
+      // ========================================
+      const flowResult = flowEngine.processTurn(sessionId, userMessage, {
+        useCase,
+        language,
+      });
+
+      console.log(`🎯 Step: ${flowResult.stepId} (${flowResult.stepType})`);
+      console.log(`📝 Flow text: "${flowResult.text?.substring(0, 50)}..."`);
+
+      // ========================================
+      // STEP 2: Check if flow handled it
+      // ========================================
+      if (flowResult.text) {
+        // Flow provided the response - return directly
+        // NO LLM CALL NEEDED!
+
+        return {
+          response: flowResult.text,
+          language: flowResult.language,
+
+          // State
+          currentStepId: flowResult.stepId,
+          stepType: flowResult.stepType,
+          useCase,
+
+          // Data
+          customerContext: flowResult.data,
+
+          // Status
+          isFlowComplete: flowResult.isComplete || false,
+          isEscalated: flowResult.isEscalated || false,
+          isEnd: flowResult.isEnd || false,
+
+          // Validation
+          validationError: flowResult.validationError,
+          retryCount: flowResult.retryCount,
+
+          // Agent
+          agentConfig: flowResult.agentConfig,
+
+          // Debug
+          _debug: {
+            source: "flow_engine",
+            llmUsed: false,
+          },
+        };
+      }
+
+      // ========================================
+      // STEP 3: Flow complete or needs dynamic response
+      // Use LLM for RAG/dynamic queries
+      // ========================================
+      if (useRAG && userMessage) {
+        console.log(`🔍 Flow complete/dynamic - using RAG`);
+
+        const ragResponse = await this.getRAGResponse(
+          userMessage,
+          [], // No history needed
+          `You are ${
+            flowResult.agentConfig?.name || "an assistant"
+          }. Answer briefly.`,
+          { agentId }
+        );
+
+        if (ragResponse) {
+          return {
+            response: ragResponse,
+            language,
+            currentStepId: "rag_response",
+            stepType: "dynamic",
+            useCase,
+            customerContext: flowResult.data,
+            isFlowComplete: true,
+            _debug: {
+              source: "rag",
+              llmUsed: true,
+            },
+          };
+        }
+      }
+
+      // ========================================
+      // STEP 4: Default closing
+      // ========================================
+      return {
+        response:
+          "Thank you for your time. Is there anything else I can help you with?",
+        language,
+        currentStepId: "flow_complete",
+        stepType: "closing",
+        useCase,
+        customerContext: flowResult.data,
+        isFlowComplete: true,
+        _debug: {
+          source: "default_closing",
+          llmUsed: false,
+        },
+      };
+    } catch (error) {
+      console.error("❌ processMessageV3 error:", error);
+
+      // Graceful fallback
+      return {
+        response:
+          "I apologize for the inconvenience. Let me connect you with someone who can help.",
+        language: options.language || "en",
+        currentStepId: "error",
+        isEscalated: true,
+        _debug: {
+          source: "error_fallback",
+          error: error.message,
+        },
+      };
+    }
+  }
+
+  /**
+   * Get available use cases (flows)
+   */
+  getAvailableUseCases() {
+    return flowEngine.getAvailableFlows();
+  }
+
+  // ============================================================================
+  // V2: 3-PROMPT ARCHITECTURE (Bolna.ai style)
   // ALL RULES ENFORCED IN BACKEND - LLM NEVER SEES RULES
   // ============================================================================
 

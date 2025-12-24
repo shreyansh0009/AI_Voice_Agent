@@ -1,0 +1,126 @@
+{
+  "useCase": "automotive_sales",
+  "name": "Automotive Sales Flow",
+  "description": "EV sales and test ride booking flow for Greaves Mobility",
+  "startStep": "greeting",
+  "defaultLanguage": "en",
+  "supportedLanguages": ["en", "hi"],
+  
+  "agentConfig": {
+    "name": "Ava",
+    "tone": "warm, professional",
+    "style": "short, clear"
+  },
+
+  "steps": {
+    "greeting": {
+      "type": "message",
+      "text": {
+        "en": "Hello! This is Ava from Greaves Mobility. How may I help you today?",
+        "hi": "नमस्कार! मैं Ava बोल रही हूँ, Greaves Mobility से। आज मैं आपकी कैसे मदद कर सकती हूँ?"
+      },
+      "next": "collect_name"
+    },
+
+    "collect_name": {
+      "type": "input",
+      "field": "name",
+      "validation": "name",
+      "text": {
+        "en": "May I know your name?",
+        "hi": "क्या मैं आपका नाम जान सकती हूँ?"
+      },
+      "retryText": {
+        "en": "I didn't catch your name. Could you please tell me your name?",
+        "hi": "मुझे आपका नाम समझ नहीं आया। कृपया अपना नाम बताइए?"
+      },
+      "next": "collect_phone"
+    },
+
+    "collect_phone": {
+      "type": "input",
+      "field": "phone",
+      "validation": "phone",
+      "text": {
+        "en": "Thank you, {name}. Could you please share your 10-digit mobile number?",
+        "hi": "धन्यवाद, {name}। कृपया अपना 10 अंकों का मोबाइल नंबर बताइए।"
+      },
+      "retryText": {
+        "en": "That doesn't seem like a valid mobile number. Please provide a 10-digit number starting with 6, 7, 8, or 9.",
+        "hi": "यह एक मान्य मोबाइल नंबर नहीं लग रहा। कृपया 6, 7, 8 या 9 से शुरू होने वाला 10 अंकों का नंबर बताइए।"
+      },
+      "next": "collect_pincode"
+    },
+
+    "collect_pincode": {
+      "type": "input",
+      "field": "pincode",
+      "validation": "pincode",
+      "text": {
+        "en": "Got it. What is your 6-digit pincode?",
+        "hi": "समझ गई। आपका 6 अंकों का पिनकोड क्या है?"
+      },
+      "retryText": {
+        "en": "I need a valid 6-digit pincode. Could you please repeat it?",
+        "hi": "मुझे एक मान्य 6 अंकों का पिनकोड चाहिए। कृपया दोहराइए?"
+      },
+      "next": "collect_model"
+    },
+
+    "collect_model": {
+      "type": "input",
+      "field": "model",
+      "validation": "model",
+      "text": {
+        "en": "Which model are you interested in? We have Magnus EX, Nexus, and Eltra.",
+        "hi": "आप किस मॉडल में रुचि रखते हैं? हमारे पास Magnus EX, Nexus, और Eltra हैं।"
+      },
+      "retryText": {
+        "en": "Could you please tell me which model interests you?",
+        "hi": "कृपया बताइए कि आप किस मॉडल में रुचि रखते हैं?"
+      },
+      "next": "confirm_details"
+    },
+
+    "confirm_details": {
+      "type": "confirm",
+      "text": {
+        "en": "Perfect! Let me confirm: {name}, phone {phone}, pincode {pincode}, interested in {model}. Is this correct?",
+        "hi": "बढ़िया! मैं confirm कर लेती हूँ: {name}, फोन {phone}, पिनकोड {pincode}, {model} में रुचि। क्या यह सही है?"
+      },
+      "confirmNext": "book_visit",
+      "denyNext": "collect_name"
+    },
+
+    "book_visit": {
+      "type": "action",
+      "action": "book_appointment",
+      "text": {
+        "en": "Wonderful! I'm scheduling a test ride for you at your nearest dealership. You'll receive an SMS confirmation shortly.",
+        "hi": "बहुत बढ़िया! मैं आपके नजदीकी डीलरशिप पर टेस्ट राइड schedule कर रही हूँ। आपको जल्द ही SMS confirmation मिलेगा।"
+      },
+      "next": "closing"
+    },
+
+    "closing": {
+      "type": "message",
+      "text": {
+        "en": "Thank you for choosing Greaves Mobility, {name}! Have a great day!",
+        "hi": "Greaves Mobility को चुनने के लिए धन्यवाद, {name}! आपका दिन शुभ हो!"
+      },
+      "next": null,
+      "isEnd": true
+    },
+
+    "escalate": {
+      "type": "action",
+      "action": "transfer_to_human",
+      "text": {
+        "en": "I understand. Let me connect you with a human agent who can better assist you.",
+        "hi": "मैं समझती हूँ। मैं आपको एक human agent से जोड़ती हूँ जो आपकी बेहतर मदद कर सकते हैं।"
+      },
+      "next": null,
+      "isEnd": true
+    }
+  }
+}

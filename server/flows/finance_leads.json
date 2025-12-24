@@ -1,0 +1,156 @@
+{
+  "useCase": "finance_leads",
+  "name": "Finance Lead Generation Flow",
+  "description": "Loan inquiry and lead qualification flow",
+  "startStep": "greeting",
+  "defaultLanguage": "en",
+  "supportedLanguages": ["en", "hi"],
+  
+  "agentConfig": {
+    "name": "Riya",
+    "tone": "professional, trustworthy",
+    "style": "clear, reassuring"
+  },
+
+  "steps": {
+    "greeting": {
+      "type": "message",
+      "text": {
+        "en": "Hello! This is Riya from QuickLoan Finance. How can I help you today?",
+        "hi": "नमस्कार! मैं Riya बोल रही हूँ, QuickLoan Finance से। आज मैं आपकी कैसे मदद कर सकती हूँ?"
+      },
+      "next": "collect_name"
+    },
+
+    "collect_name": {
+      "type": "input",
+      "field": "name",
+      "validation": "name",
+      "text": {
+        "en": "May I know your name?",
+        "hi": "क्या मैं आपका नाम जान सकती हूँ?"
+      },
+      "retryText": {
+        "en": "I didn't catch your name. Could you please repeat?",
+        "hi": "मुझे आपका नाम समझ नहीं आया। कृपया दोहराइए?"
+      },
+      "next": "collect_phone"
+    },
+
+    "collect_phone": {
+      "type": "input",
+      "field": "phone",
+      "validation": "phone",
+      "text": {
+        "en": "Thanks, {name}. What's your mobile number?",
+        "hi": "धन्यवाद, {name}। आपका mobile number क्या है?"
+      },
+      "retryText": {
+        "en": "Please provide a valid 10-digit mobile number.",
+        "hi": "कृपया एक मान्य 10 अंकों का मोबाइल नंबर बताइए।"
+      },
+      "next": "collect_loan_type"
+    },
+
+    "collect_loan_type": {
+      "type": "input",
+      "field": "loanType",
+      "validation": "text",
+      "text": {
+        "en": "What type of loan are you interested in? Personal loan, home loan, or business loan?",
+        "hi": "आप किस प्रकार के loan में रुचि रखते हैं? Personal loan, home loan, या business loan?"
+      },
+      "retryText": {
+        "en": "Please specify the type of loan you need.",
+        "hi": "कृपया बताइए कि आपको किस प्रकार का loan चाहिए।"
+      },
+      "next": "collect_amount"
+    },
+
+    "collect_amount": {
+      "type": "input",
+      "field": "loanAmount",
+      "validation": "text",
+      "text": {
+        "en": "What loan amount are you looking for?",
+        "hi": "आप कितने amount का loan लेना चाहते हैं?"
+      },
+      "retryText": {
+        "en": "Please share the approximate loan amount you need.",
+        "hi": "कृपया बताइए कि आपको कितने amount का loan चाहिए।"
+      },
+      "next": "collect_income"
+    },
+
+    "collect_income": {
+      "type": "input",
+      "field": "monthlyIncome",
+      "validation": "text",
+      "text": {
+        "en": "What is your approximate monthly income?",
+        "hi": "आपकी लगभग monthly income कितनी है?"
+      },
+      "retryText": {
+        "en": "Please share your approximate monthly income.",
+        "hi": "कृपया अपनी लगभग monthly income बताइए।"
+      },
+      "next": "collect_pincode"
+    },
+
+    "collect_pincode": {
+      "type": "input",
+      "field": "pincode",
+      "validation": "pincode",
+      "text": {
+        "en": "What is your pincode?",
+        "hi": "आपका pincode क्या है?"
+      },
+      "retryText": {
+        "en": "Please provide a valid 6-digit pincode.",
+        "hi": "कृपया एक मान्य 6 अंकों का pincode बताइए।"
+      },
+      "next": "confirm_details"
+    },
+
+    "confirm_details": {
+      "type": "confirm",
+      "text": {
+        "en": "Let me confirm: {name}, {loanType} for {loanAmount}, monthly income {monthlyIncome}. Should I check your eligibility?",
+        "hi": "मैं confirm करती हूँ: {name}, {loanAmount} का {loanType}, monthly income {monthlyIncome}। क्या मैं आपकी eligibility check करूँ?"
+      },
+      "confirmNext": "check_eligibility",
+      "denyNext": "collect_name"
+    },
+
+    "check_eligibility": {
+      "type": "action",
+      "action": "check_loan_eligibility",
+      "text": {
+        "en": "Great! Based on your details, you may be eligible. Our loan officer will call you within 24 hours with the best offers.",
+        "hi": "बहुत बढ़िया! आपकी details के आधार पर, आप eligible हो सकते हैं। हमारा loan officer आपको 24 घंटे के अंदर best offers के साथ call करेगा।"
+      },
+      "next": "closing"
+    },
+
+    "closing": {
+      "type": "message",
+      "text": {
+        "en": "Thank you for choosing QuickLoan Finance, {name}! We'll be in touch soon.",
+        "hi": "QuickLoan Finance को चुनने के लिए धन्यवाद, {name}! हम जल्द ही संपर्क करेंगे।"
+      },
+      "next": null,
+      "isEnd": true
+    },
+
+    "escalate": {
+      "type": "action",
+      "action": "transfer_to_human",
+      "text": {
+        "en": "I'll connect you with our loan specialist who can answer your questions.",
+        "hi": "मैं आपको हमारे loan specialist से जोड़ती हूँ जो आपके सवालों का जवाब दे सकते हैं।"
+      },
+      "next": null,
+      "isEnd": true
+    }
+  }
+}

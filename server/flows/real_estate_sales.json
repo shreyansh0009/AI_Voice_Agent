@@ -1,0 +1,141 @@
+{
+  "useCase": "real_estate_sales",
+  "name": "Real Estate Sales Flow",
+  "description": "Property inquiry and site visit booking flow",
+  "startStep": "greeting",
+  "defaultLanguage": "en",
+  "supportedLanguages": ["en", "hi"],
+  
+  "agentConfig": {
+    "name": "Priya",
+    "tone": "professional, helpful",
+    "style": "clear, informative"
+  },
+
+  "steps": {
+    "greeting": {
+      "type": "message",
+      "text": {
+        "en": "Hello! This is Priya from Dream Homes Realty. How may I assist you today?",
+        "hi": "नमस्कार! मैं Priya बोल रही हूँ, Dream Homes Realty से। आज मैं आपकी कैसे सहायता कर सकती हूँ?"
+      },
+      "next": "collect_name"
+    },
+
+    "collect_name": {
+      "type": "input",
+      "field": "name",
+      "validation": "name",
+      "text": {
+        "en": "May I have your name please?",
+        "hi": "कृपया अपना नाम बताइए?"
+      },
+      "retryText": {
+        "en": "I didn't catch your name. Could you please repeat?",
+        "hi": "मुझे आपका नाम समझ नहीं आया। कृपया दोहराइए?"
+      },
+      "next": "collect_phone"
+    },
+
+    "collect_phone": {
+      "type": "input",
+      "field": "phone",
+      "validation": "phone",
+      "text": {
+        "en": "Thank you, {name}. What's your contact number?",
+        "hi": "धन्यवाद, {name}। आपका contact number क्या है?"
+      },
+      "retryText": {
+        "en": "Please provide a valid 10-digit mobile number.",
+        "hi": "कृपया एक मान्य 10 अंकों का मोबाइल नंबर बताइए।"
+      },
+      "next": "collect_location"
+    },
+
+    "collect_location": {
+      "type": "input",
+      "field": "address",
+      "validation": "address",
+      "text": {
+        "en": "Which area or location are you looking for property in?",
+        "hi": "आप किस क्षेत्र या location में property देख रहे हैं?"
+      },
+      "retryText": {
+        "en": "Could you please specify the area you're interested in?",
+        "hi": "कृपया बताइए कि आप किस क्षेत्र में रुचि रखते हैं?"
+      },
+      "next": "collect_budget"
+    },
+
+    "collect_budget": {
+      "type": "input",
+      "field": "budget",
+      "validation": "text",
+      "text": {
+        "en": "What's your budget range for the property?",
+        "hi": "Property के लिए आपका budget range क्या है?"
+      },
+      "retryText": {
+        "en": "Please share your approximate budget.",
+        "hi": "कृपया अपना अनुमानित budget बताइए।"
+      },
+      "next": "collect_property_type"
+    },
+
+    "collect_property_type": {
+      "type": "input",
+      "field": "propertyType",
+      "validation": "text",
+      "text": {
+        "en": "Are you looking for 1BHK, 2BHK, 3BHK, or a villa?",
+        "hi": "आप 1BHK, 2BHK, 3BHK, या villa में से क्या देख रहे हैं?"
+      },
+      "retryText": {
+        "en": "Please specify the type of property you're interested in.",
+        "hi": "कृपया बताइए कि आप किस प्रकार की property में रुचि रखते हैं।"
+      },
+      "next": "confirm_details"
+    },
+
+    "confirm_details": {
+      "type": "confirm",
+      "text": {
+        "en": "Let me confirm: {name}, looking for {propertyType} in {address}, budget {budget}. Shall I schedule a site visit?",
+        "hi": "मैं confirm करती हूँ: {name}, {address} में {propertyType} देख रहे हैं, budget {budget}। क्या मैं site visit schedule करूँ?"
+      },
+      "confirmNext": "schedule_visit",
+      "denyNext": "collect_name"
+    },
+
+    "schedule_visit": {
+      "type": "action",
+      "action": "book_appointment",
+      "text": {
+        "en": "Excellent! I'm scheduling a site visit for you. Our representative will call you to confirm the timing.",
+        "hi": "बहुत बढ़िया! मैं आपके लिए site visit schedule कर रही हूँ। हमारा representative आपको timing confirm करने के लिए call करेगा।"
+      },
+      "next": "closing"
+    },
+
+    "closing": {
+      "type": "message",
+      "text": {
+        "en": "Thank you for your interest, {name}! We look forward to helping you find your dream home.",
+        "hi": "आपकी रुचि के लिए धन्यवाद, {name}! हम आपको आपका dream home खोजने में मदद करने के लिए उत्सुक हैं।"
+      },
+      "next": null,
+      "isEnd": true
+    },
+
+    "escalate": {
+      "type": "action",
+      "action": "transfer_to_human",
+      "text": {
+        "en": "I'll connect you with our sales executive who can provide more details.",
+        "hi": "मैं आपको हमारे sales executive से जोड़ती हूँ जो आपको और details दे सकते हैं।"
+      },
+      "next": null,
+      "isEnd": true
+    }
+  }
+}
