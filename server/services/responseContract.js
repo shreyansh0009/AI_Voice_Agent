@@ -32,6 +32,9 @@ export const ResponseType = {
   SILENCE: "SILENCE", // No response needed (rare)
 };
 
+// Alias for exact spec match
+export const RESPONSE_TYPES = ResponseType;
+
 /**
  * Required response structure:
  * {
@@ -51,6 +54,49 @@ export const ResponseSchema = {
     type: "string",
   },
 };
+
+// ============================================================================
+// HARD VALIDATION (Throws errors - use with retry logic)
+// ============================================================================
+
+/**
+ * Validate LLM response - THROWS on failure
+ * Use this with retry strategy
+ *
+ * @param {object} raw - Parsed LLM response object
+ * @returns {object} Validated response
+ * @throws {Error} LLM_OUTPUT_NOT_OBJECT, INVALID_RESPONSE_TYPE, INVALID_SPEAK_TEXT, TEXT_TOO_LONG
+ */
+export function validateLLMResponse(raw) {
+  if (!raw || typeof raw !== "object") {
+    throw new Error("LLM_OUTPUT_NOT_OBJECT");
+  }
+
+  if (!Object.values(RESPONSE_TYPES).includes(raw.type)) {
+    throw new Error("INVALID_RESPONSE_TYPE");
+  }
+
+  if (raw.type === RESPONSE_TYPES.SPEAK) {
+    if (!raw.text || typeof raw.text !== "string") {
+      throw new Error("INVALID_SPEAK_TEXT");
+    }
+
+    // HARD RULES
+    if (raw.text.length > 300) {
+      throw new Error("TEXT_TOO_LONG");
+    }
+
+    if (raw.text.trim().length === 0) {
+      throw new Error("TEXT_EMPTY");
+    }
+  }
+
+  // Return sanitized version
+  return {
+    type: raw.type,
+    text: raw.type === RESPONSE_TYPES.SPEAK ? sanitizeText(raw.text) : null,
+  };
+}
 
 // ============================================================================
 // VALIDATION
@@ -405,10 +451,14 @@ export const CONTRACT = {
 export default {
   // Types
   ResponseType,
+  RESPONSE_TYPES, // Alias
   ResponseSchema,
   CONTRACT,
 
-  // Validation
+  // Hard validation (throws errors)
+  validateLLMResponse,
+
+  // Soft validation (returns objects)
   validateResponse,
   validateStrict,
   checkViolations,

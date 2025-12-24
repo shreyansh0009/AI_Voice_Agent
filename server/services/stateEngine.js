@@ -180,27 +180,145 @@ export function getCurrentStep(state) {
 
 /**
  * Get current step text in current language
+ * Automatically fills {{placeholders}} with agentConfig and collectedData
  *
  * @param {object} state - Conversation state
  * @param {boolean} isRetry - Use retry text if available
- * @returns {string|null} Text to speak
+ * @returns {string|null} Text to speak with placeholders filled
  */
 export function getCurrentStepText(state, isRetry = false) {
   if (!state) return null;
 
-  let text = flowRegistry.getStepText(
+  // Use getStepTextWithContext for proper {{placeholder}} replacement
+  const text = flowRegistry.getStepTextWithContext(
     state.useCase,
     state.currentStepId,
     state.language,
-    isRetry
+    isRetry,
+    {
+      agentConfig: state.agentConfig,
+      collectedData: state.collectedData,
+    }
   );
 
-  // Replace placeholders with collected data
-  if (text) {
-    text = replacePlaceholders(text, state.collectedData);
+  return text;
+}
+
+// ============================================================================
+// STATE ENGINE IS THE BOSS
+// LLM NEVER decides what the next step is
+// ============================================================================
+
+/**
+ * Advance state based on flow definition and collected slots
+ *
+ * GOLDEN RULE: LLM never decides what the next step is
+ *
+ * State engine controls:
+ * - current step
+ * - next step
+ * - retries
+ * - closure
+ * - exit
+ *
+ * LLM DOES NOT KNOW THIS EXISTS.
+ *
+ * @param {object} flow - Flow definition from JSON
+ * @param {object} state - Current conversation state
+ * @param {object} slots - Extracted slots from user input
+ * @returns {object} { nextStepId, shouldRepeat, reason }
+ */
+export function advanceState(flow, state, slots = {}) {
+  const step = flow.steps[state.currentStepId];
+
+  if (!step) {
+    // Invalid step - stay where we are
+    return {
+      nextStepId: state.currentStepId,
+      shouldRepeat: true,
+      reason: "INVALID_STEP",
+    };
   }
 
-  return text;
+  // RULE 1: If step requires data collection, check if slot is provided
+  if (step.field || step.collect) {
+    const fieldName = step.field || step.collect;
+
+    if (!slots[fieldName] && !state.collectedData[fieldName]) {
+      // Data not collected - repeat the step
+      return {
+        nextStepId: state.currentStepId,
+        shouldRepeat: true,
+        reason: "SLOT_MISSING",
+        missingField: fieldName,
+      };
+    }
+  }
+
+  // RULE 2: If step is confirmation type, check for yes/no
+  if (step.type === "confirm") {
+    const confirmation = slots.confirmation || slots.confirm;
+
+    if (confirmation === "yes" && step.confirmNext) {
+      return { nextStepId: step.confirmNext, shouldRepeat: false };
+    }
+
+    if (confirmation === "no" && step.denyNext) {
+      return { nextStepId: step.denyNext, shouldRepeat: false };
+    }
+
+    // Unclear confirmation - repeat
+    if (!confirmation || confirmation === "unclear") {
+      return {
+        nextStepId: state.currentStepId,
+        shouldRepeat: true,
+        reason: "CONFIRMATION_UNCLEAR",
+      };
+    }
+  }
+
+  // RULE 3: Check for max retries
+  if (state.retryCount >= (state.maxRetries || 2)) {
+    // Max retries exceeded - escalate
+    return {
+      nextStepId: "escalate",
+      shouldRepeat: false,
+      reason: "MAX_RETRIES_EXCEEDED",
+    };
+  }
+
+  // RULE 4: If step is end step, mark complete
+  if (step.isEnd || !step.next) {
+    return {
+      nextStepId: null,
+      shouldRepeat: false,
+      reason: "FLOW_COMPLETE",
+      isComplete: true,
+    };
+  }
+
+  // RULE 5: Advance to next step
+  return {
+    nextStepId: step.next,
+    shouldRepeat: false,
+    reason: "ADVANCED",
+  };
+}
+
+/**
+ * Pure function to determine if state should advance
+ * Called BEFORE any LLM interaction
+ *
+ * @param {object} state - Current state
+ * @param {object} slots - Extracted slots
+ * @returns {boolean} Whether to advance
+ */
+export function shouldAdvance(state, slots = {}) {
+  const flow = flowRegistry.getFlow(state.useCase);
+  if (!flow) return false;
+
+  const result = advanceState(flow, state, slots);
+  return !result.shouldRepeat;
 }
 
 // ============================================================================
@@ -754,6 +872,10 @@ export default {
   // Step access
   getCurrentStep,
   getCurrentStepText,
+
+  // State engine is THE BOSS (LLM never knows this)
+  advanceState,
+  shouldAdvance,
 
   // Transitions
   advanceStep,

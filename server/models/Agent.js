@@ -26,11 +26,55 @@ const agentSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
-    prompt: {
+
+    // ============================================
+    // FLOW CONFIGURATION (NEW - Required for V5)
+    // ============================================
+    flowId: {
+      type: String,
+      required: false, // Make required: true after migration
+      index: true,
+      default: "automotive_sales", // Default flow
+    },
+    flowVersion: {
+      type: String,
+      default: "v1",
+    },
+
+    // PERSONA PROMPT (replaces complex prompt for flow logic)
+    // This is ONLY for agent personality, NOT flow logic
+    personaPrompt: {
       type: String,
       default: "",
     },
+
+    // Supported languages for this agent
+    supportedLanguages: {
+      type: [String],
+      default: ["en", "hi"],
+    },
+
+    // Agent persona configuration (for {{placeholder}} replacement)
+    agentConfig: {
+      name: { type: String, default: "Ava" },
+      brand: { type: String, default: "" },
+      tone: { type: String, default: "friendly" },
+      style: { type: String, default: "concise" },
+    },
+
+    // ============================================
+    // DEPRECATED - Keep for backwards compatibility
+    // STOP using for flow logic, use flowId instead
+    // ============================================
+    prompt: {
+      type: String,
+      default: "",
+      // @deprecated - Use personaPrompt for persona, flowId for flow logic
+    },
+
+    // ============================================
     // LLM Configuration
+    // ============================================
     llmProvider: {
       type: String,
       enum: ["Openai", "Agentforce"],
@@ -48,7 +92,10 @@ const agentSchema = new mongoose.Schema(
       type: Number,
       default: 0.7,
     },
+
+    // ============================================
     // Audio Configuration
+    // ============================================
     language: {
       type: String,
       default: "English (India)",
@@ -84,5 +131,8 @@ const agentSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Index for faster flow-based queries
+agentSchema.index({ userId: 1, flowId: 1 });
 
 export default mongoose.model("Agent", agentSchema);

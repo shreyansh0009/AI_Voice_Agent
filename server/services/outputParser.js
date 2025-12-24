@@ -297,6 +297,60 @@ export function detectLanguage(text) {
   return "en";
 }
 
+// ============================================================================
+// DEFENSIVE PARSING (Throws on failure - use with retry)
+// ============================================================================
+
+/**
+ * Parse LLM output - THROWS on failure
+ * Use this with retry strategy
+ *
+ * @param {string} rawText - Raw LLM output string
+ * @returns {object} Parsed JSON object
+ * @throws {Error} LLM_OUTPUT_PARSE_FAILED
+ */
+export function parseLLMOutput(rawText) {
+  if (!rawText || typeof rawText !== "string") {
+    throw new Error("LLM_OUTPUT_PARSE_FAILED");
+  }
+
+  try {
+    // Try direct parse first
+    const json = JSON.parse(rawText.trim());
+    return json;
+  } catch (e) {
+    // Try to extract JSON from text
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch (e2) {
+        throw new Error("LLM_OUTPUT_PARSE_FAILED");
+      }
+    }
+    throw new Error("LLM_OUTPUT_PARSE_FAILED");
+  }
+}
+
+/**
+ * Parse and validate LLM output in one step
+ * Combines parseLLMOutput + validation
+ *
+ * @param {string} rawText - Raw LLM output
+ * @param {function} validator - Validation function (e.g., validateLLMResponse)
+ * @returns {object} Validated response
+ * @throws {Error} LLM_OUTPUT_PARSE_FAILED or validation errors
+ */
+export function parseLLMOutputStrict(rawText, validator) {
+  const parsed = parseLLMOutput(rawText);
+
+  if (validator && typeof validator === "function") {
+    return validator(parsed);
+  }
+
+  return parsed;
+}
+
 export default {
   parseResponse,
   validateOutput,
@@ -304,4 +358,8 @@ export default {
   detectLanguage,
   sanitizeSpokenText,
   OUTPUT_CONTRACT,
+
+  // Defensive parsing (throws on failure)
+  parseLLMOutput,
+  parseLLMOutputStrict,
 };

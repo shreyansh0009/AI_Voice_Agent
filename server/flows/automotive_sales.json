@@ -1,125 +1,157 @@
 {
-  "useCase": "automotive_sales",
-  "name": "Automotive Sales Flow",
-  "description": "EV sales and test ride booking flow for Greaves Mobility",
+  "flowId": "automotive_sales_v1",
+  "domain": "automotive",
+  "version": "1.0",
+  "description": "EV sales and test ride booking flow",
+
   "startStep": "greeting",
   "defaultLanguage": "en",
-  "supportedLanguages": ["en", "hi"],
-  
+
   "agentConfig": {
     "name": "Ava",
-    "tone": "warm, professional",
-    "style": "short, clear"
+    "brand": "Revolt",
+    "tone": "friendly",
+    "style": "concise"
+  },
+
+  "interruptions": {
+    "HELP": "handoff",
+    "STOP": "end",
+    "SPEAK_TO_HUMAN": "handoff",
+    "CANCEL": "end",
+    "CHANGE_TOPIC": "handoff"
   },
 
   "steps": {
     "greeting": {
       "type": "message",
       "text": {
-        "en": "Hello! This is Ava from Greaves Mobility. How may I help you today?",
-        "hi": "नमस्कार! मैं Ava बोल रही हूँ, Greaves Mobility से। आज मैं आपकी कैसे मदद कर सकती हूँ?"
+        "en": "Hello! This is {{agentName}} from {{companyName}}. How can I help you today?",
+        "hi": "नमस्ते! मैं {{companyName}} से {{agentName}} बोल रही हूँ। मैं आपकी कैसे मदद कर सकती हूँ?"
       },
-      "next": "collect_name"
+      "next": "ask_intent"
+    },
+
+    "ask_intent": {
+      "type": "choice",
+      "field": "intent",
+      "options": ["test_ride", "price_check", "availability", "support"],
+      "text": {
+        "en": "Would you like to book a test ride, check prices, or know about availability?",
+        "hi": "क्या आप टेस्ट राइड बुक करना चाहते हैं, प्राइस जानना चाहते हैं, या अवेलेबिलिटी?"
+      },
+      "next": {
+        "test_ride": "collect_name",
+        "price_check": "collect_model",
+        "availability": "collect_model",
+        "support": "handoff"
+      },
+      "defaultNext": "collect_name"
     },
 
     "collect_name": {
       "type": "input",
       "field": "name",
       "validation": "name",
+      "maxRetries": 2,
       "text": {
-        "en": "May I know your name?",
+        "en": "May I know your name please?",
         "hi": "क्या मैं आपका नाम जान सकती हूँ?"
       },
       "retryText": {
-        "en": "I didn't catch your name. Could you please tell me your name?",
-        "hi": "मुझे आपका नाम समझ नहीं आया। कृपया अपना नाम बताइए?"
+        "en": "I didn't catch that. Could you tell me your name?",
+        "hi": "मुझे समझ नहीं आया। कृपया अपना नाम बताइए।"
       },
-      "next": "collect_phone"
+      "onSuccess": "collect_mobile",
+      "onFailure": "handoff"
     },
 
-    "collect_phone": {
+    "collect_mobile": {
       "type": "input",
-      "field": "phone",
-      "validation": "phone",
+      "field": "mobile",
+      "validation": "mobile",
+      "maxRetries": 2,
       "text": {
-        "en": "Thank you, {name}. Could you please share your 10-digit mobile number?",
-        "hi": "धन्यवाद, {name}। कृपया अपना 10 अंकों का मोबाइल नंबर बताइए।"
+        "en": "Thanks {{name}}! Please share your 10-digit mobile number.",
+        "hi": "धन्यवाद {{name}}! कृपया अपना 10 अंकों का मोबाइल नंबर बताइए।"
       },
       "retryText": {
-        "en": "That doesn't seem like a valid mobile number. Please provide a 10-digit number starting with 6, 7, 8, or 9.",
-        "hi": "यह एक मान्य मोबाइल नंबर नहीं लग रहा। कृपया 6, 7, 8 या 9 से शुरू होने वाला 10 अंकों का नंबर बताइए।"
+        "en": "That doesn't seem right. Please share a valid 10-digit mobile number.",
+        "hi": "यह सही नहीं लग रहा। कृपया सही 10 अंकों का नंबर बताइए।"
       },
-      "next": "collect_pincode"
+      "onSuccess": "collect_pincode",
+      "onFailure": "handoff"
     },
 
     "collect_pincode": {
       "type": "input",
       "field": "pincode",
       "validation": "pincode",
+      "maxRetries": 2,
       "text": {
-        "en": "Got it. What is your 6-digit pincode?",
-        "hi": "समझ गई। आपका 6 अंकों का पिनकोड क्या है?"
+        "en": "Please share your 6-digit pincode.",
+        "hi": "कृपया अपना 6 अंकों का पिनकोड बताइए।"
       },
       "retryText": {
-        "en": "I need a valid 6-digit pincode. Could you please repeat it?",
-        "hi": "मुझे एक मान्य 6 अंकों का पिनकोड चाहिए। कृपया दोहराइए?"
+        "en": "I need a valid 6-digit pincode. Please try again.",
+        "hi": "कृपया सही 6 अंकों का पिनकोड बताइए।"
       },
-      "next": "collect_model"
+      "onSuccess": "collect_model",
+      "onFailure": "handoff"
     },
 
     "collect_model": {
-      "type": "input",
+      "type": "choice",
       "field": "model",
-      "validation": "model",
+      "options": ["RV400", "RV400 BRZ", "RV1"],
       "text": {
-        "en": "Which model are you interested in? We have Magnus EX, Nexus, and Eltra.",
-        "hi": "आप किस मॉडल में रुचि रखते हैं? हमारे पास Magnus EX, Nexus, और Eltra हैं।"
+        "en": "Which model are you interested in? We have RV400, RV400 BRZ, and RV1.",
+        "hi": "आप किस मॉडल में रुचि रखते हैं? हमारे पास RV400, RV400 BRZ, और RV1 है।"
       },
-      "retryText": {
-        "en": "Could you please tell me which model interests you?",
-        "hi": "कृपया बताइए कि आप किस मॉडल में रुचि रखते हैं?"
+      "next": {
+        "RV400": "confirm_booking",
+        "RV400 BRZ": "confirm_booking",
+        "RV1": "confirm_booking"
       },
-      "next": "confirm_details"
+      "defaultNext": "confirm_booking"
     },
 
-    "confirm_details": {
+    "confirm_booking": {
       "type": "confirm",
       "text": {
-        "en": "Perfect! Let me confirm: {name}, phone {phone}, pincode {pincode}, interested in {model}. Is this correct?",
-        "hi": "बढ़िया! मैं confirm कर लेती हूँ: {name}, फोन {phone}, पिनकोड {pincode}, {model} में रुचि। क्या यह सही है?"
+        "en": "Let me confirm: {{name}}, mobile {{mobile}}, pincode {{pincode}}, interested in {{model}}. Is this correct?",
+        "hi": "मैं कन्फर्म करती हूँ: {{name}}, मोबाइल {{mobile}}, पिनकोड {{pincode}}, {{model}} में रुचि। क्या यह सही है?"
       },
-      "confirmNext": "book_visit",
+      "confirmNext": "book_appointment",
       "denyNext": "collect_name"
     },
 
-    "book_visit": {
-      "type": "action",
-      "action": "book_appointment",
-      "text": {
-        "en": "Wonderful! I'm scheduling a test ride for you at your nearest dealership. You'll receive an SMS confirmation shortly.",
-        "hi": "बहुत बढ़िया! मैं आपके नजदीकी डीलरशिप पर टेस्ट राइड schedule कर रही हूँ। आपको जल्द ही SMS confirmation मिलेगा।"
-      },
-      "next": "closing"
-    },
-
-    "closing": {
+    "book_appointment": {
       "type": "message",
+      "action": "book_test_ride",
       "text": {
-        "en": "Thank you for choosing Greaves Mobility, {name}! Have a great day!",
-        "hi": "Greaves Mobility को चुनने के लिए धन्यवाद, {name}! आपका दिन शुभ हो!"
+        "en": "Your test ride has been booked! Our team will contact you soon. Have a great day!",
+        "hi": "आपकी टेस्ट राइड बुक हो गई है! हमारी टीम जल्द संपर्क करेगी। शुभ दिन!"
       },
-      "next": null,
-      "isEnd": true
+      "next": "end"
     },
 
-    "escalate": {
-      "type": "action",
-      "action": "transfer_to_human",
+    "handoff": {
+      "type": "handoff",
       "text": {
-        "en": "I understand. Let me connect you with a human agent who can better assist you.",
-        "hi": "मैं समझती हूँ। मैं आपको एक human agent से जोड़ती हूँ जो आपकी बेहतर मदद कर सकते हैं।"
+        "en": "Let me connect you with a human agent. Please hold.",
+        "hi": "मैं आपको एक एजेंट से जोड़ती हूँ। कृपया रुकिए।"
       },
-      "next": null,
+      "action": "transfer_to_human",
+      "resumeEnabled": true
+    },
+
+    "end": {
+      "type": "end",
+      "text": {
+        "en": "Thank you for calling {{companyName}}! Goodbye.",
+        "hi": "{{companyName}} को कॉल करने के लिए धन्यवाद! अलविदा।"
+      },
       "isEnd": true
     }
   }

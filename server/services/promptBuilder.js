@@ -201,7 +201,65 @@ export function getStepInstruction(stepId, customInstruction = null) {
 }
 
 // ============================================================================
-// FLOW PARSER (NO CHANGES NEEDED)
+// STEP PROMPT V2 (EXACT SPEC - ONE INSTRUCTION ONLY)
+// ============================================================================
+
+/**
+ * Build step prompt V2 - EXACT SPEC
+ *
+ * ❌ NO memory
+ * ❌ NO flow logic
+ * ❌ NO rules
+ * ❌ NO examples
+ * ❌ NO history
+ * ❌ NO warnings
+ *
+ * LLM is now a TEXT-TO-SPEECH assistant, nothing more.
+ *
+ * @param {string} stepText - The exact sentence to speak
+ * @returns {string} Minimal prompt with JSON output format
+ */
+export function buildStepPromptV2(stepText) {
+  return `You are a voice agent.
+
+RULES:
+- Respond ONLY in JSON.
+- Do NOT add explanations.
+- Do NOT add greetings.
+
+JSON FORMAT:
+{
+  "type": "SPEAK",
+  "text": "<sentence>"
+}
+
+Sentence:
+"${stepText}"
+`;
+}
+
+/**
+ * Build the MINIMAL prompt for LLM
+ * This is the ONLY prompt needed for flow execution
+ *
+ * @param {string} text - Text to speak
+ * @param {boolean} isRetry - Is this a retry attempt?
+ * @returns {string} Minimal prompt
+ */
+export function buildMinimalPrompt(text, isRetry = false) {
+  if (isRetry) {
+    // Stricter prompt for retries
+    return `STRICT: Output ONLY this JSON:
+{"type":"SPEAK","text":"${text}"}
+
+NO other text allowed.`;
+  }
+
+  return buildStepPromptV2(text);
+}
+
+// ============================================================================
+// FLOW PARSER (LEGACY - Use JSON flows instead)
 // ============================================================================
 
 /**

@@ -385,7 +385,7 @@ class AIAgentService {
   }
 
   /**
-   * Call LLM with contract enforcement
+   * Call LLM with contract enforcement (simple version)
    * Used only for dynamic/RAG responses
    *
    * @param {string} instruction - What to say
@@ -419,6 +419,86 @@ class AIAgentService {
     // Return the instruction as fallback
     console.error(`❌ Contract failed twice, using fallback`);
     return instruction;
+  }
+
+  /**
+   * Get LLM response with CONTROLLED RETRY STRATEGY
+   *
+   * RETRY RULES:
+   * - Max retries: 2
+   * - Retry only if: JSON parse fails OR schema validation fails
+   * - Never infinite retries
+   * - Never fallback to free text
+   *
+   * @param {string} prompt - The prompt to send
+   * @returns {Promise<object>} Validated response { type, text }
+   * @throws {Error} After max retries exceeded
+   */
+  async getLLMResponseWithRetry(prompt) {
+    const MAX_RETRIES = 2;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        console.log(`🤖 LLM attempt ${attempt}/${MAX_RETRIES}`);
+
+        // Call LLM
+        const response = await this.openai.chat.completions.create({
+          model: "gpt-3.5-turbo",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0,
+          max_tokens: 100,
+          response_format: { type: "json_object" },
+        });
+
+        const rawOutput = response.choices[0].message.content;
+
+        // Parse (throws on failure)
+        const parsed = outputParser.parseLLMOutput(rawOutput);
+
+        // Validate (throws on failure)
+        const validated = responseContract.validateLLMResponse(parsed);
+
+        console.log(
+          `✅ LLM response validated: "${validated.text?.substring(0, 40)}..."`
+        );
+        return validated;
+      } catch (error) {
+        lastError = error;
+        console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}`);
+
+        // Modify prompt for retry with stricter instruction
+        if (attempt < MAX_RETRIES) {
+          prompt = `STRICT: ${prompt}\n\nPrevious attempt failed. Output ONLY valid JSON.`;
+        }
+      }
+    }
+
+    // Max retries exceeded - throw the error
+    console.error(
+      `❌ LLM failed after ${MAX_RETRIES} attempts: ${lastError?.message}`
+    );
+    throw lastError;
+  }
+
+  /**
+   * Get LLM response for a specific step text
+   * Uses minimal prompt + retry strategy
+   *
+   * @param {string} stepText - The text the agent should speak
+   * @returns {Promise<string>} Validated spoken text
+   */
+  async getStepResponse(stepText) {
+    const prompt = promptBuilder.buildStepPromptV2(stepText);
+
+    try {
+      const response = await this.getLLMResponseWithRetry(prompt);
+      return response.text;
+    } catch (error) {
+      // On complete failure, return the original step text
+      console.error(`❌ LLM completely failed, using original text`);
+      return stepText;
+    }
   }
 
   // ============================================================================

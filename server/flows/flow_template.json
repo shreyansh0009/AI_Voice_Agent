@@ -1,0 +1,158 @@
+{
+  "_template": "flow_template_v1",
+  "description": "Template for creating bulletproof flow JSONs",
+  
+  "flowId": "template_flow_v1",
+  "domain": "template",
+  "version": "1.0",
+
+  "startStep": "greeting",
+  "defaultLanguage": "en",
+
+  "agentConfig": {
+    "name": "Agent Name",
+    "brand": "Company Name",
+    "tone": "friendly|professional|warm",
+    "style": "concise|helpful|trustworthy"
+  },
+
+  "interruptions": {
+    "HELP": "handoff",
+    "STOP": "end",
+    "SPEAK_TO_HUMAN": "handoff",
+    "CANCEL": "end",
+    "CHANGE_TOPIC": "handoff"
+  },
+
+  "stepTypes": {
+    "_comment": "Only these step types are allowed",
+    "message": "System speaks, no input expected",
+    "input": "Collect a value with validation",
+    "choice": "User selects from options",
+    "confirm": "Yes/No confirmation",
+    "end": "Close conversation",
+    "handoff": "Transfer to human agent"
+  },
+
+  "steps": {
+    "greeting": {
+      "type": "message",
+      "text": {
+        "en": "Hello! How can I help you?",
+        "hi": "नमस्ते! मैं आपकी कैसे मदद कर सकती हूँ?"
+      },
+      "next": "collect_name"
+    },
+
+    "collect_name": {
+      "type": "input",
+      "field": "name",
+      "validation": "name",
+      "maxRetries": 2,
+      "text": {
+        "en": "May I know your name?",
+        "hi": "कृपया अपना नाम बताइए।"
+      },
+      "retryText": {
+        "en": "I didn't catch that. Your name please?",
+        "hi": "मुझे समझ नहीं आया। कृपया नाम बताइए।"
+      },
+      "onSuccess": "collect_mobile",
+      "onFailure": "handoff"
+    },
+
+    "collect_mobile": {
+      "type": "input",
+      "field": "mobile",
+      "validation": "mobile",
+      "maxRetries": 2,
+      "text": {
+        "en": "Please share your 10-digit mobile number.",
+        "hi": "कृपया अपना 10 अंकों का मोबाइल नंबर बताइए।"
+      },
+      "retryText": {
+        "en": "That's not valid. Please share a 10-digit number.",
+        "hi": "यह सही नहीं है। कृपया 10 अंकों का नंबर बताइए।"
+      },
+      "onSuccess": "choice_example",
+      "onFailure": "handoff"
+    },
+
+    "choice_example": {
+      "type": "choice",
+      "field": "selection",
+      "options": ["option1", "option2", "option3"],
+      "text": {
+        "en": "Which option would you prefer?",
+        "hi": "आप कौन सा विकल्प चाहेंगे?"
+      },
+      "next": {
+        "option1": "confirm_details",
+        "option2": "confirm_details",
+        "option3": "confirm_details"
+      },
+      "defaultNext": "confirm_details"
+    },
+
+    "confirm_details": {
+      "type": "confirm",
+      "text": {
+        "en": "I have {name}, {mobile}, and {selection}. Is this correct?",
+        "hi": "{name}, {mobile}, और {selection}। क्या यह सही है?"
+      },
+      "confirmNext": "success_action",
+      "denyNext": "collect_name"
+    },
+
+    "success_action": {
+      "type": "message",
+      "action": "process_request",
+      "text": {
+        "en": "Done! We will contact you soon.",
+        "hi": "हो गया! हम जल्द संपर्क करेंगे।"
+      },
+      "next": "end"
+    },
+
+    "handoff": {
+      "type": "handoff",
+      "text": {
+        "en": "Let me connect you with an agent.",
+        "hi": "मैं आपको एक एजेंट से जोड़ती हूँ।"
+      },
+      "action": "transfer_to_human",
+      "resumeEnabled": true,
+      "_resumeNote": "Store previousStep to resume later"
+    },
+
+    "end": {
+      "type": "end",
+      "text": {
+        "en": "Thank you! Goodbye.",
+        "hi": "धन्यवाद! अलविदा।"
+      },
+      "isEnd": true
+    }
+  },
+
+  "_validationTypes": [
+    "name",
+    "mobile",
+    "pincode",
+    "email",
+    "text",
+    "number",
+    "date",
+    "time"
+  ],
+
+  "_notes": {
+    "1": "Flow defines WHAT happens, not HOW it's spoken",
+    "2": "Each step has exactly ONE responsibility",
+    "3": "No step depends on LLM interpretation",
+    "4": "All branching is explicit",
+    "5": "Language lives in text blocks, not logic",
+    "6": "Retries are flow-level, not prompt-level",
+    "7": "LLM never knows about retry count or step logic"
+  }
+}

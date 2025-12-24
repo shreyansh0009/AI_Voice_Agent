@@ -1,140 +1,177 @@
 {
-  "useCase": "real_estate_sales",
-  "name": "Real Estate Sales Flow",
+  "flowId": "real_estate_sales_v1",
+  "domain": "real_estate",
+  "version": "1.0",
   "description": "Property inquiry and site visit booking flow",
+
   "startStep": "greeting",
   "defaultLanguage": "en",
-  "supportedLanguages": ["en", "hi"],
-  
+
   "agentConfig": {
     "name": "Priya",
-    "tone": "professional, helpful",
-    "style": "clear, informative"
+    "brand": "DreamHomes",
+    "tone": "professional",
+    "style": "helpful"
+  },
+
+  "interruptions": {
+    "HELP": "handoff",
+    "STOP": "end",
+    "SPEAK_TO_HUMAN": "handoff",
+    "CANCEL": "end",
+    "CHANGE_TOPIC": "handoff"
   },
 
   "steps": {
     "greeting": {
       "type": "message",
       "text": {
-        "en": "Hello! This is Priya from Dream Homes Realty. How may I assist you today?",
-        "hi": "नमस्कार! मैं Priya बोल रही हूँ, Dream Homes Realty से। आज मैं आपकी कैसे सहायता कर सकती हूँ?"
+        "en": "Hello! This is {agentName} from {brand}. Are you looking to buy or rent a property?",
+        "hi": "नमस्ते! मैं {brand} से {agentName} बोल रही हूँ। क्या आप प्रॉपर्टी खरीदना या किराए पर लेना चाहते हैं?"
       },
-      "next": "collect_name"
+      "next": "ask_intent"
+    },
+
+    "ask_intent": {
+      "type": "choice",
+      "field": "propertyIntent",
+      "options": ["buy", "rent", "site_visit", "support"],
+      "text": {
+        "en": "Would you like to buy, rent, or schedule a site visit?",
+        "hi": "क्या आप खरीदना, किराए पर लेना, या साइट विजिट बुक करना चाहते हैं?"
+      },
+      "next": {
+        "buy": "collect_name",
+        "rent": "collect_name",
+        "site_visit": "collect_name",
+        "support": "handoff"
+      },
+      "defaultNext": "collect_name"
     },
 
     "collect_name": {
       "type": "input",
       "field": "name",
       "validation": "name",
+      "maxRetries": 2,
       "text": {
-        "en": "May I have your name please?",
-        "hi": "कृपया अपना नाम बताइए?"
+        "en": "May I know your name please?",
+        "hi": "कृपया अपना नाम बताइए।"
       },
       "retryText": {
-        "en": "I didn't catch your name. Could you please repeat?",
-        "hi": "मुझे आपका नाम समझ नहीं आया। कृपया दोहराइए?"
+        "en": "I didn't catch that. Could you tell me your name?",
+        "hi": "मुझे समझ नहीं आया। कृपया अपना नाम बताइए।"
       },
-      "next": "collect_phone"
+      "onSuccess": "collect_mobile",
+      "onFailure": "handoff"
     },
 
-    "collect_phone": {
+    "collect_mobile": {
       "type": "input",
-      "field": "phone",
-      "validation": "phone",
+      "field": "mobile",
+      "validation": "mobile",
+      "maxRetries": 2,
       "text": {
-        "en": "Thank you, {name}. What's your contact number?",
-        "hi": "धन्यवाद, {name}। आपका contact number क्या है?"
+        "en": "Thanks {name}! Please share your 10-digit mobile number.",
+        "hi": "धन्यवाद {name}! कृपया अपना 10 अंकों का मोबाइल नंबर बताइए।"
       },
       "retryText": {
-        "en": "Please provide a valid 10-digit mobile number.",
-        "hi": "कृपया एक मान्य 10 अंकों का मोबाइल नंबर बताइए।"
+        "en": "That doesn't seem right. Please share a valid 10-digit mobile number.",
+        "hi": "यह सही नहीं लग रहा। कृपया सही 10 अंकों का नंबर बताइए।"
       },
-      "next": "collect_location"
+      "onSuccess": "collect_location",
+      "onFailure": "handoff"
     },
 
     "collect_location": {
       "type": "input",
-      "field": "address",
-      "validation": "address",
+      "field": "location",
+      "validation": "text",
+      "maxRetries": 2,
       "text": {
-        "en": "Which area or location are you looking for property in?",
-        "hi": "आप किस क्षेत्र या location में property देख रहे हैं?"
+        "en": "Which area or location are you looking at?",
+        "hi": "आप किस एरिया या लोकेशन में देख रहे हैं?"
       },
       "retryText": {
-        "en": "Could you please specify the area you're interested in?",
-        "hi": "कृपया बताइए कि आप किस क्षेत्र में रुचि रखते हैं?"
+        "en": "Could you tell me the location you prefer?",
+        "hi": "कृपया बताइए कि आप किस लोकेशन में देखना चाहते हैं।"
       },
-      "next": "collect_budget"
+      "onSuccess": "collect_budget",
+      "onFailure": "handoff"
     },
 
     "collect_budget": {
-      "type": "input",
+      "type": "choice",
       "field": "budget",
-      "validation": "text",
+      "options": ["50L-1Cr", "1Cr-2Cr", "2Cr-5Cr", "5Cr+"],
       "text": {
-        "en": "What's your budget range for the property?",
-        "hi": "Property के लिए आपका budget range क्या है?"
+        "en": "What is your budget range? 50 lakhs to 1 crore, 1 to 2 crore, 2 to 5 crore, or above 5 crore?",
+        "hi": "आपका बजट क्या है? 50 लाख से 1 करोड़, 1 से 2 करोड़, 2 से 5 करोड़, या 5 करोड़ से ऊपर?"
       },
-      "retryText": {
-        "en": "Please share your approximate budget.",
-        "hi": "कृपया अपना अनुमानित budget बताइए।"
+      "next": {
+        "50L-1Cr": "collect_property_type",
+        "1Cr-2Cr": "collect_property_type",
+        "2Cr-5Cr": "collect_property_type",
+        "5Cr+": "collect_property_type"
       },
-      "next": "collect_property_type"
+      "defaultNext": "collect_property_type"
     },
 
     "collect_property_type": {
-      "type": "input",
+      "type": "choice",
       "field": "propertyType",
-      "validation": "text",
+      "options": ["1BHK", "2BHK", "3BHK", "4BHK", "Villa", "Plot"],
       "text": {
-        "en": "Are you looking for 1BHK, 2BHK, 3BHK, or a villa?",
-        "hi": "आप 1BHK, 2BHK, 3BHK, या villa में से क्या देख रहे हैं?"
+        "en": "Are you looking for 1BHK, 2BHK, 3BHK, 4BHK, Villa, or Plot?",
+        "hi": "आप 1BHK, 2BHK, 3BHK, 4BHK, विला, या प्लॉट में से क्या देख रहे हैं?"
       },
-      "retryText": {
-        "en": "Please specify the type of property you're interested in.",
-        "hi": "कृपया बताइए कि आप किस प्रकार की property में रुचि रखते हैं।"
+      "next": {
+        "1BHK": "confirm_details",
+        "2BHK": "confirm_details",
+        "3BHK": "confirm_details",
+        "4BHK": "confirm_details",
+        "Villa": "confirm_details",
+        "Plot": "confirm_details"
       },
-      "next": "confirm_details"
+      "defaultNext": "confirm_details"
     },
 
     "confirm_details": {
       "type": "confirm",
       "text": {
-        "en": "Let me confirm: {name}, looking for {propertyType} in {address}, budget {budget}. Shall I schedule a site visit?",
-        "hi": "मैं confirm करती हूँ: {name}, {address} में {propertyType} देख रहे हैं, budget {budget}। क्या मैं site visit schedule करूँ?"
+        "en": "Let me confirm: {name}, mobile {mobile}, looking for {propertyType} in {location}, budget {budget}. Should I schedule a site visit?",
+        "hi": "मैं कन्फर्म करती हूँ: {name}, मोबाइल {mobile}, {location} में {propertyType}, बजट {budget}। क्या मैं साइट विजिट बुक करूँ?"
       },
-      "confirmNext": "schedule_visit",
+      "confirmNext": "book_site_visit",
       "denyNext": "collect_name"
     },
 
-    "schedule_visit": {
-      "type": "action",
-      "action": "book_appointment",
-      "text": {
-        "en": "Excellent! I'm scheduling a site visit for you. Our representative will call you to confirm the timing.",
-        "hi": "बहुत बढ़िया! मैं आपके लिए site visit schedule कर रही हूँ। हमारा representative आपको timing confirm करने के लिए call करेगा।"
-      },
-      "next": "closing"
-    },
-
-    "closing": {
+    "book_site_visit": {
       "type": "message",
+      "action": "book_site_visit",
       "text": {
-        "en": "Thank you for your interest, {name}! We look forward to helping you find your dream home.",
-        "hi": "आपकी रुचि के लिए धन्यवाद, {name}! हम आपको आपका dream home खोजने में मदद करने के लिए उत्सुक हैं।"
+        "en": "Your site visit has been scheduled! Our property expert will call you shortly. Have a great day!",
+        "hi": "आपकी साइट विजिट बुक हो गई है! हमारे प्रॉपर्टी एक्सपर्ट जल्द कॉल करेंगे। शुभ दिन!"
       },
-      "next": null,
-      "isEnd": true
+      "next": "end"
     },
 
-    "escalate": {
-      "type": "action",
-      "action": "transfer_to_human",
+    "handoff": {
+      "type": "handoff",
       "text": {
-        "en": "I'll connect you with our sales executive who can provide more details.",
-        "hi": "मैं आपको हमारे sales executive से जोड़ती हूँ जो आपको और details दे सकते हैं।"
+        "en": "Let me connect you with a property expert. Please hold.",
+        "hi": "मैं आपको प्रॉपर्टी एक्सपर्ट से जोड़ती हूँ। कृपया रुकिए।"
       },
-      "next": null,
+      "action": "transfer_to_human",
+      "resumeEnabled": true
+    },
+
+    "end": {
+      "type": "end",
+      "text": {
+        "en": "Thank you for your interest! Goodbye.",
+        "hi": "आपकी रुचि के लिए धन्यवाद! अलविदा।"
+      },
       "isEnd": true
     }
   }

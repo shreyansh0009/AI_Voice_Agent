@@ -163,19 +163,30 @@ export function getAllFlowsMetadata() {
 }
 
 // ============================================================================
-// FLOW VALIDATION
+// FLOW VALIDATION (v1 Schema)
 // ============================================================================
 
+// Allowed step types (ONLY THESE)
+const ALLOWED_STEP_TYPES = [
+  "message",
+  "input",
+  "choice",
+  "confirm",
+  "end",
+  "handoff",
+];
+
 /**
- * Validate flow structure
+ * Validate flow structure (v1 schema)
  */
 function validateFlowStructure(flow) {
   if (!flow) {
     return { valid: false, error: "Flow is null or undefined" };
   }
 
-  if (!flow.useCase) {
-    return { valid: false, error: "Missing 'useCase' field" };
+  // Support both old (useCase) and new (flowId) schemas
+  if (!flow.useCase && !flow.flowId) {
+    return { valid: false, error: "Missing 'flowId' or 'useCase' field" };
   }
 
   if (!flow.startStep) {
@@ -193,17 +204,106 @@ function validateFlowStructure(flow) {
     };
   }
 
-  // Validate each step has required fields
+  // Validate each step
   for (const [stepId, step] of Object.entries(flow.steps)) {
+    // Check required type field
     if (!step.type) {
       return { valid: false, error: `Step '${stepId}' missing 'type' field` };
     }
-    if (!step.text && step.type !== "action") {
+
+    // Validate step type
+    if (!ALLOWED_STEP_TYPES.includes(step.type)) {
+      return {
+        valid: false,
+        error: `Step '${stepId}' has invalid type '${
+          step.type
+        }'. Allowed: ${ALLOWED_STEP_TYPES.join(", ")}`,
+      };
+    }
+
+    // Check text field (required except for some types)
+    if (!step.text && !["action"].includes(step.type)) {
       return { valid: false, error: `Step '${stepId}' missing 'text' field` };
+    }
+
+    // Validate input steps
+    if (step.type === "input") {
+      if (!step.field) {
+        return {
+          valid: false,
+          error: `Input step '${stepId}' missing 'field'`,
+        };
+      }
+      if (!step.onSuccess && !step.next) {
+        return {
+          valid: false,
+          error: `Input step '${stepId}' missing 'onSuccess' or 'next'`,
+        };
+      }
+    }
+
+    // Validate choice steps
+    if (step.type === "choice") {
+      if (!step.options || !Array.isArray(step.options)) {
+        return {
+          valid: false,
+          error: `Choice step '${stepId}' missing 'options' array`,
+        };
+      }
+      if (!step.next || typeof step.next !== "object") {
+        return {
+          valid: false,
+          error: `Choice step '${stepId}' missing 'next' object for branching`,
+        };
+      }
+    }
+
+    // Validate confirm steps
+    if (step.type === "confirm") {
+      if (!step.confirmNext) {
+        return {
+          valid: false,
+          error: `Confirm step '${stepId}' missing 'confirmNext'`,
+        };
+      }
+      if (!step.denyNext) {
+        return {
+          valid: false,
+          error: `Confirm step '${stepId}' missing 'denyNext'`,
+        };
+      }
     }
   }
 
   return { valid: true };
+}
+
+/**
+ * Get interruption handler for a flow
+ *
+ * @param {string} useCase - Flow identifier
+ * @param {string} interruptType - Type of interruption (HELP, STOP, etc.)
+ * @returns {string|null} Step to jump to or null
+ */
+export function getInterruptionHandler(useCase, interruptType) {
+  const flow = getFlow(useCase);
+  if (!flow || !flow.interruptions) return null;
+
+  return flow.interruptions[interruptType] || null;
+}
+
+/**
+ * Check if flow supports resume after interruption
+ *
+ * @param {string} useCase - Flow identifier
+ * @param {string} stepId - Step to check
+ * @returns {boolean} Whether resume is enabled
+ */
+export function canResumeFrom(useCase, stepId) {
+  const step = getStep(useCase, stepId);
+  if (!step) return false;
+
+  return step.resumeEnabled === true;
 }
 
 /**
@@ -238,7 +338,84 @@ export function getStepIds(useCase) {
 // ============================================================================
 
 /**
- * Get step text in specific language
+ * Replace {{placeholders}} in text with actual values
+ *
+ * Supports:
+ * - {{agentName}} - from agentConfig
+ * - {{companyName}} / {{brand}} - from agentConfig
+ * - {{name}}, {{mobile}}, {{pincode}}, etc. - from collectedData
+ *
+ * @param {string} text - Text with {{placeholders}}
+ * @param {object} context - { agentConfig, collectedData }
+ * @returns {string} Text with placeholders filled
+ */
+export function fillPlaceholders(text, context = {}) {
+  if (!text || typeof text !== "string") return text;
+
+  const { agentConfig = {}, collectedData = {} } = context;
+
+  // Build replacement map
+  const replacements = {
+    // Agent config
+    agentName: agentConfig.name || "Agent",
+    companyName: agentConfig.brand || agentConfig.company || "Company",
+    brand: agentConfig.brand || "Brand",
+    tone: agentConfig.tone || "friendly",
+    style: agentConfig.style || "concise",
+
+    // Collected data
+    ...collectedData,
+  };
+
+  // Replace all {{placeholder}} patterns
+  return text.replace(/\{\{(\w+)\}\}/g, (match, key) => {
+    return replacements[key] !== undefined ? replacements[key] : match;
+  });
+}
+
+/**
+ * Get step text in specific language with placeholders filled
+ *
+ * @param {string} useCase - Flow identifier
+ * @param {string} stepId - Step identifier
+ * @param {string} language - Language code (en, hi, etc.)
+ * @param {boolean} isRetry - Use retry text if available
+ * @param {object} context - { agentConfig, collectedData } for placeholder replacement
+ * @returns {string|null} Text with placeholders filled or null
+ */
+export function getStepTextWithContext(
+  useCase,
+  stepId,
+  language = "en",
+  isRetry = false,
+  context = {}
+) {
+  const step = getStep(useCase, stepId);
+  if (!step) return null;
+
+  // Get raw text
+  let text;
+  if (isRetry && step.retryText) {
+    text = step.retryText[language] || step.retryText.en || step.retryText;
+  } else {
+    text = step.text?.[language] || step.text?.en || step.text;
+  }
+
+  if (!text) return null;
+
+  // Get agent config from flow if not provided
+  const flow = getFlow(useCase);
+  const agentConfig = context.agentConfig || flow?.agentConfig || {};
+
+  // Fill placeholders
+  return fillPlaceholders(text, {
+    agentConfig,
+    collectedData: context.collectedData || {},
+  });
+}
+
+/**
+ * Get step text in specific language (legacy - without context)
  *
  * @param {string} useCase - Flow identifier
  * @param {string} stepId - Step identifier
@@ -247,17 +424,8 @@ export function getStepIds(useCase) {
  * @returns {string|null} Text or null
  */
 export function getStepText(useCase, stepId, language = "en", isRetry = false) {
-  const step = getStep(useCase, stepId);
-  if (!step) return null;
-
-  let text;
-  if (isRetry && step.retryText) {
-    text = step.retryText[language] || step.retryText.en || step.retryText;
-  } else {
-    text = step.text?.[language] || step.text?.en || step.text;
-  }
-
-  return text || null;
+  // Use getStepTextWithContext with default context
+  return getStepTextWithContext(useCase, stepId, language, isRetry, {});
 }
 
 /**
@@ -298,5 +466,16 @@ export default {
   getStep,
   getStepIds,
   getStepText,
+  getStepTextWithContext,
   getAgentConfig,
+
+  // Placeholder handling
+  fillPlaceholders,
+
+  // Interruptions & Resume
+  getInterruptionHandler,
+  canResumeFrom,
+
+  // Constants
+  ALLOWED_STEP_TYPES,
 };
