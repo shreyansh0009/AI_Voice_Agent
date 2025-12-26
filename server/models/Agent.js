@@ -126,7 +126,7 @@ const agentSchema = new mongoose.Schema(
     },
     speedRate: {
       type: Number,
-      default: 0.8,
+      default: 1,
     },
   },
   { timestamps: true }

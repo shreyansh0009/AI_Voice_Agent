@@ -93,12 +93,12 @@ export const signup = async (req, res) => {
 };
 
 export const login = async (req, res) => {
-  console.log("🔵 LOGIN: Handler started", {
-    body: req.body,
-    headers: req.headers,
-    JWT_SECRET: JWT_SECRET ? "present" : "MISSING",
-    BCRYPT_SALT_ROUNDS,
-  });
+  // console.log("🔵 LOGIN: Handler started", {
+  //   body: req.body,
+  //   headers: req.headers,
+  //   JWT_SECRET: JWT_SECRET ? "present" : "MISSING",
+  //   BCRYPT_SALT_ROUNDS,
+  // });
 
   try {
     // Ensure database connection before any DB operations
@@ -198,10 +198,10 @@ export const logout = async (req, res) => {
 };
 
 export const verifyToken = async (req, res) => {
-  console.log("🔵 VERIFY: Handler started", {
-    headers: req.headers,
-    JWT_SECRET: JWT_SECRET ? "present" : "MISSING",
-  });
+  // console.log("🔵 VERIFY: Handler started", {
+  //   headers: req.headers,
+  //   JWT_SECRET: JWT_SECRET ? "present" : "MISSING",
+  // });
 
   try {
     // Ensure database connection
@@ -221,9 +221,9 @@ export const verifyToken = async (req, res) => {
 
     console.log("🔵 VERIFY: Verifying token");
     const payload = jwt.verify(token, JWT_SECRET);
-    console.log("🔵 VERIFY: Token verified", { payload });
+    //console.log("🔵 VERIFY: Token verified", { payload });
 
-    console.log("🔵 VERIFY: Finding user", { userId: payload.id });
+    //console.log("🔵 VERIFY: Finding user", { userId: payload.id });
     const user = await User.findById(payload.id).select("-password");
 
     if (!user) {

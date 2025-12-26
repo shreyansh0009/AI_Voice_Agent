@@ -22,7 +22,7 @@ const VoiceChat = ({
   voiceModel = "bulbulv2",
   voice = "abhilash",
   bufferSize = 153,
-  speedRate = 0.8,
+  speedRate = 1,
 }) => {
   /**
    * Maps human-readable language names to short language codes

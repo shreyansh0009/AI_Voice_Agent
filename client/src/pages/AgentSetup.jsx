@@ -10,7 +10,10 @@ import AgentModal from "../components/models/AgentModal.jsx";
 import { generateAgentResponseWithHistory } from "../config/openai.js";
 import { BiTrash } from "react-icons/bi";
 import api from "../utils/api";
-import { getDomainTemplate, getDomainOptions } from "../config/domainTemplates.js";
+import {
+  getDomainTemplate,
+  getDomainOptions,
+} from "../config/domainTemplates.js";
 
 const TABS = [
   "Agent",
@@ -48,7 +51,7 @@ export default function AgentSetupSingle() {
   const [voiceModel, setVoiceModel] = useState("bulbulv2");
   const [voice, setVoice] = useState("abhilash");
   const [bufferSize, setBufferSize] = useState(153);
-  const [speedRate, setSpeedRate] = useState(0.8);
+  const [speedRate, setSpeedRate] = useState(1);
 
   // State to store all created agents
   const [savedAgents, setSavedAgents] = useState([]);
@@ -351,9 +354,9 @@ export default function AgentSetupSingle() {
     setTranscriberModel(agent.transcriberModel || "nova-2");
     setVoiceProvider(agent.voiceProvider || "Sarvam");
     setVoiceModel(agent.voiceModel || "bulbulv2");
-    setVoice(agent.voice || "Abhilash");
+    setVoice(agent.voice || "abhilash");
     setBufferSize(agent.bufferSize || 153);
-    setSpeedRate(agent.speedRate || 0.8);
+    setSpeedRate(agent.speedRate || 1);
     setIsNewAgent(false);
   }
 
@@ -361,7 +364,7 @@ export default function AgentSetupSingle() {
   function handleNewAgent() {
     setShowAgentModal(true);
   }
-  
+
   // Function to apply domain template
   function handleDomainChange(newDomain) {
     setAgentDomain(newDomain);
@@ -1104,7 +1107,8 @@ export default function AgentSetupSingle() {
                       ))}
                     </select>
                     <p className="text-xs text-slate-400 mt-1">
-                      Select a domain to auto-fill with industry-specific templates. You can customize after selection.
+                      Select a domain to auto-fill with industry-specific
+                      templates. You can customize after selection.
                     </p>
                   </div>
 
@@ -1153,7 +1157,7 @@ export default function AgentSetupSingle() {
             {/* LLM Tab: separate component imported */}
             {activeTab === "LLM" && (
               <section>
-                <LLM 
+                <LLM
                   provider={llmProvider}
                   onProviderChange={setLlmProvider}
                   model={llmModel}
@@ -1168,7 +1172,7 @@ export default function AgentSetupSingle() {
 
             {activeTab === "Audio" && (
               <section>
-                <Audio 
+                <Audio
                   language={language}
                   onLanguageChange={setLanguage}
                   transcriberProvider={transcriberProvider}
@@ -1584,7 +1588,11 @@ export default function AgentSetupSingle() {
               disabled={isSaving}
               className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors text-sm disabled:bg-blue-400 disabled:cursor-not-allowed"
             >
-              {isSaving ? "Saving..." : isNewAgent ? "Create Agent" : "Update Agent"}
+              {isSaving
+                ? "Saving..."
+                : isNewAgent
+                ? "Create Agent"
+                : "Update Agent"}
             </button>
             <div className="text-xs text-slate-400">
               {isNewAgent
