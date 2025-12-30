@@ -8,22 +8,22 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d"; // 7 days default
 const BCRYPT_SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS) || 10;
 
 export const signup = async (req, res) => {
-  console.log("🔵 SIGNUP: Handler started", { body: req.body });
+  console.log("SIGNUP: Handler started", { body: req.body });
 
   try {
     // Ensure database connection before any DB operations
-    console.log("🔵 SIGNUP: Ensuring database connection...");
+    console.log("SIGNUP: Ensuring database connection...");
     await connectDB();
-    console.log("✅ SIGNUP: Database connected");
+    console.log("SIGNUP: Database connected");
 
     const { email, password } = req.body;
-    console.log("🔵 SIGNUP: Extracted credentials", {
+    console.log("SIGNUP: Extracted credentials", {
       email: email ? "present" : "missing",
       password: password ? "present" : "missing",
     });
 
     if (!email || !password) {
-      console.log("🔴 SIGNUP: Missing credentials");
+      console.log("SIGNUP: Missing credentials");
       return res.status(400).json({ message: "Email and password required." });
     }
 
@@ -31,7 +31,7 @@ export const signup = async (req, res) => {
 
     const emailRegex = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
     if (!emailRegex.test(normalizedEmail)) {
-      console.log("🔴 SIGNUP: Invalid email format", {
+      console.log("SIGNUP: Invalid email format", {
         email: normalizedEmail,
       });
       return res.status(400).json({ message: "Invalid email format." });
@@ -42,26 +42,26 @@ export const signup = async (req, res) => {
       !/[a-zA-Z]/.test(password) ||
       !/\d/.test(password)
     ) {
-      console.log("🔴 SIGNUP: Weak password");
+      console.log("SIGNUP: Weak password");
       return res.status(400).json({
         message:
           "Password must be at least 8 characters and include a letter and a number.",
       });
     }
 
-    console.log("🔵 SIGNUP: Checking for existing user");
+    console.log("SIGNUP: Checking for existing user");
     const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
-      console.log("🔴 SIGNUP: Email already registered", {
+      console.log("SIGNUP: Email already registered", {
         email: normalizedEmail,
       });
       return res.status(409).json({ message: "Email already registered." });
     }
 
-    console.log("🔵 SIGNUP: Hashing password");
+    console.log("SIGNUP: Hashing password");
     const hashed = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
 
-    console.log("🔵 SIGNUP: Creating user");
+    console.log("SIGNUP: Creating user");
     const user = new User({
       email: normalizedEmail,
       password: hashed,
@@ -69,14 +69,14 @@ export const signup = async (req, res) => {
     });
     await user.save();
 
-    console.log("🔵 SIGNUP: User created, generating token", {
+    console.log("SIGNUP: User created, generating token", {
       userId: user._id,
     });
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, {
       expiresIn: JWT_EXPIRES_IN,
     });
 
-    console.log("✅ SIGNUP: Success", { userId: user._id, role: user.role });
+    console.log("SIGNUP: Success", { userId: user._id, role: user.role });
     res.status(201).json({
       message: "User created.",
       token,
@@ -102,12 +102,12 @@ export const login = async (req, res) => {
 
   try {
     // Ensure database connection before any DB operations
-    console.log("🔵 LOGIN: Ensuring database connection...");
+    console.log("LOGIN: Ensuring database connection...");
     await connectDB();
-    console.log("✅ LOGIN: Database connected");
+    console.log("LOGIN: Database connected");
 
     const { email, password } = req.body;
-    console.log("🔵 LOGIN: Extracted credentials", {
+    console.log("LOGIN: Extracted credentials", {
       email: email ? email : "missing",
       password: password ? "present" : "missing",
       passwordLength: password ? password.length : 0,
@@ -115,23 +115,23 @@ export const login = async (req, res) => {
     });
 
     if (!email || !password) {
-      console.log("🔴 LOGIN: Missing credentials");
+      console.log("LOGIN: Missing credentials");
       return res.status(400).json({ message: "Email and password required." });
     }
 
     const normalizedEmail = email.toLowerCase();
 
-    console.log("🔵 LOGIN: Searching for user in database", {
+    console.log("LOGIN: Searching for user in database", {
       email: normalizedEmail,
     });
     const user = await User.findOne({ email: normalizedEmail });
 
     if (!user) {
-      console.log("🔴 LOGIN: User not found", { email: normalizedEmail });
+      console.log("LOGIN: User not found", { email: normalizedEmail });
       return res.status(401).json({ message: "Invalid credentials." });
     }
 
-    console.log("🔵 LOGIN: User found", {
+    console.log("LOGIN: User found", {
       userId: user._id,
       email: user.email,
       hashedPasswordLength: user.password ? user.password.length : 0,
@@ -140,7 +140,7 @@ export const login = async (req, res) => {
         : "none",
     });
 
-    console.log("🔵 LOGIN: Starting password comparison", {
+    console.log("LOGIN: Starting password comparison", {
       plainPasswordLength: password.length,
       hashedPasswordLength: user.password.length,
       plainPasswordSample: password.substring(0, 3) + "***",
@@ -149,20 +149,20 @@ export const login = async (req, res) => {
 
     const match = await bcrypt.compare(password, user.password);
 
-    console.log("🔵 LOGIN: Password comparison result", {
+    console.log("LOGIN: Password comparison result", {
       match,
       userId: user._id,
     });
 
     if (!match) {
-      console.log("🔴 LOGIN: Password mismatch", {
+      console.log("LOGIN: Password mismatch", {
         userId: user._id,
         attemptedEmail: normalizedEmail,
       });
       return res.status(401).json({ message: "Invalid credentials." });
     }
 
-    console.log("🔵 LOGIN: Password matched, generating token", {
+    console.log("LOGIN: Password matched, generating token", {
       userId: user._id,
       role: user.role,
     });
@@ -171,14 +171,14 @@ export const login = async (req, res) => {
       expiresIn: JWT_EXPIRES_IN,
     });
 
-    console.log("✅ LOGIN: Success", {
+    console.log("LOGIN: Success", {
       userId: user._id,
       role: user.role,
       email: user.email,
     });
     res.json({ token, role: user.role, email: user.email });
   } catch (err) {
-    console.error("❌ LOGIN: Error caught", {
+    console.error("LOGIN: Error caught", {
       message: err.message,
       stack: err.stack,
       name: err.name,
@@ -193,12 +193,12 @@ export const login = async (req, res) => {
 };
 
 export const logout = async (req, res) => {
-  console.log("🔵 LOGOUT: Handler called");
+  console.log("LOGOUT: Handler called");
   res.json({ message: "Logged out successfully." });
 };
 
 export const verifyToken = async (req, res) => {
-  // console.log("🔵 VERIFY: Handler started", {
+  // console.log("VERIFY: Handler started", {
   //   headers: req.headers,
   //   JWT_SECRET: JWT_SECRET ? "present" : "MISSING",
   // });
@@ -210,28 +210,28 @@ export const verifyToken = async (req, res) => {
     const authHeader = req.headers["authorization"];
     const token = authHeader && authHeader.split(" ")[1];
 
-    console.log("🔵 VERIFY: Token extracted", {
+    console.log("VERIFY: Token extracted", {
       token: token ? "present" : "missing",
     });
 
     if (!token) {
-      console.log("🔴 VERIFY: No token provided");
+      console.log("VERIFY: No token provided");
       return res.status(401).json({ message: "No token provided." });
     }
 
-    console.log("🔵 VERIFY: Verifying token");
+    console.log("VERIFY: Verifying token");
     const payload = jwt.verify(token, JWT_SECRET);
-    //console.log("🔵 VERIFY: Token verified", { payload });
+    //console.log("VERIFY: Token verified", { payload });
 
-    //console.log("🔵 VERIFY: Finding user", { userId: payload.id });
+    //console.log("VERIFY: Finding user", { userId: payload.id });
     const user = await User.findById(payload.id).select("-password");
 
     if (!user) {
-      console.log("🔴 VERIFY: User not found", { userId: payload.id });
+      console.log("VERIFY: User not found", { userId: payload.id });
       return res.status(404).json({ message: "User not found." });
     }
 
-    console.log("✅ VERIFY: Success", {
+    console.log("VERIFY: Success", {
       userId: user._id,
       role: user.role,
       email: user.email,
@@ -243,7 +243,7 @@ export const verifyToken = async (req, res) => {
       email: user.email,
     });
   } catch (err) {
-    console.error("❌ VERIFY: Error", {
+    console.error("VERIFY: Error", {
       message: err.message,
       stack: err.stack,
       name: err.name,
@@ -253,11 +253,11 @@ export const verifyToken = async (req, res) => {
 };
 
 export const googleLogin = async (req, res) => {
-  console.log("🔵 GOOGLE LOGIN: Handler started");
+  console.log("GOOGLE LOGIN: Handler started");
   const { credential, access_token, isSignup } = req.body;
 
   if (!credential && !access_token) {
-    console.log("🔴 GOOGLE LOGIN: No credential or access_token provided");
+    console.log("GOOGLE LOGIN: No credential or access_token provided");
     return res
       .status(400)
       .json({ message: "Google credential or access_token required" });
@@ -273,7 +273,7 @@ export const googleLogin = async (req, res) => {
     let email;
 
     if (credential) {
-      console.log("🔵 GOOGLE LOGIN: Verifying ID Token...");
+      console.log("GOOGLE LOGIN: Verifying ID Token...");
       const ticket = await client.verifyIdToken({
         idToken: credential,
         audience: process.env.GOOGLE_CLIENT_ID,
@@ -281,7 +281,7 @@ export const googleLogin = async (req, res) => {
       const payload = ticket.getPayload();
       email = payload.email;
     } else if (access_token) {
-      console.log("🔵 GOOGLE LOGIN: Verifying Access Token via UserInfo...");
+      console.log("GOOGLE LOGIN: Verifying Access Token via UserInfo...");
       // Use fetch to get user info
       const userInfoResponse = await fetch(
         "https://www.googleapis.com/oauth2/v3/userinfo",
@@ -302,13 +302,13 @@ export const googleLogin = async (req, res) => {
       email = email.toLowerCase();
     }
 
-    console.log("🔵 GOOGLE LOGIN: Verified email", { email });
+    console.log("GOOGLE LOGIN: Verified email", { email });
 
     let user = await User.findOne({ email });
 
     // Create new user if not found
     if (!user) {
-      console.log("🔵 GOOGLE LOGIN: User not found, creating new user");
+      console.log("GOOGLE LOGIN: User not found, creating new user");
       // Generate random password for google users
       const randomPassword =
         (await import("crypto")).randomBytes(16).toString("hex") + "A1!"; // Ensure it meets complexity requirements
@@ -320,13 +320,13 @@ export const googleLogin = async (req, res) => {
         role: "user",
       });
       await user.save();
-      console.log("✅ GOOGLE LOGIN: User created");
+      console.log("GOOGLE LOGIN: User created");
     } else {
-      console.log("🔵 GOOGLE LOGIN: User found");
+      console.log("GOOGLE LOGIN: User found");
 
       // If this is a signup attempt and user exists, return error
       if (isSignup) {
-        console.log("🔴 GOOGLE LOGIN: Signup attempted for existing user", {
+        console.log("GOOGLE LOGIN: Signup attempted for existing user", {
           email,
         });
         return res
@@ -339,14 +339,14 @@ export const googleLogin = async (req, res) => {
       expiresIn: JWT_EXPIRES_IN,
     });
 
-    console.log("✅ GOOGLE LOGIN: Success", { userId: user._id });
+    console.log("GOOGLE LOGIN: Success", { userId: user._id });
     res.json({
       token,
       role: user.role,
       email: user.email,
     });
   } catch (err) {
-    console.error("❌ GOOGLE LOGIN: Error", err);
+    console.error("GOOGLE LOGIN: Error", err);
     res
       .status(500)
       .json({ message: "Google login failed", error: err.message });
