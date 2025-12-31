@@ -31,6 +31,7 @@ import flowRegistry from "./flowRegistry.js";
 import inputValidator from "./inputValidator.js";
 import intentClassifier from "./intentClassifier.js";
 import slotExtractor from "./slotExtractor.js";
+import textNormalizer from "./textNormalizer.js";
 
 // ============================================================================
 // STATE STORAGE
@@ -181,16 +182,17 @@ export function getCurrentStep(state) {
 /**
  * Get current step text in current language
  * Automatically fills {{placeholders}} with agentConfig and collectedData
+ * AND normalizes for TTS (fixes Hindi pronunciation issues)
  *
  * @param {object} state - Conversation state
  * @param {boolean} isRetry - Use retry text if available
- * @returns {string|null} Text to speak with placeholders filled
+ * @returns {string|null} Text to speak with placeholders filled and normalized
  */
 export function getCurrentStepText(state, isRetry = false) {
   if (!state) return null;
 
   // Use getStepTextWithContext for proper {{placeholder}} replacement
-  const text = flowRegistry.getStepTextWithContext(
+  let text = flowRegistry.getStepTextWithContext(
     state.useCase,
     state.currentStepId,
     state.language,
@@ -200,6 +202,13 @@ export function getCurrentStepText(state, isRetry = false) {
       collectedData: state.collectedData,
     }
   );
+
+  if (!text) return null;
+
+  // Normalize text for TTS to fix pronunciation issues
+  // This converts "1 crore" → "ek crore rupey" in Hindi
+  const languageCode = state.language || "en";
+  text = textNormalizer.normalizeForTTS(text, languageCode);
 
   return text;
 }
