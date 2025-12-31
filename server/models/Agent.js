@@ -118,7 +118,7 @@ const agentSchema = new mongoose.Schema(
     },
     voice: {
       type: String,
-      default: "abhilash",
+      default: "manisha",
     },
     bufferSize: {
       type: Number,

@@ -49,16 +49,23 @@ export default function AgentSetupSingle() {
   const [keywords, setKeywords] = useState("");
   const [voiceProvider, setVoiceProvider] = useState("Sarvam");
   const [voiceModel, setVoiceModel] = useState("bulbulv2");
-  const [voice, setVoice] = useState("abhilash");
+  const [voice, setVoice] = useState("manisha");
   const [bufferSize, setBufferSize] = useState(153);
   const [speedRate, setSpeedRate] = useState(1);
 
   // State to store all created agents
   const [savedAgents, setSavedAgents] = useState([]);
 
-  // State to track currently selected agent
-  const [selectedAgentId, setSelectedAgentId] = useState(null);
-  const [isNewAgent, setIsNewAgent] = useState(true);
+  // State to track currently selected agent (load from localStorage if exists)
+  const [selectedAgentId, setSelectedAgentId] = useState(() => {
+    const savedAgentId = localStorage.getItem("lastSelectedAgentId");
+    return savedAgentId || null;
+  });
+  const [isNewAgent, setIsNewAgent] = useState(() => {
+    // If there's a saved agent ID, it's not a new agent
+    const savedAgentId = localStorage.getItem("lastSelectedAgentId");
+    return !savedAgentId;
+  });
 
   // Chat testing state
   const [chatMessages, setChatMessages] = useState([]);
@@ -84,10 +91,25 @@ export default function AgentSetupSingle() {
     try {
       const res = await api.get("/api/agents");
       setSavedAgents(res.data);
-      // If we have agents and none selected, select the first one? Or keep null.
-      if (res.data.length > 0 && !selectedAgentId && !isNewAgent) {
-        // Optional: auto-select first agent
-        // handleSelectAgent(res.data[0]);
+
+      // Auto-select the last selected agent from localStorage
+      const savedAgentId = localStorage.getItem("lastSelectedAgentId");
+      if (savedAgentId && res.data.length > 0) {
+        // Find the agent with the saved ID
+        const agentToLoad = res.data.find(
+          (agent) => agent._id === savedAgentId
+        );
+        if (agentToLoad) {
+          console.log(
+            "✅ Auto-loading previously selected agent:",
+            agentToLoad.name
+          );
+          handleSelectAgent(agentToLoad);
+        } else {
+          // Agent no longer exists, clear localStorage
+          localStorage.removeItem("lastSelectedAgentId");
+          setIsNewAgent(true);
+        }
       }
     } catch (err) {
       console.error("Failed to fetch agents:", err);
@@ -271,6 +293,8 @@ export default function AgentSetupSingle() {
         setPrompt(prompt || "");
         setChatMessages([]);
         setShowAgentModal(false);
+        // Clear localStorage when creating new agent
+        localStorage.removeItem("lastSelectedAgentId");
       })
       .catch((err) => {
         console.error("Failed to generate agent:", err);
@@ -314,6 +338,8 @@ export default function AgentSetupSingle() {
         setSavedAgents([res.data, ...savedAgents]);
         setSelectedAgentId(res.data._id);
         setIsNewAgent(false);
+        // Save to localStorage so it persists across page reloads
+        localStorage.setItem("lastSelectedAgentId", res.data._id);
         alert(`Agent "${res.data.name}" created successfully!`);
       } else if (selectedAgentId) {
         // Update existing agent via API
@@ -323,6 +349,8 @@ export default function AgentSetupSingle() {
             agent._id === selectedAgentId ? res.data : agent
           )
         );
+        // Ensure localStorage is updated
+        localStorage.setItem("lastSelectedAgentId", res.data._id);
         alert(`Agent "${res.data.name}" updated successfully!`);
       }
     } catch (err) {
@@ -354,10 +382,12 @@ export default function AgentSetupSingle() {
     setTranscriberModel(agent.transcriberModel || "nova-2");
     setVoiceProvider(agent.voiceProvider || "Sarvam");
     setVoiceModel(agent.voiceModel || "bulbulv2");
-    setVoice(agent.voice || "abhilash");
+    setVoice(agent.voice || "manisha");
     setBufferSize(agent.bufferSize || 153);
     setSpeedRate(agent.speedRate || 1);
     setIsNewAgent(false);
+    // Save to localStorage so it persists across page reloads
+    localStorage.setItem("lastSelectedAgentId", agent._id);
   }
 
   // Function to create a new blank agent
@@ -383,8 +413,9 @@ export default function AgentSetupSingle() {
         await api.delete(`/api/agents/${agentId}`);
         setSavedAgents(savedAgents.filter((agent) => agent._id !== agentId));
 
-        // If deleted agent was selected, reset to new agent
+        // If deleted agent was selected, reset to new agent and clear localStorage
         if (selectedAgentId === agentId) {
+          localStorage.removeItem("lastSelectedAgentId");
           handleNewAgent();
         }
 
@@ -643,6 +674,8 @@ export default function AgentSetupSingle() {
     setPrompt("");
     setChatMessages([]);
     setShowAgentModal(false);
+    // Clear localStorage when creating new agent
+    localStorage.removeItem("lastSelectedAgentId");
   }
 
   return (
