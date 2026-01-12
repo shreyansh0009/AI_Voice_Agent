@@ -113,8 +113,13 @@ NAME EXTRACTION PATTERNS:
 PHONE NUMBER EXTRACTION:
 - Extract 10-digit Indian mobile numbers (starting with 6-9)
 - Handle formats: "9876543210", "98765 43210", "987-654-3210", "+91 9876543210"
-- Handle spoken digits: "nine eight seven six five four three two one zero" → "9876543210"
+- **IMPORTANT**: Handle speech-to-text artifacts where spaces are added between digits
 - Remove all spaces, hyphens, and country codes to get clean 10 digits
+
+PINCODE EXTRACTION:
+- Extract 6-digit Indian pincodes (starting with 1-9)
+- **IMPORTANT**: Handle speech-to-text artifacts where spaces are added: "3 05001" should extract as "305001"
+- Remove all spaces before validation
 
 EXAMPLES:
 Full sentence: "I'm Priya, need red dress size M, my number is 9876543210" → {"name": "Priya", "phone": "9876543210", "orderDetails": {"product": "red dress", "size": "M"}}
@@ -130,6 +135,41 @@ No info: "I want to book a test ride" → {}
 
 If no customer-specific info found, return {}
 Be flexible - extract whatever information is relevant to the user's identity or requirements.`;
+
+// ============================================================================
+// MEMORY BLOCK BUILDER
+// ============================================================================
+
+/**
+ * Build memory block from collected data
+ * This is injected into the system prompt to prevent the LLM from forgetting information
+ *
+ * @param {object} collectedData - Data collected from previous conversation turns
+ * @returns {string} Formatted memory block or empty string
+ */
+function buildMemoryBlock(collectedData) {
+  if (!collectedData || Object.keys(collectedData).length === 0) {
+    return "";
+  }
+
+  const lines = Object.entries(collectedData).map(
+    ([key, value]) => `- ${key}: ${value}`
+  );
+
+  return `
+COLLECTED INFORMATION (Authoritative – DO NOT ASK AGAIN):
+${lines.join("\n")}
+
+Rules:
+- These values are CONFIRMED
+- Never ask for them again
+- If user repeats them, acknowledge briefly and continue
+`;
+}
+
+// ============================================================================
+// AI AGENT SERVICE CLASS
+// ============================================================================
 
 class AIAgentService {
   constructor() {
@@ -1286,6 +1326,28 @@ class AIAgentService {
         lastQuestion = null, // The last question that was asked
       } = options;
 
+      // ============================================================================
+      // LOAD AGENT SLOTS FOR DYNAMIC EXTRACTION (NEW - Hybrid Approach)
+      // ============================================================================
+      let agentSlots = [];
+      if (agentId && agentId !== "default") {
+        try {
+          const Agent = (await import("../models/Agent.js")).default;
+          const agent = await Agent.findById(agentId);
+          if (agent && agent.requiredSlots && agent.requiredSlots.length > 0) {
+            agentSlots = agent.requiredSlots;
+            console.log(
+              `📋 Loaded ${agentSlots.length} dynamic slots for agent ${agentId}`
+            );
+          }
+        } catch (error) {
+          console.warn(
+            "⚠️  Could not load agent slots, using universal extraction:",
+            error.message
+          );
+        }
+      }
+
       // Handle empty/unclear user input (silence, distortion, STT failure)
       // Note: Accept Unicode for multi-language support (Hindi, Tamil, etc.)
       const isEmptyOrUnclear =
@@ -1323,7 +1385,8 @@ class AIAgentService {
         // Extract customer info even for Agentforce
         const updatedContext = await this.extractCustomerInfo(
           userMessage,
-          customerContext
+          customerContext,
+          agentSlots // Pass dynamic slots
         );
 
         const agentforceResponse = await this.getAgentforceResponse(
@@ -1349,7 +1412,8 @@ class AIAgentService {
       // Extract customer info from the current message FIRST
       const updatedContext = await this.extractCustomerInfo(
         userMessage,
-        customerContext
+        customerContext,
+        agentSlots // Pass dynamic slots
       );
 
       // Preserve originalQuery and conversationIntent if they already exist
@@ -1440,6 +1504,9 @@ class AIAgentService {
             )}\n`
           : "";
 
+      // Build memory block from all collected data (NEW: Cleaner approach)
+      const memoryBlock = buildMemoryBlock(updatedContext);
+
       // Analyze conversation history to track what was already asked
       const alreadyAsked = this.analyzeConversationHistory(conversationHistory);
       const trackingInfo =
@@ -1475,7 +1542,7 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
       // Build enhanced system prompt - add context and guidance to user's script
       const enhancedSystemPrompt = this.buildEnhancedPrompt({
         basePrompt: systemPrompt,
-        customerContext: customerContextString,
+        memoryBlock: memoryBlock, // NEW: Injected memory block
         stageGuidance: stageGuidance,
         trackingInfo: trackingInfo,
         language: currentLanguageName,
@@ -1723,7 +1790,7 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
    */
   buildEnhancedPrompt({
     basePrompt,
-    customerContext,
+    memoryBlock, // NEW: Memory block from buildMemoryBlock()
     stageGuidance,
     trackingInfo,
     language,
@@ -1736,7 +1803,8 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
       : "";
 
     return `${scriptToUse}
-${customerContext}${stageGuidance}${trackingInfo}${intentGuidance}
+
+${memoryBlock}${stageGuidance}${trackingInfo}${intentGuidance}
 
 SYSTEM INSTRUCTIONS (Auto-added for voice chat):
 - Current language: ${language}
@@ -2513,16 +2581,35 @@ CRITICAL RULES:
    * Extract customer information from text using AI
    * Much more reliable than regex patterns
    */
-  async extractCustomerInfo(text, existingContext = {}) {
+  async extractCustomerInfo(text, existingContext = {}, agentSlots = []) {
     try {
       console.log("🔍 Extracting customer info from:", text);
+
+      // HYBRID APPROACH: Use dynamic extraction prompt
+      // If agentSlots provided, use them; otherwise fallback to universal extraction
+      let extractionPrompt;
+
+      if (agentSlots && agentSlots.length > 0) {
+        // Import scriptAnalyzer dynamically to avoid circular dependency
+        const { default: scriptAnalyzer } = await import("./scriptAnalyzer.js");
+        extractionPrompt =
+          scriptAnalyzer.buildDynamicExtractionPrompt(agentSlots);
+        console.log(
+          `📋 Using DYNAMIC extraction for ${agentSlots.length} slots:`,
+          agentSlots.map((s) => s.name)
+        );
+      } else {
+        // Fallback to universal extraction
+        extractionPrompt = EXTRACTION_SYSTEM_PROMPT;
+        console.log("📋 Using UNIVERSAL extraction (no agent slots detected)");
+      }
 
       const response = await this.openai.chat.completions.create({
         model: AI_CONFIG.EXTRACTION_MODEL,
         messages: [
           {
             role: "system",
-            content: EXTRACTION_SYSTEM_PROMPT,
+            content: extractionPrompt, // DYNAMIC PROMPT!
           },
           {
             role: "user",
@@ -2629,8 +2716,9 @@ CRITICAL RULES:
         updates.email = emailMatch[0];
       }
 
-      // Extract pincode (6 digits)
-      const pincodeMatch = text.match(/\b[1-9]\d{5}\b/);
+      // Extract pincode (6 digits) - Remove spaces first (STT often adds spaces)
+      const cleanedForPincode = text.replace(/\s+/g, ""); // Remove all spaces
+      const pincodeMatch = cleanedForPincode.match(/\b[1-9]\d{5}\b/);
       if (pincodeMatch) {
         updates.pincode = pincodeMatch[0];
       }
@@ -2724,6 +2812,28 @@ CRITICAL RULES:
       // Log selected model
       console.log(`🤖 Streaming with model: ${model}`);
 
+      // ============================================================================
+      // LOAD AGENT SLOTS FOR DYNAMIC EXTRACTION (NEW - Hybrid Approach)
+      // ============================================================================
+      let agentSlots = [];
+      if (agentId && agentId !== "default") {
+        try {
+          const Agent = (await import("../models/Agent.js")).default;
+          const agent = await Agent.findById(agentId);
+          if (agent && agent.requiredSlots && agent.requiredSlots.length > 0) {
+            agentSlots = agent.requiredSlots;
+            console.log(
+              `📋 Loaded ${agentSlots.length} dynamic slots for streaming`
+            );
+          }
+        } catch (error) {
+          console.warn(
+            "⚠️  Could not load agent slots for streaming:",
+            error.message
+          );
+        }
+      }
+
       // Quick validation
       const isEmptyOrUnclear = !userMessage || userMessage.trim().length < 2;
 
@@ -2736,32 +2846,23 @@ CRITICAL RULES:
         return;
       }
 
-      // Extract customer info first (non-streaming)
+      // Extract customer info first (non-streaming) with dynamic slots
       const updatedContext = await this.extractCustomerInfo(
         userMessage,
-        customerContext
+        customerContext,
+        agentSlots // Pass dynamic slots!
       );
       yield { type: "context", customerContext: updatedContext };
 
       const currentLanguageName = LANGUAGE_CODES[language] || "English";
 
-      // Build context summary (simplified for streaming)
-      const contextSummary = [];
-      if (updatedContext.name)
-        contextSummary.push(`Name: ${updatedContext.name}`);
-      if (updatedContext.phone)
-        contextSummary.push(`Phone: ${updatedContext.phone}`);
-      if (updatedContext.pincode)
-        contextSummary.push(`Pincode: ${updatedContext.pincode}`);
-
-      const customerContextString =
-        contextSummary.length > 0
-          ? `\n\nCUSTOMER INFO (collected): ${contextSummary.join(", ")}\n`
-          : "";
+      // Build memory block from collected data (prevents re-asking)
+      const memoryBlock = buildMemoryBlock(updatedContext);
 
       // Simplified prompt for speed
       const enhancedSystemPrompt = `${systemPrompt}
-${customerContextString}
+
+${memoryBlock}
 VOICE OUTPUT RULES:
 - Keep responses BRIEF (2-3 sentences max)
 - ALWAYS complete your sentences - never stop mid-sentence

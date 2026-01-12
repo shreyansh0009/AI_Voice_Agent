@@ -54,6 +54,16 @@ const agentSchema = new mongoose.Schema(
       default: ["en", "hi"],
     },
 
+    // ============================================
+    // DYNAMIC SLOT EXTRACTION (NEW)
+    // ============================================
+    // Required information fields detected from script
+    // Enables dynamic extraction for ANY industry
+    requiredSlots: {
+      type: [mongoose.Schema.Types.Mixed],
+      default: [],
+    },
+
     // Agent persona configuration (for {{placeholder}} replacement)
     agentConfig: {
       name: { type: String, default: "Ava" },

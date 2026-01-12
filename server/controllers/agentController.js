@@ -66,6 +66,31 @@ export const createAgent = async (req, res) => {
       userId, // Ensure userId is from authenticated user
     };
 
+    // ============================================================================
+    // ANALYZE SCRIPT FOR DYNAMIC SLOTS (NEW - Hybrid Approach)
+    // ============================================================================
+    if (agentData.prompt) {
+      try {
+        const scriptAnalyzer = (await import("../services/scriptAnalyzer.js"))
+          .default;
+        const detectedSlots = scriptAnalyzer.analyzeScript(agentData.prompt);
+
+        if (detectedSlots && detectedSlots.length > 0) {
+          agentData.requiredSlots = detectedSlots;
+          console.log(
+            `📋 Detected ${detectedSlots.length} slots from script:`,
+            detectedSlots.map((s) => s.name)
+          );
+        } else {
+          console.log(
+            "📋 No placeholders found in script, will use universal extraction"
+          );
+        }
+      } catch (error) {
+        console.warn("⚠️  Script analysis failed, skipping:", error.message);
+      }
+    }
+
     const newAgent = new Agent(agentData);
     const savedAgent = await newAgent.save();
 
@@ -185,6 +210,31 @@ export const updateAgent = async (req, res) => {
     if (voice !== undefined) updateData.voice = voice;
     if (bufferSize !== undefined) updateData.bufferSize = bufferSize;
     if (speedRate !== undefined) updateData.speedRate = speedRate;
+
+    // ============================================================================
+    // RE-ANALYZE SCRIPT FOR DYNAMIC SLOTS (NEW - Hybrid Approach)
+    // ============================================================================
+    // If prompt is being updated, re-analyze it for new slots
+    if (prompt !== undefined) {
+      try {
+        const scriptAnalyzer = (await import("../services/scriptAnalyzer.js"))
+          .default;
+        const detectedSlots = scriptAnalyzer.analyzeScript(prompt);
+
+        if (detectedSlots && detectedSlots.length > 0) {
+          updateData.requiredSlots = detectedSlots;
+          console.log(
+            `📋 Re-detected ${detectedSlots.length} slots from updated script:`,
+            detectedSlots.map((s) => s.name)
+          );
+        } else {
+          updateData.requiredSlots = []; // Clear slots if none found
+          console.log("📋 No placeholders in updated script, cleared slots");
+        }
+      } catch (error) {
+        console.warn("⚠️  Script re-analysis failed, skipping:", error.message);
+      }
+    }
 
     const updatedAgent = await Agent.findOneAndUpdate(
       { _id: id, userId },
