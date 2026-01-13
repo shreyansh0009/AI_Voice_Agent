@@ -1,6 +1,9 @@
 import express from "express";
 import { processChat } from "../controllers/chatController.js";
-import { streamChat, quickChat } from "../controllers/streamChatController.js";
+// Use original streamChatController for /stream (matches VoiceChat's request format)
+// V5 controller (with conversationId) is available at /api/chat/v5/stream
+import { streamChat } from "../controllers/streamChatController.js";
+import { quickChat } from "../controllers/streamChatController.js";
 import { authenticate } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
@@ -20,8 +23,8 @@ router.post("/message", authenticate, processChat);
 
 /**
  * POST /api/chat/stream
- * Stream chat response via Server-Sent Events for lower latency
- * Sends sentences as soon as they're complete
+ * Streaming chat response for fluent TTS output
+ * Uses aiAgentService for AI response generation
  */
 router.post("/stream", authenticate, streamChat);
 

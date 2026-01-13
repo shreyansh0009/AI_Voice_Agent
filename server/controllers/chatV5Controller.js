@@ -1,23 +1,54 @@
 import stateEngine from "../services/stateEngine.js";
-import flowGenerator from "../services/flowGenerator.js";
 import Conversation from "../models/Conversation.js";
 import Agent from "../models/Agent.js";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
- * V5 State-Driven Chat Controller
+ * V5 State-Driven Chat Controller - REFACTORED
  *
- * ARCHITECTURE:
- * - Uses stateEngine for FULL backend control
- * - Persists state in Conversation model
- * - NO LLM involved in flow control
- * - Text normalization applied automatically
- *
- * This fixes:
- * ✅ Forgetting information (persisted in DB)
- * ✅ Flow loops (deterministic state machine)
- * ✅ Hindi pronunciation (text normalizer)
- * ✅ Flow jumping (backend-controlled)
+ * ARCHITECTURE CHANGE:
+ * - MongoDB Conversation is the ONLY source of truth
+ * - No in-memory state - all state from DB
+ * - Patch-based updates (merges, never overwrites)
+ * - Flow loaded by controller, passed to stateEngine
  */
+
+// Cache for loaded flows (performance optimization)
+const flowCache = new Map();
+
+/**
+ * Load flow definition (with caching)
+ * Uses fs.readFileSync for Vercel compatibility (dynamic import fails in serverless)
+ */
+function loadFlow(flowId) {
+  if (flowCache.has(flowId)) {
+    console.log(`📦 Flow cache hit: ${flowId}`);
+    return flowCache.get(flowId);
+  }
+
+  try {
+    // Use fs.readFileSync for reliable loading in serverless environments
+    const flowPath = path.resolve(__dirname, `../flows/${flowId}.json`);
+    console.log(`📂 Loading flow from: ${flowPath}`);
+
+    const flowContent = fs.readFileSync(flowPath, "utf-8");
+    const flow = JSON.parse(flowContent);
+
+    flowCache.set(flowId, flow);
+    console.log(`✅ Flow loaded successfully: ${flowId}`);
+    return flow;
+  } catch (error) {
+    console.error(`❌ Failed to load flow: ${flowId}`, error.message);
+    console.error(`❌ Full error:`, error);
+    throw new Error(`Flow not found: ${flowId}`);
+  }
+}
 
 /**
  * POST /api/chat/v5/stream
@@ -40,7 +71,7 @@ export async function streamChatV5(req, res) {
     console.log(`${"=".repeat(60)}`);
 
     // ========================================
-    // STEP 1: Get or create conversation
+    // STEP 1: Get or create conversation (DB is source of truth)
     // ========================================
     let conversation = await Conversation.findOne({
       externalId: conversationId,
@@ -52,21 +83,18 @@ export async function streamChatV5(req, res) {
       return res.status(404).json({ error: "Agent not found" });
     }
 
-    if (!conversation) {
-      // Create new conversation
-      const flow = await import(
-        `../flows/${agent.flowId || "automotive_sales"}.json`,
-        {
-          assert: { type: "json" },
-        }
-      );
+    // Load flow (controller provides, not stateEngine)
+    const flowId = agent.flowId || "automotive_sales";
+    const flow = await loadFlow(flowId);
 
+    if (!conversation) {
+      // Create new conversation with initial state from flow
       conversation = new Conversation({
         externalId: conversationId,
         agentId: agent._id,
-        flowId: agent.flowId || "automotive_sales",
+        flowId: flowId,
         flowVersion: agent.flowVersion || "v1",
-        currentStepId: flow.default.startStep,
+        currentStepId: flow.startStep,
         language: language || "en",
         agentConfig: agent.agentConfig || {
           name: agent.name || "Agent",
@@ -74,7 +102,10 @@ export async function streamChatV5(req, res) {
           tone: "friendly",
           style: "concise",
         },
-        collectedData: {},
+        collectedData: {}, // Empty - will be populated via patches
+        retryCount: 0,
+        maxRetries: 2,
+        status: "active",
         channel: "web",
       });
 
@@ -82,44 +113,92 @@ export async function streamChatV5(req, res) {
       console.log(`✨ New conversation created: ${conversation._id}`);
     }
 
+    console.log(`📊 Current DB State:`, {
+      stepId: conversation.currentStepId,
+      collectedData: conversation.collectedData,
+      retryCount: conversation.retryCount,
+      status: conversation.status,
+    });
+
     // ========================================
     // STEP 2: Process turn with stateEngine
+    // Pass conversation document, NOT just ID
     // ========================================
-    const result = stateEngine.processTurn(
-      conversation.externalId,
-      userMessage,
-      {
-        useCase: conversation.flowId,
-        language: conversation.language,
-        agentId: agent._id.toString(),
+    const result = stateEngine.processTurn({
+      conversation: conversation.toObject(), // Pass document
+      userInput: userMessage,
+      flow: flow, // Controller provides flow
+    });
+
+    console.log(`🎯 Result:`, {
+      nextStepId: result.nextStepId,
+      dataPatch: result.dataPatch,
+      retryCount: result.retryCount,
+      status: result.status,
+    });
+
+    // ========================================
+    // STEP 3: Apply PATCH to conversation (MERGE, not overwrite)
+    // ========================================
+
+    // Handle reset signal
+    if (result.wasReset) {
+      conversation.currentStepId = flow.startStep;
+      conversation.collectedData = {};
+      conversation.retryCount = 0;
+      console.log(`🔄 Conversation reset`);
+    } else {
+      // Update step
+      if (result.nextStepId !== undefined) {
+        conversation.currentStepId = result.nextStepId;
       }
-    );
 
-    console.log(`🎯 Step: ${result.stepId} | Status: ${result.status}`);
-    console.log(`📦 Data:`, result.data);
+      // CRITICAL: MERGE data patch, never overwrite
+      if (result.dataPatch && Object.keys(result.dataPatch).length > 0) {
+        conversation.collectedData = {
+          ...conversation.collectedData, // Keep existing data
+          ...result.dataPatch, // Add new data
+        };
+        console.log(`✅ Data merged:`, conversation.collectedData);
+      }
 
-    // ========================================
-    // STEP 3: Update conversation in DB
-    // ========================================
-    conversation.currentStepId = result.stepId;
-    conversation.collectedData = result.data || {};
+      // Handle field clearing (only specific field, not all)
+      if (result.shouldClearData && result.fieldToClear) {
+        delete conversation.collectedData[result.fieldToClear];
+        console.log(`🗑️ Cleared field: ${result.fieldToClear}`);
+      }
+
+      // Update retry count
+      if (result.retryCount !== undefined) {
+        conversation.retryCount = result.retryCount;
+      }
+    }
+
+    // Update status
     conversation.status = result.status;
     conversation.lastUserInput = userMessage;
     conversation.lastAgentResponse = result.text;
-    conversation.recordStep(
-      result.stepId,
-      userMessage,
-      result.text,
-      result.data
-    );
 
-    if (result.status === "complete") {
+    // Record step in history
+    if (conversation.recordStep) {
+      conversation.recordStep(
+        conversation.currentStepId,
+        userMessage,
+        result.text,
+        conversation.collectedData
+      );
+    }
+
+    // Handle completion/escalation
+    if (result.status === "complete" && conversation.complete) {
       conversation.complete("flow_complete");
-    } else if (result.status === "escalated") {
+    } else if (result.status === "escalated" && conversation.handoff) {
       conversation.handoff("max_retries_or_user_request");
     }
 
+    // SAVE to MongoDB (single source of truth)
     await conversation.save();
+    console.log(`💾 Conversation saved to DB`);
 
     // ========================================
     // STEP 4: Stream response
@@ -128,7 +207,6 @@ export async function streamChatV5(req, res) {
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
 
-    // Send response text
     const responseText = result.text || "I'm sorry, I didn't understand that.";
 
     // Split into sentences for streaming
@@ -143,22 +221,20 @@ export async function streamChatV5(req, res) {
           isLast: i === sentences.length - 1,
           metadata: {
             conversationId: conversation.externalId,
-            currentStep: result.stepId,
-            status: result.status,
-            collectedData: result.data,
+            currentStep: conversation.currentStepId,
+            status: conversation.status,
+            collectedData: conversation.collectedData, // Full data from DB
           },
         };
 
         res.write(`data: ${JSON.stringify(chunk)}\n\n`);
 
-        // Small delay between sentences
         if (i < sentences.length - 1) {
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
       }
     }
 
-    // Send completion signal
     res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     res.end();
 
@@ -204,7 +280,7 @@ export async function chatV5(req, res) {
     console.log(`${"=".repeat(60)}`);
 
     // ========================================
-    // Get or create conversation
+    // Get or create conversation (DB is source of truth)
     // ========================================
     let conversation = await Conversation.findOne({
       externalId: conversationId,
@@ -216,26 +292,26 @@ export async function chatV5(req, res) {
       return res.status(404).json({ error: "Agent not found" });
     }
 
-    if (!conversation) {
-      const flow = await import(
-        `../flows/${agent.flowId || "automotive_sales"}.json`,
-        {
-          assert: { type: "json" },
-        }
-      );
+    // Load flow
+    const flowId = agent.flowId || "automotive_sales";
+    const flow = await loadFlow(flowId);
 
+    if (!conversation) {
       conversation = new Conversation({
         externalId: conversationId,
         agentId: agent._id,
-        flowId: agent.flowId || "automotive_sales",
+        flowId: flowId,
         flowVersion: agent.flowVersion || "v1",
-        currentStepId: flow.default.startStep,
+        currentStepId: flow.startStep,
         language: language || "en",
         agentConfig: agent.agentConfig || {
           name: agent.name || "Agent",
           brand: agent.agentConfig?.brand || "Company",
         },
         collectedData: {},
+        retryCount: 0,
+        maxRetries: 2,
+        status: "active",
         channel: "web",
       });
 
@@ -245,34 +321,58 @@ export async function chatV5(req, res) {
     // ========================================
     // Process turn with stateEngine
     // ========================================
-    const result = stateEngine.processTurn(
-      conversation.externalId,
-      userMessage,
-      {
-        useCase: conversation.flowId,
-        language: conversation.language,
-        agentId: agent._id.toString(),
-      }
-    );
+    const result = stateEngine.processTurn({
+      conversation: conversation.toObject(),
+      userInput: userMessage,
+      flow: flow,
+    });
 
     // ========================================
-    // Update conversation
+    // Apply PATCH to conversation
     // ========================================
-    conversation.currentStepId = result.stepId;
-    conversation.collectedData = result.data || {};
+    if (result.wasReset) {
+      conversation.currentStepId = flow.startStep;
+      conversation.collectedData = {};
+      conversation.retryCount = 0;
+    } else {
+      if (result.nextStepId !== undefined) {
+        conversation.currentStepId = result.nextStepId;
+      }
+
+      // MERGE data patch
+      if (result.dataPatch && Object.keys(result.dataPatch).length > 0) {
+        conversation.collectedData = {
+          ...conversation.collectedData,
+          ...result.dataPatch,
+        };
+      }
+
+      // Handle field clearing
+      if (result.shouldClearData && result.fieldToClear) {
+        delete conversation.collectedData[result.fieldToClear];
+      }
+
+      if (result.retryCount !== undefined) {
+        conversation.retryCount = result.retryCount;
+      }
+    }
+
     conversation.status = result.status;
     conversation.lastUserInput = userMessage;
     conversation.lastAgentResponse = result.text;
-    conversation.recordStep(
-      result.stepId,
-      userMessage,
-      result.text,
-      result.data
-    );
 
-    if (result.status === "complete") {
+    if (conversation.recordStep) {
+      conversation.recordStep(
+        conversation.currentStepId,
+        userMessage,
+        result.text,
+        conversation.collectedData
+      );
+    }
+
+    if (result.status === "complete" && conversation.complete) {
       conversation.complete();
-    } else if (result.status === "escalated") {
+    } else if (result.status === "escalated" && conversation.handoff) {
       conversation.handoff();
     }
 
@@ -284,11 +384,11 @@ export async function chatV5(req, res) {
     res.json({
       response: result.text,
       conversationId: conversation.externalId,
-      currentStep: result.stepId,
-      status: result.status,
-      collectedData: result.data,
-      isComplete: result.status === "complete",
-      isEscalated: result.status === "escalated",
+      currentStep: conversation.currentStepId,
+      status: conversation.status,
+      collectedData: conversation.collectedData, // Full data from DB
+      isComplete: conversation.status === "complete",
+      isEscalated: conversation.status === "escalated",
     });
   } catch (error) {
     console.error("❌ V5 Chat error:", error);
@@ -302,12 +402,13 @@ export async function chatV5(req, res) {
 /**
  * GET /api/conversations/:conversationId
  *
- * Get conversation state
+ * Get conversation state from DB
  */
 export async function getConversation(req, res) {
   try {
     const { conversationId } = req.params;
 
+    // DB is the ONLY source of truth
     const conversation = await Conversation.findOne({
       externalId: conversationId,
     }).populate("agentId");
@@ -318,16 +419,20 @@ export async function getConversation(req, res) {
 
     res.json({
       conversationId: conversation.externalId,
+      agentId: conversation.agentId?._id,
       currentStep: conversation.currentStepId,
-      status: conversation.status,
       collectedData: conversation.collectedData,
+      status: conversation.status,
       language: conversation.language,
-      turnCount: conversation.turnCount,
-      history: conversation.stepHistory.slice(-10), // Last 10 steps
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
     });
   } catch (error) {
     console.error("❌ Get conversation error:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      error: "Internal server error",
+      message: error.message,
+    });
   }
 }
 
@@ -340,12 +445,21 @@ export async function resetConversation(req, res) {
   try {
     const { conversationId } = req.params;
 
-    await Conversation.deleteOne({ externalId: conversationId });
+    const result = await Conversation.deleteOne({
+      externalId: conversationId,
+    });
 
-    res.json({ success: true, message: "Conversation reset" });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: "Conversation not found" });
+    }
+
+    res.json({ success: true, message: "Conversation deleted" });
   } catch (error) {
     console.error("❌ Reset conversation error:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      error: "Internal server error",
+      message: error.message,
+    });
   }
 }
 

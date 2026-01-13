@@ -3,7 +3,10 @@
   "builds": [
     {
       "src": "app.js",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["flows/**/*.json", "data/**/*"]
+      }
     }
   ],
   "routes": [
@@ -13,4 +16,3 @@
     }
   ]
 }
-

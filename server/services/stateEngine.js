@@ -1,182 +1,51 @@
 /**
- * State Engine Service
+ * State Engine Service - REFACTORED
  *
  * PURPOSE: The REAL BRAIN of the system
  *
+ * ARCHITECTURE CHANGE (CRITICAL):
+ * - STATELESS - No in-memory Map storage
+ * - MongoDB Conversation is the ONLY source of truth
+ * - processTurn receives conversation document, not conversationId
+ * - Returns PATCH (delta), not full state
+ *
  * RESPONSIBILITIES:
- * - Track conversation state
  * - Execute step transitions
  * - Enforce step order
  * - Handle retries
  * - Manage branching
  * - Determine completion
  *
- * ARCHITECTURE:
- * User Speech → [Intent + Slot Layer] → [State Engine] → [LLM (voice only)]
- *
  * DOES NOT:
- * - Load flows (uses flowRegistry)
+ * - Store state (MongoDB does)
+ * - Load flows (Controller provides flow)
  * - Call LLM (LLM has ZERO control here)
- * - Parse LLM output
- * - Build prompts
- *
- * KEY PRINCIPLE:
- * LLM has ZERO control here.
- * All decisions are deterministic.
- * State transitions are explicit.
- * Intent NEVER advances steps by itself.
  */
 
-import flowRegistry from "./flowRegistry.js";
 import inputValidator from "./inputValidator.js";
 import intentClassifier from "./intentClassifier.js";
 import slotExtractor from "./slotExtractor.js";
 import textNormalizer from "./textNormalizer.js";
 
 // ============================================================================
-// STATE STORAGE
+// NO IN-MEMORY STATE - REMOVED
+// const conversationStates = new Map();  ← DELETED
 // ============================================================================
 
-// Conversation states (in production, use Redis/DB)
-const conversationStates = new Map();
-
 // ============================================================================
-// STATE STRUCTURE
-// ============================================================================
-
-/**
- * Conversation State Structure:
- * {
- *   conversationId: string,      // Unique session ID
- *   agentId: string,             // Agent identifier
- *   useCase: string,             // Flow use case
- *   currentStepId: string,       // Current step in flow
- *   language: string,            // Current language (en, hi, etc.)
- *   collectedData: {             // Data collected from user
- *     name: null,
- *     mobile: null,
- *     pincode: null,
- *     ...
- *   },
- *   retryCount: number,          // Retry attempts for current step
- *   status: string,              // "active" | "complete" | "escalated"
- *   createdAt: string,
- *   lastUpdated: string,
- * }
- */
-
-// ============================================================================
-// STATE INITIALIZATION
-// ============================================================================
-
-/**
- * Initialize a new conversation state
- *
- * @param {string} conversationId - Unique session identifier
- * @param {string} useCase - Use case to load
- * @param {object} options - { language, agentId }
- * @returns {object} Initial state
- */
-export function initializeState(conversationId, useCase, options = {}) {
-  const { language = "en", agentId = null } = options;
-
-  // Get flow from registry
-  const flow = flowRegistry.getFlow(useCase);
-  if (!flow) {
-    throw new Error(`Flow not found: ${useCase}`);
-  }
-
-  const state = {
-    // Identity
-    conversationId,
-    agentId,
-    useCase,
-
-    // Current position
-    currentStepId: flow.startStep,
-    previousStepId: null,
-
-    // Language
-    language: language || flow.defaultLanguage || "en",
-
-    // Collected data
-    collectedData: {},
-
-    // Retry tracking
-    retryCount: 0,
-    maxRetries: 2,
-
-    // Status: "active" | "complete" | "escalated"
-    status: "active",
-
-    // Agent config (from flow)
-    agentConfig: flow.agentConfig || {
-      name: "Agent",
-      tone: "professional",
-      style: "short",
-    },
-
-    // Timestamps
-    createdAt: new Date().toISOString(),
-    lastUpdated: new Date().toISOString(),
-  };
-
-  conversationStates.set(conversationId, state);
-  console.log(
-    `🆕 State initialized: ${conversationId} → ${useCase} → ${state.currentStepId}`
-  );
-
-  return state;
-}
-
-/**
- * Get conversation state
- */
-export function getState(conversationId) {
-  return conversationStates.get(conversationId) || null;
-}
-
-/**
- * Get or create state
- */
-export function getOrCreateState(conversationId, useCase, options = {}) {
-  const existing = getState(conversationId);
-  if (existing) {
-    return existing;
-  }
-  return initializeState(conversationId, useCase, options);
-}
-
-/**
- * Save state (internal)
- */
-function saveState(conversationId, state) {
-  state.lastUpdated = new Date().toISOString();
-  conversationStates.set(conversationId, state);
-  return state;
-}
-
-/**
- * Destroy state
- */
-export function destroyState(conversationId) {
-  conversationStates.delete(conversationId);
-  console.log(`🗑️ State destroyed: ${conversationId}`);
-}
-
-// ============================================================================
-// STEP ACCESS
+// STEP ACCESS (Pure functions - no state dependency)
 // ============================================================================
 
 /**
  * Get current step from flow
  *
- * @param {object} state - Conversation state
+ * @param {object} flow - Flow definition (passed from controller)
+ * @param {string} currentStepId - Current step ID
  * @returns {object|null} Current step definition
  */
-export function getCurrentStep(state) {
-  if (!state) return null;
-  return flowRegistry.getStep(state.useCase, state.currentStepId);
+export function getCurrentStep(flow, currentStepId) {
+  if (!flow || !currentStepId) return null;
+  return flow.steps?.[currentStepId] || null;
 }
 
 /**
@@ -184,31 +53,38 @@ export function getCurrentStep(state) {
  * Automatically fills {{placeholders}} with agentConfig and collectedData
  * AND normalizes for TTS (fixes Hindi pronunciation issues)
  *
- * @param {object} state - Conversation state
+ * @param {object} flow - Flow definition
+ * @param {object} conversation - MongoDB Conversation document
  * @param {boolean} isRetry - Use retry text if available
  * @returns {string|null} Text to speak with placeholders filled and normalized
  */
-export function getCurrentStepText(state, isRetry = false) {
-  if (!state) return null;
+export function getCurrentStepText(flow, conversation, isRetry = false) {
+  if (!flow || !conversation) return null;
 
-  // Use getStepTextWithContext for proper {{placeholder}} replacement
-  let text = flowRegistry.getStepTextWithContext(
-    state.useCase,
-    state.currentStepId,
-    state.language,
-    isRetry,
-    {
-      agentConfig: state.agentConfig,
-      collectedData: state.collectedData,
-    }
-  );
+  const step = getCurrentStep(flow, conversation.currentStepId);
+  if (!step) return null;
+
+  const lang = conversation.language || "en";
+
+  // Get text based on language and retry status
+  let text = null;
+  if (isRetry && step.retryText) {
+    text = step.retryText[lang] || step.retryText.en || step.retryText;
+  }
+  if (!text && step.text) {
+    text = step.text[lang] || step.text.en || step.text;
+  }
 
   if (!text) return null;
 
+  // Replace {{placeholders}} with agentConfig and collectedData
+  text = replacePlaceholders(text, {
+    ...conversation.agentConfig,
+    ...conversation.collectedData,
+  });
+
   // Normalize text for TTS to fix pronunciation issues
-  // This converts "1 crore" → "ek crore rupey" in Hindi
-  const languageCode = state.language || "en";
-  text = textNormalizer.normalizeForTTS(text, languageCode);
+  text = textNormalizer.normalizeForTTS(text, lang);
 
   return text;
 }
@@ -223,27 +99,17 @@ export function getCurrentStepText(state, isRetry = false) {
  *
  * GOLDEN RULE: LLM never decides what the next step is
  *
- * State engine controls:
- * - current step
- * - next step
- * - retries
- * - closure
- * - exit
- *
- * LLM DOES NOT KNOW THIS EXISTS.
- *
  * @param {object} flow - Flow definition from JSON
- * @param {object} state - Current conversation state
+ * @param {object} conversation - MongoDB Conversation document
  * @param {object} slots - Extracted slots from user input
  * @returns {object} { nextStepId, shouldRepeat, reason }
  */
-export function advanceState(flow, state, slots = {}) {
-  const step = flow.steps[state.currentStepId];
+export function advanceState(flow, conversation, slots = {}) {
+  const step = flow.steps[conversation.currentStepId];
 
   if (!step) {
-    // Invalid step - stay where we are
     return {
-      nextStepId: state.currentStepId,
+      nextStepId: conversation.currentStepId,
       shouldRepeat: true,
       reason: "INVALID_STEP",
     };
@@ -253,10 +119,9 @@ export function advanceState(flow, state, slots = {}) {
   if (step.field || step.collect) {
     const fieldName = step.field || step.collect;
 
-    if (!slots[fieldName] && !state.collectedData[fieldName]) {
-      // Data not collected - repeat the step
+    if (!slots[fieldName] && !conversation.collectedData?.[fieldName]) {
       return {
-        nextStepId: state.currentStepId,
+        nextStepId: conversation.currentStepId,
         shouldRepeat: true,
         reason: "SLOT_MISSING",
         missingField: fieldName,
@@ -276,10 +141,9 @@ export function advanceState(flow, state, slots = {}) {
       return { nextStepId: step.denyNext, shouldRepeat: false };
     }
 
-    // Unclear confirmation - repeat
     if (!confirmation || confirmation === "unclear") {
       return {
-        nextStepId: state.currentStepId,
+        nextStepId: conversation.currentStepId,
         shouldRepeat: true,
         reason: "CONFIRMATION_UNCLEAR",
       };
@@ -287,8 +151,8 @@ export function advanceState(flow, state, slots = {}) {
   }
 
   // RULE 3: Check for max retries
-  if (state.retryCount >= (state.maxRetries || 2)) {
-    // Max retries exceeded - escalate
+  const maxRetries = conversation.maxRetries || 2;
+  if ((conversation.retryCount || 0) >= maxRetries) {
     return {
       nextStepId: "escalate",
       shouldRepeat: false,
@@ -314,125 +178,78 @@ export function advanceState(flow, state, slots = {}) {
   };
 }
 
-/**
- * Pure function to determine if state should advance
- * Called BEFORE any LLM interaction
- *
- * @param {object} state - Current state
- * @param {object} slots - Extracted slots
- * @returns {boolean} Whether to advance
- */
-export function shouldAdvance(state, slots = {}) {
-  const flow = flowRegistry.getFlow(state.useCase);
-  if (!flow) return false;
-
-  const result = advanceState(flow, state, slots);
-  return !result.shouldRepeat;
-}
-
 // ============================================================================
-// STATE TRANSITIONS
+// INPUT HANDLING (Pure functions)
 // ============================================================================
-
-/**
- * Advance to the next step
- *
- * This is the CORE function that moves the conversation forward.
- * LLM has ZERO control here - all decisions are deterministic.
- *
- * @param {string} conversationId - Conversation ID
- * @param {string} userInput - What the user said
- * @returns {object} { success, text, validationError, isEnd }
- */
-export function advanceStep(conversationId, userInput) {
-  const state = getState(conversationId);
-  if (!state) {
-    throw new Error(`State not found: ${conversationId}`);
-  }
-
-  const step = getCurrentStep(state);
-  if (!step) {
-    throw new Error(`Step not found: ${state.currentStepId}`);
-  }
-
-  // Handle based on step type
-  switch (step.type) {
-    case "message":
-      // Message steps auto-advance
-      return transitionTo(conversationId, step.next);
-
-    case "input":
-      return handleInputStep(conversationId, state, step, userInput);
-
-    case "confirm":
-      return handleConfirmStep(conversationId, state, step, userInput);
-
-    case "intent":
-      return handleIntentStep(conversationId, state, step, userInput);
-
-    case "action":
-      // Action steps auto-advance after execution
-      return transitionTo(conversationId, step.next);
-
-    default:
-      console.warn(`⚠️ Unknown step type: ${step.type}`);
-      return transitionTo(conversationId, step.next);
-  }
-}
 
 /**
  * Handle input collection step
+ *
+ * @param {object} flow - Flow definition
+ * @param {object} conversation - MongoDB Conversation document
+ * @param {object} step - Current step definition
+ * @param {string} userInput - User's input
+ * @returns {object} { success, dataPatch, nextStepId, retryCount, validationError }
  */
-function handleInputStep(conversationId, state, step, userInput) {
+function handleInputStep(flow, conversation, step, userInput) {
   const field = step.field;
   const validationType = step.validation;
 
-  // Validate input using inputValidator
+  // Validate input
   const validation = inputValidator.validateField(validationType, userInput);
 
   if (!validation.valid) {
     // Validation failed - increment retry
-    state.retryCount++;
-    saveState(conversationId, state);
+    const newRetryCount = (conversation.retryCount || 0) + 1;
+    const maxRetries = conversation.maxRetries || 2;
 
     console.log(
-      `❌ Validation failed for ${field}: ${validation.error} (retry ${state.retryCount})`
+      `❌ Validation failed for ${field}: ${validation.error} (retry ${newRetryCount})`
     );
 
     // Check max retries
-    if (state.retryCount >= state.maxRetries) {
+    if (newRetryCount >= maxRetries) {
       console.log(`🚨 Max retries exceeded - escalating`);
-      return transitionTo(conversationId, "escalate");
+      return {
+        success: false,
+        nextStepId: "escalate",
+        retryCount: newRetryCount,
+        status: "escalated",
+      };
     }
 
-    // Return retry response
     return {
       success: false,
       validationError: validation.error,
-      retryCount: state.retryCount,
-      text: getCurrentStepText(state, true), // Retry text
-      stepId: state.currentStepId,
+      retryCount: newRetryCount,
+      text: getCurrentStepText(flow, conversation, true),
+      stepId: conversation.currentStepId,
     };
   }
 
-  // Validation passed - store data
-  state.collectedData[field] = validation.value;
-  state.retryCount = 0;
-  saveState(conversationId, state);
-
+  // Validation passed - return data patch (NOT full state)
   console.log(`✅ Collected ${field}: ${validation.value}`);
 
-  // Advance to next step
-  return transitionTo(conversationId, step.next);
+  return {
+    success: true,
+    dataPatch: { [field]: validation.value }, // ONLY the new slot
+    nextStepId: step.next,
+    retryCount: 0,
+  };
 }
 
 /**
  * Handle confirmation step
+ *
+ * @param {object} flow - Flow definition
+ * @param {object} conversation - MongoDB Conversation document
+ * @param {object} step - Current step definition
+ * @param {string} userInput - User's input
+ * @returns {object} Result
  */
-function handleConfirmStep(conversationId, state, step, userInput) {
+function handleConfirmStep(flow, conversation, step, userInput) {
   const inputLower = (userInput || "").toLowerCase();
 
-  // Confirmation patterns (multi-language)
   const confirmPatterns = [
     "yes",
     "yeah",
@@ -473,257 +290,130 @@ function handleConfirmStep(conversationId, state, step, userInput) {
 
   if (isConfirmed) {
     console.log(`✅ User confirmed`);
-    return transitionTo(conversationId, step.confirmNext);
+    return {
+      success: true,
+      nextStepId: step.confirmNext,
+      retryCount: 0,
+    };
   }
 
   if (isDenied) {
-    console.log(`❌ User denied - resetting data`);
-    state.collectedData = {};
-    saveState(conversationId, state);
-    return transitionTo(conversationId, step.denyNext);
+    console.log(`❌ User denied - will clear only relevant field`);
+    // Note: We return a signal to clear data, controller handles it
+    return {
+      success: true,
+      nextStepId: step.denyNext,
+      retryCount: 0,
+      shouldClearData: true, // Signal to controller
+      fieldToClear: step.field || null, // Only clear this field, not all
+    };
   }
 
   // Unclear response - retry
-  state.retryCount++;
-  saveState(conversationId, state);
+  const newRetryCount = (conversation.retryCount || 0) + 1;
+  const maxRetries = conversation.maxRetries || 2;
 
-  if (state.retryCount >= state.maxRetries) {
-    return transitionTo(conversationId, "escalate");
+  if (newRetryCount >= maxRetries) {
+    return {
+      success: false,
+      nextStepId: "escalate",
+      retryCount: newRetryCount,
+      status: "escalated",
+    };
   }
 
   return {
     success: false,
     text:
-      state.language === "hi"
+      conversation.language === "hi"
         ? "मुझे समझ नहीं आया। कृपया हाँ या नहीं कहें।"
         : "I didn't understand. Please say yes or no.",
-    retryCount: state.retryCount,
-    stepId: state.currentStepId,
+    retryCount: newRetryCount,
+    stepId: conversation.currentStepId,
   };
 }
 
 /**
  * Handle intent detection step
+ *
+ * @param {object} flow - Flow definition
+ * @param {object} conversation - MongoDB Conversation document
+ * @param {object} step - Current step definition
+ * @param {string} userInput - User's input
+ * @returns {object} Result
  */
-function handleIntentStep(conversationId, state, step, userInput) {
+function handleIntentStep(flow, conversation, step, userInput) {
   const inputLower = (userInput || "").toLowerCase();
   const allowedIntents = step.allowedIntents || [];
   const nextSteps = step.next || {};
 
-  // Detect intent from keywords
   for (const intent of allowedIntents) {
     const keywords = getIntentKeywords(intent);
     if (keywords.some((kw) => inputLower.includes(kw))) {
       console.log(`🎯 Intent detected: ${intent}`);
-      return transitionTo(conversationId, nextSteps[intent]);
+      return {
+        success: true,
+        nextStepId: nextSteps[intent],
+        retryCount: 0,
+      };
     }
   }
 
   // No intent matched - use default
   const defaultIntent = allowedIntents[0];
   console.log(`❓ No intent matched, using default: ${defaultIntent}`);
-  return transitionTo(conversationId, nextSteps[defaultIntent] || step.next);
-}
-
-/**
- * Transition to a specific step
- *
- * @param {string} conversationId - Conversation ID
- * @param {string} nextStepId - Step to transition to
- * @returns {object} Transition result
- */
-export function transitionTo(conversationId, nextStepId) {
-  const state = getState(conversationId);
-
-  // Check if flow is complete
-  if (!nextStepId) {
-    state.status = "complete";
-    saveState(conversationId, state);
-
-    console.log(`✅ Flow COMPLETE: ${conversationId}`);
-
-    return {
-      success: true,
-      isEnd: true,
-      text: null,
-      stepId: null,
-    };
-  }
-
-  // Check if escalating
-  if (nextStepId === "escalate") {
-    state.status = "escalated";
-  }
-
-  // Update state
-  state.previousStepId = state.currentStepId;
-  state.currentStepId = nextStepId;
-  state.retryCount = 0;
-  saveState(conversationId, state);
-
-  console.log(`➡️ Transitioned: ${state.previousStepId} → ${nextStepId}`);
-
-  // Get next step's text
-  const step = getCurrentStep(state);
-  const text = getCurrentStepText(state);
-
   return {
     success: true,
-    text,
-    stepId: nextStepId,
-    stepType: step?.type,
-    isEnd: step?.isEnd || false,
+    nextStepId: nextSteps[defaultIntent] || step.next,
+    retryCount: 0,
   };
 }
 
 // ============================================================================
-// STATE UPDATES
-// ============================================================================
-
-/**
- * Set language for conversation
- */
-export function setLanguage(conversationId, language) {
-  const state = getState(conversationId);
-  if (!state) return null;
-
-  state.language = language;
-  saveState(conversationId, state);
-
-  console.log(`🌐 Language set: ${language}`);
-  return state;
-}
-
-/**
- * Update collected data manually
- */
-export function updateData(conversationId, data) {
-  const state = getState(conversationId);
-  if (!state) return null;
-
-  state.collectedData = { ...state.collectedData, ...data };
-  saveState(conversationId, state);
-
-  return state;
-}
-
-/**
- * Reset conversation (start over)
- */
-export function resetConversation(conversationId) {
-  const state = getState(conversationId);
-  if (!state) return null;
-
-  const flow = flowRegistry.getFlow(state.useCase);
-  if (!flow) return null;
-
-  state.currentStepId = flow.startStep;
-  state.previousStepId = null;
-  state.collectedData = {};
-  state.retryCount = 0;
-  state.status = "active";
-  saveState(conversationId, state);
-
-  console.log(`🔄 Conversation reset: ${conversationId}`);
-  return state;
-}
-
-// ============================================================================
-// STATE QUERIES
-// ============================================================================
-
-/**
- * Get state summary (for API response)
- */
-export function getStateSummary(conversationId) {
-  const state = getState(conversationId);
-  if (!state) return null;
-
-  return {
-    conversationId: state.conversationId,
-    agentId: state.agentId,
-    useCase: state.useCase,
-    currentStepId: state.currentStepId,
-    previousStepId: state.previousStepId,
-    language: state.language,
-    collectedData: state.collectedData,
-    retryCount: state.retryCount,
-    status: state.status,
-    agentConfig: state.agentConfig,
-  };
-}
-
-/**
- * Check if conversation is complete
- */
-export function isComplete(conversationId) {
-  const state = getState(conversationId);
-  return state?.status === "complete";
-}
-
-/**
- * Check if conversation is escalated
- */
-export function isEscalated(conversationId) {
-  const state = getState(conversationId);
-  return state?.status === "escalated";
-}
-
-// ============================================================================
-// HIGH-LEVEL API
+// MAIN ENTRY POINT - processTurn (REFACTORED)
 // ============================================================================
 
 /**
  * Process a complete turn in the conversation
  *
- * This is the MAIN entry point for the state engine.
+ * ARCHITECTURE CHANGE:
+ * - Receives conversation DOCUMENT, not just ID
+ * - Receives flow DOCUMENT from controller
+ * - Returns PATCH (delta), not full state
+ * - Controller handles DB persistence
  *
- * ARCHITECTURE:
- * User Speech → [Intent + Slot] → [State Engine] → Response
- *
- * @param {string} conversationId - Unique conversation ID
- * @param {string} userInput - What the user said (null for first turn)
- * @param {object} options - { useCase, language, agentId }
- * @returns {object} { text, language, stepId, data, isEnd, intent }
+ * @param {object} params - { conversation, userInput, flow }
+ * @returns {object} { text, nextStepId, dataPatch, retryCount, status, intent }
  */
-export function processTurn(conversationId, userInput, options = {}) {
-  const {
-    useCase = "automotive_sales",
-    language = "en",
-    agentId = null,
-  } = options;
+export function processTurn({ conversation, userInput, flow }) {
+  if (!conversation || !flow) {
+    throw new Error("processTurn requires conversation and flow");
+  }
 
   try {
-    // Get or create state
-    const state = getOrCreateState(conversationId, useCase, {
-      language,
-      agentId,
-    });
+    const currentStep = getCurrentStep(flow, conversation.currentStepId);
 
     // First turn - just return greeting text
     if (!userInput) {
-      const text = getCurrentStepText(state);
+      const text = getCurrentStepText(flow, conversation);
       return {
         text,
-        language: state.language,
-        stepId: state.currentStepId,
-        stepType: getCurrentStep(state)?.type,
-        data: state.collectedData,
-        agentConfig: state.agentConfig,
-        status: state.status,
+        nextStepId: conversation.currentStepId,
+        stepType: currentStep?.type,
+        dataPatch: {}, // No changes
+        retryCount: 0,
+        status: conversation.status || "active",
       };
     }
 
     // ====================================================================
     // LAYER 1: INTENT CLASSIFICATION
-    // Detect what the user WANTS (not what they said)
     // Intent does NOT advance steps - only used for special handling
     // ====================================================================
-    const currentStep = getCurrentStep(state);
     const intentResult = intentClassifier.classifyIntent(userInput, {
       currentStep,
-      useCase: state.useCase,
-      collectedData: state.collectedData,
+      useCase: conversation.flowId,
+      collectedData: conversation.collectedData,
     });
 
     console.log(
@@ -732,24 +422,35 @@ export function processTurn(conversationId, userInput, options = {}) {
       } (confidence: ${intentResult.confidence.toFixed(2)})`
     );
 
-    // Handle special intents that override normal flow
+    // Handle special intents
     if (intentClassifier.shouldEscalate(intentResult.intent)) {
       console.log(`🚨 Escalation intent detected`);
-      return transitionTo(conversationId, "escalate");
+      return {
+        text: getCurrentStepText(flow, {
+          ...conversation,
+          currentStepId: "escalate",
+        }),
+        nextStepId: "escalate",
+        dataPatch: {},
+        retryCount: 0,
+        status: "escalated",
+        intent: intentResult.intent,
+      };
     }
 
     if (intentClassifier.shouldCancel(intentResult.intent)) {
-      console.log(`🛑 Cancel intent detected - resetting`);
-      const resetState = resetConversation(conversationId);
+      console.log(`🛑 Cancel intent detected - reset signal`);
       return {
         text:
-          state.language === "hi"
+          conversation.language === "hi"
             ? "ठीक है, मैं फिर से शुरू करती हूँ।"
             : "Okay, let me start over.",
-        language: state.language,
-        stepId: resetState.currentStepId,
+        nextStepId: flow.startStep,
+        dataPatch: {}, // Controller will clear data
+        retryCount: 0,
         status: "active",
         wasReset: true,
+        intent: intentResult.intent,
       };
     }
 
@@ -761,39 +462,98 @@ export function processTurn(conversationId, userInput, options = {}) {
       userInput,
       currentStep
     );
+    const extractedSlots = slotResult.allFound ? slotResult.slots : {};
 
-    if (slotResult.allFound && Object.keys(slotResult.slots).length > 0) {
-      console.log(`📦 Slots extracted:`, slotResult.slots);
-
-      // Store extracted data in state
-      for (const [field, value] of Object.entries(slotResult.slots)) {
-        state.collectedData[field] = value;
-      }
-      saveState(conversationId, state);
+    if (Object.keys(extractedSlots).length > 0) {
+      console.log(`📦 Slots extracted:`, extractedSlots);
     }
 
     // ====================================================================
     // LAYER 3: STATE ENGINE (The Brain)
     // Process input and advance based on step type + validation
     // ====================================================================
-    const result = advanceStep(conversationId, userInput);
+    let result;
 
-    // Get updated state
-    const updatedState = getState(conversationId);
+    switch (currentStep?.type) {
+      case "message":
+        // Message steps auto-advance
+        result = {
+          success: true,
+          nextStepId: currentStep.next,
+          retryCount: 0,
+          dataPatch: extractedSlots,
+        };
+        break;
+
+      case "input":
+        result = handleInputStep(flow, conversation, currentStep, userInput);
+        // Merge extracted slots into dataPatch
+        result.dataPatch = { ...extractedSlots, ...result.dataPatch };
+        break;
+
+      case "confirm":
+        result = handleConfirmStep(flow, conversation, currentStep, userInput);
+        result.dataPatch = extractedSlots;
+        break;
+
+      case "intent":
+        result = handleIntentStep(flow, conversation, currentStep, userInput);
+        result.dataPatch = extractedSlots;
+        break;
+
+      case "action":
+        // Action steps auto-advance after execution
+        result = {
+          success: true,
+          nextStepId: currentStep.next,
+          retryCount: 0,
+          dataPatch: extractedSlots,
+        };
+        break;
+
+      default:
+        console.warn(`⚠️ Unknown step type: ${currentStep?.type}`);
+        result = {
+          success: true,
+          nextStepId: currentStep?.next,
+          retryCount: 0,
+          dataPatch: extractedSlots,
+        };
+    }
+
+    // Get text for next step (if advancing)
+    const nextStepId = result.nextStepId;
+    const isEnd = !nextStepId || nextStepId === null;
+    const isEscalated =
+      nextStepId === "escalate" || result.status === "escalated";
+
+    let text = result.text;
+    if (!text && nextStepId && nextStepId !== "escalate") {
+      // Get next step's text
+      const tempConv = { ...conversation, currentStepId: nextStepId };
+      text = getCurrentStepText(flow, tempConv);
+    }
+
+    // Determine status
+    let status = conversation.status || "active";
+    if (isEnd) status = "complete";
+    if (isEscalated) status = "escalated";
+
+    console.log(
+      `➡️ Transition: ${conversation.currentStepId} → ${nextStepId || "END"}`
+    );
 
     return {
-      text: result.text,
-      language: updatedState.language,
-      stepId: updatedState.currentStepId,
-      stepType: result.stepType,
-      isEnd: result.isEnd || false,
-      data: updatedState.collectedData,
+      text,
+      nextStepId: isEnd ? null : nextStepId,
+      stepType: currentStep?.type,
+      dataPatch: result.dataPatch || {},
+      retryCount: result.retryCount || 0,
+      status,
+      isEnd,
       validationError: result.validationError,
-      retryCount: result.retryCount,
-      status: updatedState.status,
-      agentConfig: updatedState.agentConfig,
-
-      // Intent info (for debugging/analytics)
+      shouldClearData: result.shouldClearData,
+      fieldToClear: result.fieldToClear,
       intent: intentResult.intent,
       intentConfidence: intentResult.confidence,
     };
@@ -801,43 +561,6 @@ export function processTurn(conversationId, userInput, options = {}) {
     console.error("❌ State engine error:", error.message);
     throw error;
   }
-}
-
-/**
- * Process turn with intent-based flow selection
- * Use when activeUseCase is null and you need to detect which flow to use
- *
- * @param {string} conversationId - Conversation ID
- * @param {string} userInput - What the user said
- * @param {object} options - { language, agentId }
- * @returns {object} Result with detected useCase
- */
-export function processTurnWithFlowSelection(
-  conversationId,
-  userInput,
-  options = {}
-) {
-  const { language = "en", agentId = null } = options;
-
-  // Classify intent to determine which flow to use
-  const intentResult = intentClassifier.classifyIntent(userInput, {});
-  const detectedUseCase = intentClassifier.mapIntentToUseCase(
-    intentResult.intent
-  );
-
-  console.log(
-    `🔍 Flow selection - Intent: ${intentResult.intent} → UseCase: ${detectedUseCase}`
-  );
-
-  // Use detected use case or default
-  const useCase = detectedUseCase || "automotive_sales";
-
-  // Now process with the selected flow
-  return processTurn(conversationId, userInput, {
-    useCase,
-    language,
-    agentId,
-  });
 }
 
 // ============================================================================
@@ -852,7 +575,7 @@ function replacePlaceholders(text, data) {
 
   let result = text;
   for (const [key, value] of Object.entries(data)) {
-    const placeholder = new RegExp(`\\{${key}\\}`, "gi");
+    const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, "gi");
     result = result.replace(placeholder, value || "");
   }
   return result;
@@ -871,36 +594,18 @@ function getIntentKeywords(intent) {
   return intentMap[intent] || [intent];
 }
 
-export default {
-  // State management
-  initializeState,
-  getState,
-  getOrCreateState,
-  destroyState,
+// ============================================================================
+// EXPORTS (Simplified - no state management functions)
+// ============================================================================
 
-  // Step access
+export default {
+  // Step access (pure functions)
   getCurrentStep,
   getCurrentStepText,
 
   // State engine is THE BOSS (LLM never knows this)
   advanceState,
-  shouldAdvance,
 
-  // Transitions
-  advanceStep,
-  transitionTo,
-
-  // Updates
-  setLanguage,
-  updateData,
-  resetConversation,
-
-  // Queries
-  getStateSummary,
-  isComplete,
-  isEscalated,
-
-  // High-level API
+  // High-level API - ONLY entry point
   processTurn,
-  processTurnWithFlowSelection,
 };
