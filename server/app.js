@@ -16,6 +16,7 @@ import adminRoutes from "./routes/adminRoutes.js";
 import ragService from "./services/ragService.js";
 import { connectDB } from "./config/database.js";
 import freeswitchRoutes from "./routes/freeswitchRoutes.js";
+import audioSocketServer from "./services/asteriskBridge.service.js";
 
 const app = express();
 
@@ -129,6 +130,15 @@ if (config.env !== "production") {
     // console.log(`📊 Environment: ${config.env}`);
     // console.log("=".repeat(50));
   });
+
+  // Start AudioSocket server for Asterisk telephony (only in non-serverless)
+  if (process.env.AUDIOSOCKET_PORT) {
+    try {
+      audioSocketServer.start();
+    } catch (err) {
+      console.error("❌ Failed to start AudioSocket server:", err);
+    }
+  }
 }
 
 // Graceful shutdown

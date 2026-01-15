@@ -3,7 +3,7 @@ import express from "express";
 import knowledgeRoutes from "./knowledgeRoutes.js";
 import ragRoutes from "./ragRoutes.js";
 import agentRoutes from "./agentRoutes.js";
-import callRoutes from "./call.routes.js";
+
 import authRoutes from "./authRoutes.js";
 import mongoose from "mongoose";
 import { connectDB } from "../config/database.js";
@@ -11,6 +11,7 @@ import { authenticate } from "../middleware/authMiddleware.js";
 import agentforceRoutes from "./agentforceRoutes.js";
 import speechRoutes from "./speechRoutes.js";
 import chatRoutes from "./chatRoutes.js";
+import asteriskRoutes from "./asteriskRoutes.js";
 
 const router = express.Router();
 
@@ -60,15 +61,16 @@ router.get("/health/db", async (req, res) => {
 router.use("/knowledge", knowledgeRoutes);
 router.use("/rag", ragRoutes);
 router.use("/agent", agentRoutes);
-router.use("/call", callRoutes);
+
 router.use("/agentforce", agentforceRoutes);
 router.use("/speech", speechRoutes);
 router.use("/chat", chatRoutes);
+router.use("/asterisk", asteriskRoutes);
 
 // Protect all routes below (except /auth and health checks)
 router.use("/rag", authenticate, ragRoutes);
 router.use("/agents", authenticate, agentRoutes);
-router.use("/call", authenticate, callRoutes);
+
 router.use("/", authenticate, knowledgeRoutes);
 router.use("/auth", authRoutes);
 
