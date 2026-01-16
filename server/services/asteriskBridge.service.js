@@ -17,6 +17,7 @@ import stateEngine from "./stateEngine.js";
 import Conversation from "../models/Conversation.js";
 import Agent from "../models/Agent.js";
 import axios from "axios";
+import ttsService from "./tts.service.js";
 import {
   MESSAGE_TYPES,
   parseFrame,
@@ -222,26 +223,9 @@ class CallSession {
     console.log(`🔊 [${this.uuid}] TTS: "${text.substring(0, 50)}..."`);
 
     try {
-      // Use Sarvam TTS (already configured in your backend)
-      const response = await axios.post(
-        "https://api.sarvam.ai/text-to-speech",
-        {
-          inputs: [text],
-          target_language_code: this.language === "hi" ? "hi-IN" : "en-IN",
-          speaker: "meera", // Default voice
-          enable_preprocessing: true,
-          model: "bulbul:v1",
-        },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            "api-subscription-key": process.env.SARVAM_API_KEY,
-          },
-          timeout: 30000,
-        }
-      );
+      // Use existing TTS service (works with Sarvam)
+      const audioBase64 = await ttsService.speak(text, this.language, "meera");
 
-      const audioBase64 = response.data.audios?.[0];
       if (!audioBase64) {
         console.error(`❌ [${this.uuid}] No audio from TTS`);
         return;
