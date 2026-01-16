@@ -515,9 +515,9 @@ class AudioSocketServer {
 
         switch (frame.type) {
           case MESSAGE_TYPES.UUID:
-            // First message: call UUID (optionally: uuid,calledNumber)
+            // First message: call UUID (format: uuid:calledNumber)
             const uuidData = frame.data.toString("utf8");
-            const parts = uuidData.split(",");
+            const parts = uuidData.split(":");
             const uuid = parts[0];
             const calledNumber = parts[1] || null; // DID that was called
 
