@@ -12,6 +12,8 @@
  */
 
 import net from "net";
+import fs from "fs";
+import { fileURLToPath } from "url";
 import { createClient } from "@deepgram/sdk";
 import stateEngine from "./stateEngine.js";
 import Conversation from "../models/Conversation.js";
@@ -99,22 +101,29 @@ class CallSession {
 
       console.log(`✅ [${this.uuid}] Loaded agent: ${agent.name} (${agentId})`);
 
-      // 3. Load flow to get start step
-      const flowModule = await import(`../flows/${agent.flowId}.json`, {
-        assert: { type: "json" },
-      });
-      const flow = flowModule.default;
+      // 3. Load flow using fs.readFileSync (same as chatV5Controller)
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = import("path").then((p) => p.dirname(__filename));
+      const flowPath = new URL(
+        `../flows/${agent.flowId}.json`,
+        import.meta.url
+      );
+      const flowContent = fs.readFileSync(flowPath, "utf-8");
+      const flow = JSON.parse(flowContent);
 
-      if (!flow || !flow.nodes || !flow.nodes.start) {
+      if (!flow || !flow.startStep) {
         throw new Error(`Invalid flow: ${agent.flowId}`);
       }
 
       // 4. Store agent configuration
       this.agentId = agentId;
       this.flowId = agent.flowId;
-      this.startStepId = flow.nodes.start;
+      this.startStepId = flow.startStep;
       this.agentConfig = agent.agentConfig || {};
-      this.welcomeMessage = agent.welcome || "Hello! How can I help you today?";
+      this.welcomeMessage =
+        agent.welcome ||
+        flow.steps?.greeting?.text?.en ||
+        "Hello! How can I help you today?";
       this.language = agent.supportedLanguages?.[0] || "en";
 
       console.log(
