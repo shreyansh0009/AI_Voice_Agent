@@ -224,7 +224,11 @@ class CallSession {
 
     try {
       // Use existing TTS service (works with Sarvam)
-      const audioBase64 = await ttsService.speak(text, this.language, "meera");
+      const audioBase64 = await ttsService.speak(
+        text,
+        this.language,
+        "manisha"
+      );
 
       if (!audioBase64) {
         console.error(`❌ [${this.uuid}] No audio from TTS`);
