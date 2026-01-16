@@ -55,6 +55,7 @@ class CallSession {
     this.startStepId = null;
     this.agentConfig = {};
     this.welcomeMessage = null;
+    this.flow = null; // Store loaded flow
     this.language = "en";
 
     // Audio buffering
@@ -115,10 +116,11 @@ class CallSession {
         throw new Error(`Invalid flow: ${agent.flowId}`);
       }
 
-      // 4. Store agent configuration
+      // 4. Store agent configuration and flow
       this.agentId = agentId;
       this.flowId = agent.flowId;
       this.startStepId = flow.startStep;
+      this.flow = flow; // Store flow for processTurn
       this.agentConfig = agent.agentConfig || {};
       this.welcomeMessage =
         agent.welcome ||
@@ -265,29 +267,43 @@ class CallSession {
       // Load agent configuration
       const agent = this.agentId ? await Agent.findById(this.agentId) : null;
 
-      // Process through state engine
-      const result = await stateEngine.processTurn({
-        conversation,
-        flow: agent?.flow || null,
-        userMessage,
-        agentConfig: agent?.config || {},
+      // Process through state engine (same format as chatV5Controller)
+      const result = stateEngine.processTurn({
+        conversation: conversation.toObject(), // Pass document object
+        userInput: userMessage,
+        flow: this.flow, // Pass stored flow
       });
 
       // Get AI response
       const aiResponse =
-        result.response || "I couldn't process that. Please try again.";
+        result.text ||
+        result.response ||
+        "I couldn't process that. Please try again.";
       console.log(
         `🤖 [${this.uuid}] AI Response: "${aiResponse.substring(0, 100)}..."`
       );
 
-      // Apply patches to conversation
-      if (result.patches) {
-        await Conversation.findByIdAndUpdate(
-          this.conversationId,
-          { $set: result.patches },
-          { new: true }
-        );
+      // Apply patches to conversation (same as chatV5Controller)
+      if (result.nextStepId !== undefined) {
+        conversation.currentStepId = result.nextStepId;
       }
+
+      if (result.dataPatch && Object.keys(result.dataPatch).length > 0) {
+        conversation.collectedData = {
+          ...conversation.collectedData,
+          ...result.dataPatch,
+        };
+      }
+
+      if (result.retryCount !== undefined) {
+        conversation.retryCount = result.retryCount;
+      }
+
+      conversation.status = result.status || "active";
+      conversation.lastUserInput = userMessage;
+      conversation.lastAgentResponse = aiResponse;
+
+      await conversation.save();
 
       // Convert response to speech and send back
       await this.speakResponse(aiResponse);
