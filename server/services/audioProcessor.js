@@ -11,12 +11,14 @@
  * - Types: 0x00 = UUID, 0x01 = audio, 0x02 = error/hangup
  */
 
-// AudioSocket message types
+// AudioSocket message types - per Asterisk protocol
+// Type 0x10 (16 decimal) is AUDIO, not 0x01
 export const MESSAGE_TYPES = {
-  UUID: 0x00,
-  AUDIO: 0x01,
-  ERROR: 0x02,
-  SILENCE: 0x03,
+  HANGUP: 0x00, // Connection closing
+  UUID: 0x01, // First message with call UUID
+  ERROR: 0x02, // Error occurred
+  SILENCE: 0x03, // Silence indicator
+  AUDIO: 0x10, // 16 decimal - Audio frames
 };
 
 /**
