@@ -251,14 +251,17 @@ class CallSession {
    * Stream audio back to Asterisk via AudioSocket
    */
   async streamAudioToAsterisk(audioBuffer) {
-    // TTS returns WAV - need to extract PCM and potentially resample
+    // TTS returns WAV - need to extract PCM and resample
     // Sarvam returns 22050Hz WAV, we need 8000Hz PCM for telephony
 
     // Skip WAV header (44 bytes) to get PCM data
     const pcmData = audioBuffer.slice(44);
 
-    // Split into 20ms chunks (320 bytes at 8kHz)
-    const chunks = splitIntoChunks(pcmData, FRAME_SIZE);
+    // Resample from 22050Hz to 8000Hz
+    const resampledPCM = this.resampleAudio(pcmData, 22050, 8000);
+
+    // Split into 20ms chunks (320 bytes at 8kHz = 160 samples × 2 bytes)
+    const chunks = splitIntoChunks(resampledPCM, FRAME_SIZE);
 
     for (const chunk of chunks) {
       if (this.socket.writable) {
@@ -266,7 +269,7 @@ class CallSession {
         this.socket.write(frame);
 
         // Pace the audio to real-time (20ms per frame)
-        await new Promise((resolve) => setTimeout(resolve, 18)); // Slightly less than 20ms for network
+        await new Promise((resolve) => setTimeout(resolve, 18));
       } else {
         console.log(
           `⚠️ [${this.uuid}] Socket not writable, stopping audio stream`
@@ -278,6 +281,45 @@ class CallSession {
     console.log(
       `✅ [${this.uuid}] Audio stream complete (${chunks.length} chunks)`
     );
+  }
+
+  /**
+   * Resample PCM audio using linear interpolation
+   * @param {Buffer} pcmBuffer - Input 16-bit PCM
+   * @param {number} fromRate - Source sample rate (e.g., 22050)
+   * @param {number} toRate - Target sample rate (e.g., 8000)
+   * @returns {Buffer}
+   */
+  resampleAudio(pcmBuffer, fromRate, toRate) {
+    if (fromRate === toRate) return pcmBuffer;
+
+    const inputSamples = pcmBuffer.length / 2;
+    const ratio = toRate / fromRate;
+    const outputSamples = Math.floor(inputSamples * ratio);
+    const output = Buffer.alloc(outputSamples * 2);
+
+    for (let i = 0; i < outputSamples; i++) {
+      const srcPos = i / ratio;
+      const srcIndex = Math.floor(srcPos);
+      const frac = srcPos - srcIndex;
+
+      if (srcIndex >= inputSamples - 1) {
+        output.writeInt16LE(
+          pcmBuffer.readInt16LE((inputSamples - 1) * 2),
+          i * 2
+        );
+      } else {
+        const sample1 = pcmBuffer.readInt16LE(srcIndex * 2);
+        const sample2 = pcmBuffer.readInt16LE((srcIndex + 1) * 2);
+        const interpolated = Math.round(sample1 + frac * (sample2 - sample1));
+        output.writeInt16LE(
+          Math.max(-32768, Math.min(32767, interpolated)),
+          i * 2
+        );
+      }
+    }
+
+    return output;
   }
 
   /**
