@@ -18,6 +18,7 @@ import Conversation from "../models/Conversation.js";
 import Agent from "../models/Agent.js";
 import axios from "axios";
 import ttsService from "./tts.service.js";
+import { getAgentIdForDID, getDefaultAgentId } from "../config/didMapping.js";
 import {
   MESSAGE_TYPES,
   parseFrame,
@@ -40,11 +41,18 @@ const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
  * Call Session - manages state for a single phone call
  */
 class CallSession {
-  constructor(uuid, socket) {
+  constructor(uuid, socket, calledNumber = null) {
     this.uuid = uuid;
     this.socket = socket;
+    this.calledNumber = calledNumber; // DID that was called
     this.conversationId = null;
-    this.agentId = DEFAULT_AGENT_ID;
+
+    // Agent configuration (to be loaded)
+    this.agentId = null;
+    this.flowId = null;
+    this.startStepId = null;
+    this.agentConfig = {};
+    this.welcomeMessage = null;
     this.language = "en";
 
     // Audio buffering
@@ -58,7 +66,69 @@ class CallSession {
     this.transcript = "";
     this.isFinal = false;
 
-    console.log(`📞 [${uuid}] New call session created`);
+    console.log(
+      `📞 [${uuid}] New call session created (DID: ${
+        calledNumber || "unknown"
+      })`
+    );
+  }
+
+  /**
+   * Initialize agent from called number
+   */
+  async initializeAgent() {
+    try {
+      // 1. Get agent ID from DID mapping
+      let agentId = getAgentIdForDID(this.calledNumber);
+
+      // Fallback to default if no mapping found
+      if (!agentId) {
+        agentId = getDefaultAgentId();
+      }
+
+      if (!agentId) {
+        throw new Error(`No agent configured for DID: ${this.calledNumber}`);
+      }
+
+      // 2. Load agent from database
+      const agent = await Agent.findById(agentId);
+
+      if (!agent) {
+        throw new Error(`Agent not found: ${agentId}`);
+      }
+
+      console.log(`✅ [${this.uuid}] Loaded agent: ${agent.name} (${agentId})`);
+
+      // 3. Load flow to get start step
+      const flowModule = await import(`../flows/${agent.flowId}.json`, {
+        assert: { type: "json" },
+      });
+      const flow = flowModule.default;
+
+      if (!flow || !flow.nodes || !flow.nodes.start) {
+        throw new Error(`Invalid flow: ${agent.flowId}`);
+      }
+
+      // 4. Store agent configuration
+      this.agentId = agentId;
+      this.flowId = agent.flowId;
+      this.startStepId = flow.nodes.start;
+      this.agentConfig = agent.agentConfig || {};
+      this.welcomeMessage = agent.welcome || "Hello! How can I help you today?";
+      this.language = agent.supportedLanguages?.[0] || "en";
+
+      console.log(
+        `📋 [${this.uuid}] Flow: ${this.flowId}, Start: ${this.startStepId}`
+      );
+
+      return true;
+    } catch (error) {
+      console.error(
+        `❌ [${this.uuid}] Failed to initialize agent:`,
+        error.message
+      );
+      throw error;
+    }
   }
 
   /**
@@ -160,15 +230,21 @@ class CallSession {
         : null;
 
       if (!conversation) {
-        // Create new conversation for phone call
+        // Ensure agent is initialized
+        if (!this.agentId || !this.flowId || !this.startStepId) {
+          throw new Error("Agent not initialized. Cannot create conversation.");
+        }
+
+        // Create new conversation for phone call with ALL required fields
         conversation = new Conversation({
-          agentId: this.agentId,
-          phoneCallId: this.uuid,
+          agentId: this.agentId, // ✅ Required
+          flowId: this.flowId, // ✅ Required
+          currentStepId: this.startStepId, // ✅ Required
+          phoneNumber: this.calledNumber || "unknown",
+          callId: this.uuid,
           channel: "phone",
-          metadata: {
-            phoneNumber: "unknown", // Could be passed from Asterisk
-            callStartTime: new Date(),
-          },
+          language: this.language,
+          agentConfig: this.agentConfig,
         });
         await conversation.save();
         this.conversationId = conversation._id;
@@ -346,9 +422,8 @@ class CallSession {
    * Play welcome message when call connects
    */
   async playWelcome() {
-    const agent = this.agentId ? await Agent.findById(this.agentId) : null;
     const welcomeMessage =
-      agent?.welcomeMessage ||
+      this.welcomeMessage ||
       "Hello! I'm your AI assistant. How can I help you today?";
 
     console.log(`👋 [${this.uuid}] Playing welcome message`);
@@ -440,16 +515,32 @@ class AudioSocketServer {
 
         switch (frame.type) {
           case MESSAGE_TYPES.UUID:
-            // First message: call UUID
-            const uuid = frame.data.toString("utf8");
-            console.log(`📞 Call connected: ${uuid}`);
+            // First message: call UUID (optionally: uuid,calledNumber)
+            const uuidData = frame.data.toString("utf8");
+            const parts = uuidData.split(",");
+            const uuid = parts[0];
+            const calledNumber = parts[1] || null; // DID that was called
 
-            session = new CallSession(uuid, socket);
+            console.log(
+              `📞 Call connected: ${uuid} (DID: ${calledNumber || "unknown"})`
+            );
+
+            session = new CallSession(uuid, socket, calledNumber);
             this.sessions.set(uuid, session);
 
-            // Initialize STT and play welcome
-            await session.initDeepgram();
-            await session.playWelcome();
+            // Initialize agent from DID mapping
+            try {
+              await session.initializeAgent();
+
+              // Initialize STT and play welcome
+              await session.initDeepgram();
+              await session.playWelcome();
+            } catch (error) {
+              console.error(`❌ Failed to initialize call: ${error.message}`);
+              // Send error message and hang up
+              socket.end();
+              this.sessions.delete(uuid);
+            }
             break;
 
           case MESSAGE_TYPES.AUDIO:
