@@ -44,7 +44,8 @@ class TTSService {
     pa: "pa-IN",
   };
 
-  async speak(text, language = "en", voice = "aarti") {
+  // Valid Sarvam voices: anushka, abhilash, manisha, vidya, arya, karun, hitesh, aditya, ritu, priya, neha, rahul, etc.
+  async speak(text, language = "en", voice = "manisha") {
     if (!text || text.trim() === "") return null;
 
     try {
@@ -55,15 +56,20 @@ class TTSService {
         {
           inputs: [text],
           target_language_code: targetLang,
-          speaker: voice, // you were using selectedVoice
+          speaker: voice,
           model: this.model,
+          // Enhanced settings for natural speech (same as VoiceChat.jsx)
+          enable_preprocessing: true,
+          pace: 1.0, // Natural speed
+          pitch: 0, // Neutral pitch
+          loudness: 1.5, // Slightly louder for clarity
         },
         {
           headers: {
             "Content-Type": "application/json",
             "api-subscription-key": this.sarvamApiKey,
           },
-        }
+        },
       );
 
       // Return the raw base64 audio (this is what Exotel needs)
@@ -73,7 +79,7 @@ class TTSService {
     } catch (err) {
       console.error("❌ Sarvam TTS Error:", err.response?.data || err.message);
       throw new Error(
-        err.response?.data?.message || "Sarvam TTS generation failed"
+        err.response?.data?.message || "Sarvam TTS generation failed",
       );
     }
   }
@@ -94,7 +100,7 @@ class TTSService {
       }
 
       console.log(
-        `🔊 Generating Tabbly TTS (Voice: ${voice}, Model: ${model})...`
+        `🔊 Generating Tabbly TTS (Voice: ${voice}, Model: ${model})...`,
       );
       console.log(`📝 Text to convert: "${text.substring(0, 100)}..."`);
 
@@ -123,7 +129,7 @@ class TTSService {
             "X-API-Key": this.tabblyApiKey,
           },
           responseType: "arraybuffer", // Get complete buffer for Express response
-        }
+        },
       );
 
       const bufferSize = response.data.byteLength || response.data.length;
@@ -146,7 +152,7 @@ class TTSService {
     } catch (err) {
       console.error("❌ Tabbly TTS Error:", err.response?.data || err.message);
       throw new Error(
-        err.response?.data?.message || "Tabbly TTS generation failed"
+        err.response?.data?.message || "Tabbly TTS generation failed",
       );
     }
   }
@@ -161,7 +167,7 @@ class TTSService {
   async speakWithElevenLabs(
     text,
     voiceId = "21m00Tcm4TlvDq8ikWAM",
-    modelId = "eleven_multilingual_v2"
+    modelId = "eleven_multilingual_v2",
   ) {
     if (!text || text.trim() === "") return null;
 
@@ -171,7 +177,7 @@ class TTSService {
       }
 
       console.log(
-        `🔊 Generating ElevenLabs TTS (Voice: ${voiceId}, Model: ${modelId})...`
+        `🔊 Generating ElevenLabs TTS (Voice: ${voiceId}, Model: ${modelId})...`,
       );
       console.log(`📝 Text to convert: "${text.substring(0, 100)}..."`);
 
@@ -182,7 +188,7 @@ class TTSService {
           text: text,
           modelId: modelId,
           outputFormat: "mp3_44100_128",
-        }
+        },
       );
 
       // Convert ReadableStream to Buffer
@@ -197,7 +203,7 @@ class TTSService {
 
       // Combine all chunks into a single Buffer
       const audioBuffer = Buffer.concat(
-        chunks.map((chunk) => Buffer.from(chunk))
+        chunks.map((chunk) => Buffer.from(chunk)),
       );
 
       console.log("✅ ElevenLabs TTS generated successfully", {

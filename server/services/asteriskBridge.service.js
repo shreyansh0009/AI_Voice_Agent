@@ -40,6 +40,34 @@ const FRAME_SIZE = 320; // 20ms at 8kHz (320 bytes = 160 samples × 2 bytes)
 const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
 
 /**
+ * Detect language from response text (same as streamChatController)
+ * Used to dynamically switch Deepgram language
+ */
+function detectResponseLanguage(text) {
+  if (!text || text.length < 10) return null;
+
+  // Count Devanagari characters (Hindi)
+  const devanagariPattern = /[\u0900-\u097F]/g;
+  const devanagariMatches = text.match(devanagariPattern) || [];
+
+  // Count Latin characters (English)
+  const latinPattern = /[a-zA-Z]/g;
+  const latinMatches = text.match(latinPattern) || [];
+
+  const totalChars = devanagariMatches.length + latinMatches.length;
+  if (totalChars < 10) return null;
+
+  const hindiRatio = devanagariMatches.length / totalChars;
+
+  // If more than 40% Hindi characters, consider it Hindi
+  if (hindiRatio > 0.4) {
+    return "hi";
+  }
+
+  return "en";
+}
+
+/**
  * Call Session - manages state for a single phone call
  */
 class CallSession {
@@ -57,6 +85,7 @@ class CallSession {
     this.welcomeMessage = null;
     this.flow = null; // Store loaded flow
     this.language = "en";
+    this.voice = "anushka"; // Agent's configured voice
 
     // Audio buffering
     this.audioBuffer = [];
@@ -131,6 +160,7 @@ class CallSession {
         flow.steps?.greeting?.text?.en ||
         "Hello! How can I help you today?";
       this.language = agent.supportedLanguages?.[0] || "en";
+      this.voice = agent.voice || "anushka"; // Use agent's configured voice
 
       console.log(
         `📋 [${this.uuid}] Flow: ${this.flowId}, Start: ${this.startStepId}`,
@@ -277,6 +307,21 @@ class CallSession {
         };
       }
 
+      // Auto-detect language from AI response (same as VoiceChat.jsx)
+      const detectedLang = detectResponseLanguage(aiResponse);
+      if (detectedLang && detectedLang !== this.language) {
+        console.log(
+          `🌐 [${this.uuid}] Language switch detected: ${this.language} → ${detectedLang}`,
+        );
+        this.language = detectedLang;
+
+        // Reinitialize Deepgram with new language
+        if (this.deepgramConnection) {
+          this.deepgramConnection.finish();
+          await this.initDeepgram();
+        }
+      }
+
       // Add AI response to conversation history
       this.conversationHistory.push({
         role: "assistant",
@@ -302,11 +347,11 @@ class CallSession {
     console.log(`🔊 [${this.uuid}] TTS: "${text.substring(0, 50)}..."`);
 
     try {
-      // Use existing TTS service (works with Sarvam)
+      // Use existing TTS service with agent's configured voice
       const audioBase64 = await ttsService.speak(
         text,
         this.language,
-        "manisha",
+        this.voice, // Use agent's configured voice
       );
 
       if (!audioBase64) {
