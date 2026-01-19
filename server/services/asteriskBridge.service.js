@@ -15,7 +15,7 @@ import net from "net";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { createClient } from "@deepgram/sdk";
-import stateEngine from "./stateEngine.js";
+import aiAgentService from "./aiAgent.service.js";
 import Conversation from "../models/Conversation.js";
 import Agent from "../models/Agent.js";
 import axios from "axios";
@@ -69,10 +69,14 @@ class CallSession {
     this.transcript = "";
     this.isFinal = false;
 
+    // Conversation state (for AI Agent Service - same as web chat)
+    this.conversationHistory = [];
+    this.customerContext = {};
+
     console.log(
       `📞 [${uuid}] New call session created (DID: ${
         calledNumber || "unknown"
-      })`
+      })`,
     );
   }
 
@@ -107,7 +111,7 @@ class CallSession {
       const __dirname = import("path").then((p) => p.dirname(__filename));
       const flowPath = new URL(
         `../flows/${agent.flowId}.json`,
-        import.meta.url
+        import.meta.url,
       );
       const flowContent = fs.readFileSync(flowPath, "utf-8");
       const flow = JSON.parse(flowContent);
@@ -129,14 +133,14 @@ class CallSession {
       this.language = agent.supportedLanguages?.[0] || "en";
 
       console.log(
-        `📋 [${this.uuid}] Flow: ${this.flowId}, Start: ${this.startStepId}`
+        `📋 [${this.uuid}] Flow: ${this.flowId}, Start: ${this.startStepId}`,
       );
 
       return true;
     } catch (error) {
       console.error(
         `❌ [${this.uuid}] Failed to initialize agent:`,
-        error.message
+        error.message,
       );
       throw error;
     }
@@ -204,7 +208,7 @@ class CallSession {
     } catch (error) {
       console.error(
         `❌ [${this.uuid}] Failed to init Deepgram:`,
-        error.message
+        error.message,
       );
       return false;
     }
@@ -223,7 +227,7 @@ class CallSession {
   }
 
   /**
-   * Process user input through AI agent
+   * Process user input through AI agent (SAME as web chat)
    */
   async processUserInput() {
     if (this.isProcessing || !this.transcript) return;
@@ -235,82 +239,56 @@ class CallSession {
     console.log(`🧠 [${this.uuid}] Processing: "${userMessage}"`);
 
     try {
-      // Get or create conversation
-      let conversation = this.conversationId
-        ? await Conversation.findById(this.conversationId)
-        : null;
+      // Add user message to conversation history
+      this.conversationHistory.push({
+        role: "user",
+        content: userMessage,
+      });
 
-      if (!conversation) {
-        // Ensure agent is initialized
-        if (!this.agentId || !this.flowId || !this.startStepId) {
-          throw new Error("Agent not initialized. Cannot create conversation.");
-        }
-
-        // Create new conversation for phone call with ALL required fields
-        conversation = new Conversation({
-          agentId: this.agentId, // ✅ Required
-          flowId: this.flowId, // ✅ Required
-          currentStepId: this.startStepId, // ✅ Required
-          phoneNumber: this.calledNumber || "unknown",
-          callId: this.uuid,
-          channel: "phone",
-          language: this.language,
-          agentConfig: this.agentConfig,
-        });
-        await conversation.save();
-        this.conversationId = conversation._id;
-        console.log(
-          `📝 [${this.uuid}] Created conversation: ${this.conversationId}`
-        );
+      // Keep history manageable (last 6 turns = 12 messages)
+      if (this.conversationHistory.length > 12) {
+        this.conversationHistory = this.conversationHistory.slice(-12);
       }
 
-      // Load agent configuration
-      const agent = this.agentId ? await Agent.findById(this.agentId) : null;
-
-      // Process through state engine (same format as chatV5Controller)
-      const result = stateEngine.processTurn({
-        conversation: conversation.toObject(), // Pass document object
-        userInput: userMessage,
-        flow: this.flow, // Pass stored flow
-      });
+      // Process through AI Agent Service (SAME as web chat)
+      const result = await aiAgentService.processMessage(
+        userMessage,
+        this.agentId,
+        this.customerContext || {},
+        this.conversationHistory,
+        {}, // options
+      );
 
       // Get AI response
       const aiResponse =
-        result.text ||
         result.response ||
+        result.text ||
         "I couldn't process that. Please try again.";
+
       console.log(
-        `🤖 [${this.uuid}] AI Response: "${aiResponse.substring(0, 100)}..."`
+        `🤖 [${this.uuid}] AI Response: "${aiResponse.substring(0, 100)}..."`,
       );
 
-      // Apply patches to conversation (same as chatV5Controller)
-      if (result.nextStepId !== undefined) {
-        conversation.currentStepId = result.nextStepId;
-      }
-
-      if (result.dataPatch && Object.keys(result.dataPatch).length > 0) {
-        conversation.collectedData = {
-          ...conversation.collectedData,
-          ...result.dataPatch,
+      // Update customer context if returned
+      if (result.customerContext) {
+        this.customerContext = {
+          ...this.customerContext,
+          ...result.customerContext,
         };
       }
 
-      if (result.retryCount !== undefined) {
-        conversation.retryCount = result.retryCount;
-      }
-
-      conversation.status = result.status || "active";
-      conversation.lastUserInput = userMessage;
-      conversation.lastAgentResponse = aiResponse;
-
-      await conversation.save();
+      // Add AI response to conversation history
+      this.conversationHistory.push({
+        role: "assistant",
+        content: aiResponse,
+      });
 
       // Convert response to speech and send back
       await this.speakResponse(aiResponse);
     } catch (error) {
       console.error(`❌ [${this.uuid}] Processing error:`, error);
       await this.speakResponse(
-        "Sorry, I encountered an error. Please try again."
+        "Sorry, I encountered an error. Please try again.",
       );
     } finally {
       this.isProcessing = false;
@@ -328,7 +306,7 @@ class CallSession {
       const audioBase64 = await ttsService.speak(
         text,
         this.language,
-        "manisha"
+        "manisha",
       );
 
       if (!audioBase64) {
@@ -373,14 +351,14 @@ class CallSession {
         await new Promise((resolve) => setTimeout(resolve, 18));
       } else {
         console.log(
-          `⚠️ [${this.uuid}] Socket not writable, stopping audio stream`
+          `⚠️ [${this.uuid}] Socket not writable, stopping audio stream`,
         );
         break;
       }
     }
 
     console.log(
-      `✅ [${this.uuid}] Audio stream complete (${chunks.length} chunks)`
+      `✅ [${this.uuid}] Audio stream complete (${chunks.length} chunks)`,
     );
   }
 
@@ -407,7 +385,7 @@ class CallSession {
       if (srcIndex >= inputSamples - 1) {
         output.writeInt16LE(
           pcmBuffer.readInt16LE((inputSamples - 1) * 2),
-          i * 2
+          i * 2,
         );
       } else {
         const sample1 = pcmBuffer.readInt16LE(srcIndex * 2);
@@ -415,7 +393,7 @@ class CallSession {
         const interpolated = Math.round(sample1 + frac * (sample2 - sample1));
         output.writeInt16LE(
           Math.max(-32768, Math.min(32767, interpolated)),
-          i * 2
+          i * 2,
         );
       }
     }
@@ -509,7 +487,7 @@ class AudioSocketServer {
     this.server.listen(AUDIOSOCKET_PORT, AUDIOSOCKET_HOST, () => {
       console.log("═".repeat(50));
       console.log(
-        `📞 AudioSocket Server listening on ${AUDIOSOCKET_HOST}:${AUDIOSOCKET_PORT}`
+        `📞 AudioSocket Server listening on ${AUDIOSOCKET_HOST}:${AUDIOSOCKET_PORT}`,
       );
       console.log("═".repeat(50));
     });
@@ -522,7 +500,7 @@ class AudioSocketServer {
    */
   handleConnection(socket) {
     console.log(
-      `🔗 New connection from ${socket.remoteAddress}:${socket.remotePort}`
+      `🔗 New connection from ${socket.remoteAddress}:${socket.remotePort}`,
     );
 
     let session = null;
@@ -547,7 +525,7 @@ class AudioSocketServer {
             const calledNumber = parts[1] || null; // DID that was called
 
             console.log(
-              `📞 Call connected: ${uuid} (DID: ${calledNumber || "unknown"})`
+              `📞 Call connected: ${uuid} (DID: ${calledNumber || "unknown"})`,
             );
 
             session = new CallSession(uuid, socket, calledNumber);
@@ -578,7 +556,7 @@ class AudioSocketServer {
           case MESSAGE_TYPES.ERROR:
             console.error(
               `❌ AudioSocket error from Asterisk:`,
-              frame.data.toString()
+              frame.data.toString(),
             );
             break;
 
