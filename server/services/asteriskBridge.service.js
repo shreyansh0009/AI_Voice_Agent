@@ -289,8 +289,9 @@ class CallSession {
         this.conversationHistory = this.conversationHistory.slice(-12);
       }
 
-      // Process through AI Agent Service (SAME as web chat)
-      const result = await aiAgentService.processMessage(
+      // Process through AI Agent Service - USE STREAMING (SAME as web chat!)
+      // This is the key fix: web uses processMessageStream, so phone must too
+      const stream = await aiAgentService.processMessageStream(
         userMessage,
         this.agentId,
         this.customerContext || {},
@@ -302,21 +303,38 @@ class CallSession {
         },
       );
 
+      // Collect full response from stream (same as streamChatController)
+      let fullResponse = "";
+      let updatedContext = null;
+
+      for await (const chunk of stream) {
+        if (chunk.type === "context") {
+          updatedContext = chunk.customerContext;
+          continue;
+        }
+
+        if (chunk.type === "content") {
+          fullResponse += chunk.content;
+        }
+
+        if (chunk.type === "done" || chunk.type === "error") {
+          break;
+        }
+      }
+
       // Get AI response
       const aiResponse =
-        result.response ||
-        result.text ||
-        "I couldn't process that. Please try again.";
+        fullResponse || "I couldn't process that. Please try again.";
 
       console.log(
         `🤖 [${this.uuid}] AI Response: "${aiResponse.substring(0, 100)}..."`,
       );
 
       // Update customer context if returned
-      if (result.customerContext) {
+      if (updatedContext) {
         this.customerContext = {
           ...this.customerContext,
-          ...result.customerContext,
+          ...updatedContext,
         };
       }
 
