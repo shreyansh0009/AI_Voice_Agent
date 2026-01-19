@@ -189,17 +189,24 @@ class CallSession {
     try {
       const deepgram = createClient(apiKey);
 
+      // Enhanced Deepgram settings for telephony with noise handling
       this.deepgramConnection = deepgram.listen.live({
-        model: "nova-2",
+        model: "nova-2", // Best model for noisy environments
         language: this.language === "hi" ? "hi" : "en-IN",
         encoding: "linear16",
         sample_rate: SAMPLE_RATE,
         channels: 1,
-        smart_format: true,
+        // Noise handling & accuracy
+        smart_format: true, // Better formatting
+        punctuate: true, // Add punctuation
+        filler_words: false, // Remove "um", "uh" etc
+        profanity_filter: true, // Filter profanity
+        numerals: true, // Convert numbers to digits
+        // VAD and timing for telephony
         interim_results: true,
-        utterance_end_ms: 1000,
+        utterance_end_ms: 1200, // Slightly longer for phone latency
         vad_events: true,
-        endpointing: 300,
+        endpointing: 400, // Longer endpointing for phone delays
       });
 
       // Handle transcription results
