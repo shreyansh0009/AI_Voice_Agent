@@ -482,6 +482,22 @@ class CallSession {
       "Hello! I'm your AI assistant. How can I help you today?";
 
     console.log(`👋 [${this.uuid}] Playing welcome message`);
+
+    // Auto-detect language from welcome message (same as VoiceChat.jsx)
+    const detectedLang = detectResponseLanguage(welcomeMessage);
+    if (detectedLang && detectedLang !== this.language) {
+      console.log(
+        `🌐 [${this.uuid}] Welcome in ${detectedLang}, switching Deepgram language`,
+      );
+      this.language = detectedLang;
+
+      // Reinitialize Deepgram with detected language
+      if (this.deepgramConnection) {
+        this.deepgramConnection.finish();
+        await this.initDeepgram();
+      }
+    }
+
     await this.speakResponse(welcomeMessage);
   }
 
