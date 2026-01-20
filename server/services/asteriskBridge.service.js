@@ -36,7 +36,7 @@ const DEFAULT_AGENT_ID = process.env.DEFAULT_PHONE_AGENT_ID || null;
 
 // Audio settings
 const SAMPLE_RATE = 8000; // 8kHz for telephony
-const FRAME_SIZE = 320; // 20ms at 8kHz (320 bytes = 160 samples × 2 bytes)
+const FRAME_SIZE = 640; // 40ms at 8kHz (640 bytes = 320 samples × 2 bytes) - larger for stability
 const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
 
 /**
@@ -267,6 +267,45 @@ class CallSession {
   }
 
   /**
+   * Check if message is a "check-in" phrase (hello? are you there?)
+   * User is checking if agent is still listening, not asking a new question
+   */
+  isCheckInPhrase(message) {
+    const lowerMessage = message.toLowerCase().trim();
+
+    // Check-in phrases in English and Hindi
+    const checkInPhrases = [
+      "hello",
+      "hello?",
+      "hello hello",
+      "hi",
+      "hi?",
+      "hey",
+      "hey?",
+      "are you there",
+      "are you there?",
+      "you there",
+      "you there?",
+      "can you hear me",
+      "can you hear me?",
+      "anyone there",
+      "anyone there?",
+      "हेलो",
+      "हैलो",
+      "सुन रहे हो",
+      "क्या आप सुन रहे हैं",
+    ];
+
+    // Check if message matches any check-in phrase
+    return checkInPhrases.some(
+      (phrase) =>
+        lowerMessage === phrase ||
+        lowerMessage === phrase + "?" ||
+        lowerMessage.replace(/\?+/g, "") === phrase,
+    );
+  }
+
+  /**
    * Process user input through AI agent (SAME as web chat)
    */
   async processUserInput() {
@@ -279,6 +318,17 @@ class CallSession {
     console.log(`🧠 [${this.uuid}] Processing: "${userMessage}"`);
 
     try {
+      // Check for "check-in" phrases (hello? are you there? etc.)
+      // These should get a quick acknowledgment, not restart the flow
+      if (this.isCheckInPhrase(userMessage)) {
+        console.log(
+          `👋 [${this.uuid}] Check-in phrase detected, quick response`,
+        );
+        await this.speakResponse("जी हाँ, मैं यहाँ हूँ। कृपया बताइए।");
+        this.isProcessing = false;
+        return;
+      }
+
       // Add user message to conversation history
       this.conversationHistory.push({
         role: "user",
@@ -405,6 +455,7 @@ class CallSession {
 
   /**
    * Stream audio back to Asterisk via AudioSocket
+   * Improved with pre-buffering for smoother playback
    */
   async streamAudioToAsterisk(audioBuffer) {
     // TTS returns WAV - need to extract PCM and resample
@@ -416,16 +467,30 @@ class CallSession {
     // Resample from 22050Hz to 8000Hz
     const resampledPCM = this.resampleAudio(pcmData, 22050, 8000);
 
-    // Split into 20ms chunks (320 bytes at 8kHz = 160 samples × 2 bytes)
+    // Split into 40ms chunks (640 bytes at 8kHz = 320 samples × 2 bytes)
     const chunks = splitIntoChunks(resampledPCM, FRAME_SIZE);
 
-    for (const chunk of chunks) {
+    // Pre-buffer: collect first 5 chunks before streaming starts
+    // This prevents audio gaps due to network jitter
+    const preBufferSize = Math.min(5, chunks.length);
+    const preBuffer = chunks.slice(0, preBufferSize);
+
+    // Send pre-buffer quickly
+    for (const chunk of preBuffer) {
       if (this.socket.writable) {
         const frame = createAudioFrame(chunk);
         this.socket.write(frame);
+      }
+    }
 
-        // Pace the audio to real-time (20ms per frame)
-        await new Promise((resolve) => setTimeout(resolve, 18));
+    // Stream remaining chunks at real-time pace (40ms per frame)
+    for (let i = preBufferSize; i < chunks.length; i++) {
+      if (this.socket.writable) {
+        const frame = createAudioFrame(chunks[i]);
+        this.socket.write(frame);
+
+        // Pace to real-time: 40ms per frame, but send slightly early to build buffer
+        await new Promise((resolve) => setTimeout(resolve, 38));
       } else {
         console.log(
           `⚠️ [${this.uuid}] Socket not writable, stopping audio stream`,
@@ -435,7 +500,7 @@ class CallSession {
     }
 
     console.log(
-      `✅ [${this.uuid}] Audio stream complete (${chunks.length} chunks)`,
+      `✅ [${this.uuid}] Audio stream complete (${chunks.length} chunks, pre-buffered ${preBufferSize})`,
     );
   }
 
