@@ -83,7 +83,7 @@ class CallSession {
     this.startStepId = null;
     this.agentConfig = {};
     this.welcomeMessage = null;
-    this.personaPrompt = null; // Agent's persona/system prompt
+    this.systemPrompt = null; // Agent's full script (same as web)
     this.flow = null; // Store loaded flow
     this.language = "en";
     this.voice = "anushka"; // Agent's configured voice
@@ -162,7 +162,8 @@ class CallSession {
         "Hello! How can I help you today?";
       this.language = agent.supportedLanguages?.[0] || "en";
       this.voice = agent.voice || "anushka"; // Use agent's configured voice
-      this.personaPrompt = agent.personaPrompt || null; // Agent's persona/system prompt
+      // Use agent.prompt (FULL SCRIPT) - same as web chat passes to VoiceChat
+      this.systemPrompt = agent.prompt || "You are a helpful AI assistant.";
 
       console.log(
         `📋 [${this.uuid}] Flow: ${this.flowId}, Start: ${this.startStepId}`,
@@ -299,7 +300,7 @@ class CallSession {
         {
           // Pass same options as web chat
           language: this.language,
-          systemPrompt: this.personaPrompt || "You are a helpful AI assistant.",
+          systemPrompt: this.systemPrompt, // Full script (same as web)
         },
       );
 
