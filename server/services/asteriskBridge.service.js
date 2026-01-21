@@ -1,18 +1,6 @@
-/**
- * Asterisk AudioSocket Bridge Service
- *
- * TCP server that handles AudioSocket connections from Asterisk.
- * Routes audio through: STT → AI Agent → TTS pipeline
- *
- * Architecture:
- * ┌─────────┐    ┌───────────────┐    ┌─────────┐    ┌────────┐    ┌─────┐
- * │ Phone   │◄──►│ Asterisk PBX  │◄──►│ This    │◄──►│ Chat   │◄──►│ TTS │
- * │         │    │ AudioSocket   │    │ Service │    │ V5     │    │     │
- * └─────────┘    └───────────────┘    └─────────┘    └────────┘    └─────┘
- */
-
 import net from "net";
 import fs from "fs";
+import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { createClient } from "@deepgram/sdk";
 import aiAgentService from "./aiAgent.service.js";
@@ -25,7 +13,6 @@ import {
   MESSAGE_TYPES,
   parseFrame,
   createAudioFrame,
-  createSilenceFrame,
   splitIntoChunks,
 } from "./audioProcessor.js";
 
@@ -34,9 +21,9 @@ const AUDIOSOCKET_PORT = parseInt(process.env.AUDIOSOCKET_PORT || "9092", 10);
 const AUDIOSOCKET_HOST = process.env.AUDIOSOCKET_HOST || "0.0.0.0";
 const DEFAULT_AGENT_ID = process.env.DEFAULT_PHONE_AGENT_ID || null;
 
-// Audio settings
+// Audio settings for µ-law output (Asterisk native format)
 const SAMPLE_RATE = 8000; // 8kHz for telephony
-const FRAME_SIZE = 640; // 40ms at 8kHz (640 bytes = 320 samples × 2 bytes) - larger for stability
+const FRAME_SIZE = 160; // 20ms at 8kHz µ-law (160 bytes = 160 samples × 1 byte)
 const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
 
 /**
@@ -192,24 +179,18 @@ class CallSession {
     try {
       const deepgram = createClient(apiKey);
 
-      // Enhanced Deepgram settings for telephony with noise handling
+      // Deepgram settings for µ-law telephony
       this.deepgramConnection = deepgram.listen.live({
-        model: "nova-2", // Best model for noisy environments
+        model: "nova-2",
         language: this.language === "hi" ? "hi" : "en-IN",
-        encoding: "linear16",
-        sample_rate: SAMPLE_RATE,
+        encoding: "mulaw", // µ-law encoding (matches Asterisk)
+        sample_rate: 8000,
         channels: 1,
-        // Noise handling & accuracy
-        smart_format: true, // Better formatting
-        punctuate: true, // Add punctuation
-        filler_words: false, // Remove "um", "uh" etc
-        profanity_filter: true, // Filter profanity
-        numerals: true, // Convert numbers to digits
-        // VAD and timing for telephony
+        smart_format: true,
+        punctuate: true,
         interim_results: true,
-        utterance_end_ms: 1200, // Slightly longer for phone latency
         vad_events: true,
-        endpointing: 400, // Longer endpointing for phone delays
+        endpointing: 400,
       });
 
       // Handle transcription results
@@ -447,100 +428,104 @@ class CallSession {
     } catch (error) {
       console.error(`❌ [${this.uuid}] TTS error:`, error.message);
 
-      // Send silence instead of crashing
-      const silence = createSilenceFrame(500);
-      this.socket.write(silence);
+      // Send µ-law silence instead of crashing
+      this.sendUlawSilence(500);
+    }
+  }
+
+  /**
+   * Convert WAV to µ-law 8kHz using ffmpeg
+   * @param {Buffer} wavBuffer - Input WAV audio
+   * @returns {Promise<Buffer>} - Raw µ-law PCM data
+   */
+  async convertToUlaw(wavBuffer) {
+    return new Promise((resolve, reject) => {
+      const ffmpeg = spawn(
+        "ffmpeg",
+        [
+          "-i",
+          "pipe:0", // Input from stdin
+          "-ar",
+          "8000", // Resample to 8kHz
+          "-ac",
+          "1", // Mono
+          "-acodec",
+          "pcm_mulaw", // µ-law encoding
+          "-f",
+          "mulaw", // Raw µ-law output (no container)
+          "pipe:1", // Output to stdout
+        ],
+        {
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
+
+      const chunks = [];
+
+      ffmpeg.stdout.on("data", (chunk) => chunks.push(chunk));
+      ffmpeg.stderr.on("data", (data) => {
+        // FFmpeg logs to stderr, ignore unless error
+      });
+
+      ffmpeg.on("close", (code) => {
+        if (code === 0) {
+          resolve(Buffer.concat(chunks));
+        } else {
+          reject(new Error(`FFmpeg exited with code ${code}`));
+        }
+      });
+
+      ffmpeg.on("error", (err) => {
+        reject(err);
+      });
+
+      // Write WAV data to ffmpeg stdin
+      ffmpeg.stdin.write(wavBuffer);
+      ffmpeg.stdin.end();
+    });
+  }
+
+  /**
+   * Send µ-law silence frames
+   * @param {number} ms - Duration in milliseconds
+   */
+  sendUlawSilence(ms = 200) {
+    const frames = Math.ceil(ms / 20);
+    const silenceFrame = Buffer.alloc(FRAME_SIZE, 0xff); // 0xFF is µ-law silence
+
+    for (let i = 0; i < frames; i++) {
+      if (this.socket.writable) {
+        this.socket.write(createAudioFrame(silenceFrame));
+      }
     }
   }
 
   /**
    * Stream audio back to Asterisk via AudioSocket
-   * Improved with pre-buffering for smoother playback
+   * Uses ffmpeg to convert WAV → µ-law 8kHz
+   * REAL-TIME pacing: 20ms per frame (matches telephony clocking)
    */
   async streamAudioToAsterisk(audioBuffer) {
-    // TTS returns WAV - need to extract PCM and resample
-    // Sarvam returns 22050Hz WAV, we need 8000Hz PCM for telephony
+    try {
+      const ulawData = await this.convertToUlaw(audioBuffer);
+      const chunks = splitIntoChunks(ulawData, FRAME_SIZE);
 
-    // Skip WAV header (44 bytes) to get PCM data
-    const pcmData = audioBuffer.slice(44);
+      for (const chunk of chunks) {
+        if (!this.socket.writable) break;
 
-    // Resample from 22050Hz to 8000Hz
-    const resampledPCM = this.resampleAudio(pcmData, 22050, 8000);
+        this.socket.write(createAudioFrame(chunk));
 
-    // Split into 40ms chunks (640 bytes at 8kHz = 320 samples × 2 bytes)
-    const chunks = splitIntoChunks(resampledPCM, FRAME_SIZE);
-
-    // Pre-buffer: collect first 5 chunks before streaming starts
-    // This prevents audio gaps due to network jitter
-    const preBufferSize = Math.min(5, chunks.length);
-    const preBuffer = chunks.slice(0, preBufferSize);
-
-    // Send pre-buffer quickly
-    for (const chunk of preBuffer) {
-      if (this.socket.writable) {
-        const frame = createAudioFrame(chunk);
-        this.socket.write(frame);
+        // REAL-TIME pacing: 20ms per frame
+        await new Promise((resolve) => setTimeout(resolve, 20));
       }
+
+      console.log(
+        `✅ [${this.uuid}] Audio stream complete (${chunks.length} frames)`,
+      );
+    } catch (error) {
+      console.error(`❌ [${this.uuid}] Audio streaming failed:`, error.message);
+      this.sendUlawSilence(200);
     }
-
-    // Stream remaining chunks at real-time pace (40ms per frame)
-    for (let i = preBufferSize; i < chunks.length; i++) {
-      if (this.socket.writable) {
-        const frame = createAudioFrame(chunks[i]);
-        this.socket.write(frame);
-
-        // Pace to real-time: 40ms per frame, but send slightly early to build buffer
-        await new Promise((resolve) => setTimeout(resolve, 38));
-      } else {
-        console.log(
-          `⚠️ [${this.uuid}] Socket not writable, stopping audio stream`,
-        );
-        break;
-      }
-    }
-
-    console.log(
-      `✅ [${this.uuid}] Audio stream complete (${chunks.length} chunks, pre-buffered ${preBufferSize})`,
-    );
-  }
-
-  /**
-   * Resample PCM audio using linear interpolation
-   * @param {Buffer} pcmBuffer - Input 16-bit PCM
-   * @param {number} fromRate - Source sample rate (e.g., 22050)
-   * @param {number} toRate - Target sample rate (e.g., 8000)
-   * @returns {Buffer}
-   */
-  resampleAudio(pcmBuffer, fromRate, toRate) {
-    if (fromRate === toRate) return pcmBuffer;
-
-    const inputSamples = pcmBuffer.length / 2;
-    const ratio = toRate / fromRate;
-    const outputSamples = Math.floor(inputSamples * ratio);
-    const output = Buffer.alloc(outputSamples * 2);
-
-    for (let i = 0; i < outputSamples; i++) {
-      const srcPos = i / ratio;
-      const srcIndex = Math.floor(srcPos);
-      const frac = srcPos - srcIndex;
-
-      if (srcIndex >= inputSamples - 1) {
-        output.writeInt16LE(
-          pcmBuffer.readInt16LE((inputSamples - 1) * 2),
-          i * 2,
-        );
-      } else {
-        const sample1 = pcmBuffer.readInt16LE(srcIndex * 2);
-        const sample2 = pcmBuffer.readInt16LE((srcIndex + 1) * 2);
-        const interpolated = Math.round(sample1 + frac * (sample2 - sample1));
-        output.writeInt16LE(
-          Math.max(-32768, Math.min(32767, interpolated)),
-          i * 2,
-        );
-      }
-    }
-
-    return output;
   }
 
   /**
