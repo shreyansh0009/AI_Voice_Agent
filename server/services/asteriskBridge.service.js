@@ -21,9 +21,9 @@ const AUDIOSOCKET_PORT = parseInt(process.env.AUDIOSOCKET_PORT || "9092", 10);
 const AUDIOSOCKET_HOST = process.env.AUDIOSOCKET_HOST || "0.0.0.0";
 const DEFAULT_AGENT_ID = process.env.DEFAULT_PHONE_AGENT_ID || null;
 
-// Audio settings for µ-law output (Asterisk native format)
+// Audio settings for slin16 output (AudioSocket native format)
 const SAMPLE_RATE = 8000; // 8kHz for telephony
-const FRAME_SIZE = 160; // 20ms at 8kHz µ-law (160 bytes = 160 samples × 1 byte)
+const FRAME_SIZE = 320; // 20ms at 8kHz slin16 (320 bytes = 160 samples × 2 bytes)
 const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
 
 /**
@@ -179,11 +179,11 @@ class CallSession {
     try {
       const deepgram = createClient(apiKey);
 
-      // Deepgram settings for µ-law telephony
+      // Deepgram settings for slin16 telephony
       this.deepgramConnection = deepgram.listen.live({
         model: "nova-2",
         language: this.language === "hi" ? "hi" : "en-IN",
-        encoding: "mulaw", // µ-law encoding (matches Asterisk)
+        encoding: "linear16", // slin16 (signed 16-bit) matches AudioSocket
         sample_rate: 8000,
         channels: 1,
         smart_format: true,
@@ -429,16 +429,16 @@ class CallSession {
       console.error(`❌ [${this.uuid}] TTS error:`, error.message);
 
       // Send µ-law silence instead of crashing
-      this.sendUlawSilence(500);
+      this.sendSilence(500);
     }
   }
 
   /**
-   * Convert WAV to µ-law 8kHz using ffmpeg
+   * Convert WAV to slin16 8kHz using ffmpeg
    * @param {Buffer} wavBuffer - Input WAV audio
-   * @returns {Promise<Buffer>} - Raw µ-law PCM data
+   * @returns {Promise<Buffer>} - Raw signed 16-bit PCM data
    */
-  async convertToUlaw(wavBuffer) {
+  async convertToSlin16(wavBuffer) {
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn(
         "ffmpeg",
@@ -450,9 +450,9 @@ class CallSession {
           "-ac",
           "1", // Mono
           "-acodec",
-          "pcm_mulaw", // µ-law encoding
+          "pcm_s16le", // Signed 16-bit little-endian (slin16)
           "-f",
-          "mulaw", // Raw µ-law output (no container)
+          "s16le", // Raw s16le output (no container)
           "pipe:1", // Output to stdout
         ],
         {
@@ -489,9 +489,9 @@ class CallSession {
    * Send µ-law silence frames
    * @param {number} ms - Duration in milliseconds
    */
-  sendUlawSilence(ms = 200) {
+  sendSilence(ms = 200) {
     const frames = Math.ceil(ms / 20);
-    const silenceFrame = Buffer.alloc(FRAME_SIZE, 0xff); // 0xFF is µ-law silence
+    const silenceFrame = Buffer.alloc(FRAME_SIZE, 0x00); // 0x00 is slin16 silence
 
     for (let i = 0; i < frames; i++) {
       if (this.socket.writable) {
@@ -502,13 +502,13 @@ class CallSession {
 
   /**
    * Stream audio back to Asterisk via AudioSocket
-   * Uses ffmpeg to convert WAV → µ-law 8kHz
+   * Uses ffmpeg to convert WAV → slin16 8kHz
    * REAL-TIME pacing: 20ms per frame (matches telephony clocking)
    */
   async streamAudioToAsterisk(audioBuffer) {
     try {
-      const ulawData = await this.convertToUlaw(audioBuffer);
-      const chunks = splitIntoChunks(ulawData, FRAME_SIZE);
+      const slinData = await this.convertToSlin16(audioBuffer);
+      const chunks = splitIntoChunks(slinData, FRAME_SIZE);
 
       for (const chunk of chunks) {
         if (!this.socket.writable) break;
@@ -524,7 +524,7 @@ class CallSession {
       );
     } catch (error) {
       console.error(`❌ [${this.uuid}] Audio streaming failed:`, error.message);
-      this.sendUlawSilence(200);
+      this.sendSilence(200);
     }
   }
 
