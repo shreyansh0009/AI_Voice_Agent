@@ -24,7 +24,7 @@ const DEFAULT_AGENT_ID = process.env.DEFAULT_PHONE_AGENT_ID || null;
 // Audio settings for 8kHz telephony (standard)
 const SAMPLE_RATE = 8000; // 8kHz for telephony
 const FRAME_SIZE = 320; // 20ms at 8kHz slin16 (320 bytes = 160 samples × 2 bytes)
-const SILENCE_THRESHOLD_MS = 600; // ⚡ OPTIMIZED: Reduced from 1500ms for faster response
+const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
 
 /**
  * Detect language from response text (same as streamChatController)
@@ -187,49 +187,20 @@ class CallSession {
     try {
       const deepgram = createClient(apiKey);
 
-      // Deepgram settings for 8kHz telephony - ⚡ OPTIMIZED FOR LOW LATENCY
-      const connection = deepgram.listen.live({
+      // Deepgram settings for 8kHz telephony
+      this.deepgramConnection = deepgram.listen.live({
         model: "nova-2",
-        language: this.language === "hi" ? "hi-IN" : "en-IN",
+        language: this.language === "hi" ? "hi" : "en-IN",
         encoding: "linear16",
-        sample_rate: 8000,
+        sample_rate: 8000, // 8kHz for standard telephony
         channels: 1,
-        smart_format: false,
+        smart_format: true,
         punctuate: true,
         interim_results: true,
-        utterance_end_ms: 800, // ⚡ OPTIMIZED: Reduced from 1200ms (was causing 400 at 800)
+        utterance_end_ms: 1200, // Triggers UtteranceEnd event
         vad_events: true,
-        endpointing: 200, // ⚡ OPTIMIZED: Reduced from 400ms (200ms caused 400 error)
+        endpointing: 400,
       });
-
-      // ⚡ CRITICAL: Attach error handler IMMEDIATELY to prevent unhandled errors
-      connection.on("Error", (error) => {
-        console.error(
-          `❌ [${this.uuid}] Deepgram WebSocket error:`,
-          error?.message || error,
-        );
-      });
-
-      // Wait for connection to open (or fail)
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error("Deepgram connection timeout"));
-        }, 5000);
-
-        connection.on("Open", () => {
-          clearTimeout(timeout);
-          console.log(`✅ [${this.uuid}] Deepgram WebSocket connected`);
-          resolve();
-        });
-
-        connection.on("Error", (error) => {
-          clearTimeout(timeout);
-          reject(error);
-        });
-      });
-
-      // Store connection after successful open
-      this.deepgramConnection = connection;
 
       // Handle transcription results
       this.deepgramConnection.on("Results", (data) => {
@@ -254,6 +225,10 @@ class CallSession {
         }
       });
 
+      this.deepgramConnection.on("Error", (error) => {
+        console.error(`❌ [${this.uuid}] Deepgram error:`, error);
+      });
+
       this.deepgramConnection.on("Close", () => {
         console.log(`🔌 [${this.uuid}] Deepgram connection closed`);
       });
@@ -263,9 +238,8 @@ class CallSession {
     } catch (error) {
       console.error(
         `❌ [${this.uuid}] Failed to init Deepgram:`,
-        error?.message || error,
+        error.message,
       );
-      this.deepgramConnection = null;
       return false;
     }
   }
@@ -415,17 +389,7 @@ class CallSession {
 
         // Reinitialize Deepgram with new language
         if (this.deepgramConnection) {
-          // Safely close existing connection (prevent unhandled errors)
-          try {
-            this.deepgramConnection.removeAllListeners();
-            this.deepgramConnection.finish();
-          } catch (e) {
-            console.log(
-              `⚠️ [${this.uuid}] Error closing Deepgram connection:`,
-              e.message,
-            );
-          }
-          this.deepgramConnection = null;
+          this.deepgramConnection.finish();
           await this.initDeepgram();
         }
       }
@@ -513,14 +477,9 @@ class CallSession {
    */
   async convertToSlin16(wavBuffer) {
     return new Promise((resolve, reject) => {
-      // ⚡ OPTIMIZED: Added low-latency flags for faster audio processing
       const ffmpeg = spawn(
         "ffmpeg",
         [
-          "-fflags",
-          "+nobuffer", // ⚡ Don't buffer input - reduces latency
-          "-flags",
-          "low_delay", // ⚡ Low delay mode
           "-i",
           "pipe:0", // Input from stdin
           "-ar",
@@ -646,17 +605,7 @@ class CallSession {
 
       // Reinitialize Deepgram with detected language
       if (this.deepgramConnection) {
-        // Safely close existing connection (prevent unhandled errors)
-        try {
-          this.deepgramConnection.removeAllListeners(); // Remove listeners before closing
-          this.deepgramConnection.finish();
-        } catch (e) {
-          console.log(
-            `⚠️ [${this.uuid}] Error closing Deepgram connection:`,
-            e.message,
-          );
-        }
-        this.deepgramConnection = null;
+        this.deepgramConnection.finish();
         await this.initDeepgram();
       }
     }
