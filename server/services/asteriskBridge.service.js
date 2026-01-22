@@ -190,7 +190,7 @@ class CallSession {
       // Deepgram settings for 8kHz telephony - ⚡ OPTIMIZED FOR LOW LATENCY
       this.deepgramConnection = deepgram.listen.live({
         model: "nova-2",
-        language: this.language === "hi" ? "hi" : "en-IN",
+        language: this.language === "hi" ? "hi-IN" : "en-IN", // Use hi-IN for Hindi (Deepgram requires full locale)
         encoding: "linear16",
         sample_rate: 8000, // 8kHz for standard telephony
         channels: 1,
@@ -389,7 +389,17 @@ class CallSession {
 
         // Reinitialize Deepgram with new language
         if (this.deepgramConnection) {
-          this.deepgramConnection.finish();
+          // Safely close existing connection (prevent unhandled errors)
+          try {
+            this.deepgramConnection.removeAllListeners();
+            this.deepgramConnection.finish();
+          } catch (e) {
+            console.log(
+              `⚠️ [${this.uuid}] Error closing Deepgram connection:`,
+              e.message,
+            );
+          }
+          this.deepgramConnection = null;
           await this.initDeepgram();
         }
       }
@@ -610,7 +620,17 @@ class CallSession {
 
       // Reinitialize Deepgram with detected language
       if (this.deepgramConnection) {
-        this.deepgramConnection.finish();
+        // Safely close existing connection (prevent unhandled errors)
+        try {
+          this.deepgramConnection.removeAllListeners(); // Remove listeners before closing
+          this.deepgramConnection.finish();
+        } catch (e) {
+          console.log(
+            `⚠️ [${this.uuid}] Error closing Deepgram connection:`,
+            e.message,
+          );
+        }
+        this.deepgramConnection = null;
         await this.initDeepgram();
       }
     }
