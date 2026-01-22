@@ -416,8 +416,18 @@ class CallSession {
         content: aiResponse,
       });
 
-      // Fallback: if nothing was spoken early
-      if (!spoken) {
+      // Speak remaining text or fallback
+      if (spoken) {
+        // Early speak happened - now speak the remaining text
+        const remaining = ttsBuffer.trim();
+        if (remaining.length > 0) {
+          console.log(
+            `🔊 [${this.uuid}] Speaking remaining text: "${remaining.substring(0, 50)}..."`,
+          );
+          await this.speakResponse(remaining);
+        }
+      } else {
+        // Nothing was spoken early - speak full response
         const fallback =
           fullResponse || "I couldn't process that. Please try again.";
         await this.speakResponse(fallback);
