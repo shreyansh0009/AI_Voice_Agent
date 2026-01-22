@@ -188,19 +188,48 @@ class CallSession {
       const deepgram = createClient(apiKey);
 
       // Deepgram settings for 8kHz telephony - ⚡ OPTIMIZED FOR LOW LATENCY
-      this.deepgramConnection = deepgram.listen.live({
+      const connection = deepgram.listen.live({
         model: "nova-2",
-        language: this.language === "hi" ? "hi-IN" : "en-IN", // Use hi-IN for Hindi (Deepgram requires full locale)
+        language: this.language === "hi" ? "hi-IN" : "en-IN",
         encoding: "linear16",
-        sample_rate: 8000, // 8kHz for standard telephony
+        sample_rate: 8000,
         channels: 1,
-        smart_format: false, // ⚡ OPTIMIZED: Disabled for ~50-100ms savings
+        smart_format: false,
         punctuate: true,
         interim_results: true,
-        utterance_end_ms: 800, // ⚡ OPTIMIZED: Reduced from 1200ms for faster turn detection
+        utterance_end_ms: 800,
         vad_events: true,
-        endpointing: 200, // ⚡ OPTIMIZED: Reduced from 400ms for faster response
+        endpointing: 200,
       });
+
+      // ⚡ CRITICAL: Attach error handler IMMEDIATELY to prevent unhandled errors
+      connection.on("error", (error) => {
+        console.error(
+          `❌ [${this.uuid}] Deepgram WebSocket error:`,
+          error?.message || error,
+        );
+      });
+
+      // Wait for connection to open (or fail)
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Deepgram connection timeout"));
+        }, 5000);
+
+        connection.on("open", () => {
+          clearTimeout(timeout);
+          console.log(`✅ [${this.uuid}] Deepgram WebSocket connected`);
+          resolve();
+        });
+
+        connection.on("error", (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+      });
+
+      // Store connection after successful open
+      this.deepgramConnection = connection;
 
       // Handle transcription results
       this.deepgramConnection.on("Results", (data) => {
@@ -225,10 +254,6 @@ class CallSession {
         }
       });
 
-      this.deepgramConnection.on("Error", (error) => {
-        console.error(`❌ [${this.uuid}] Deepgram error:`, error);
-      });
-
       this.deepgramConnection.on("Close", () => {
         console.log(`🔌 [${this.uuid}] Deepgram connection closed`);
       });
@@ -238,8 +263,9 @@ class CallSession {
     } catch (error) {
       console.error(
         `❌ [${this.uuid}] Failed to init Deepgram:`,
-        error.message,
+        error?.message || error,
       );
+      this.deepgramConnection = null;
       return false;
     }
   }
