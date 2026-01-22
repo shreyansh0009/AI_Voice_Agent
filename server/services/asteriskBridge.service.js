@@ -197,9 +197,9 @@ class CallSession {
         smart_format: false,
         punctuate: true,
         interim_results: true,
-        utterance_end_ms: 1000, // ⚡ OPTIMIZED: Reduced from 1200ms (was causing 400 at 800)
+        utterance_end_ms: 1200, // ⚡ OPTIMIZED: Reduced from 1200ms (was causing 400 at 800)
         vad_events: true,
-        endpointing: 300, // ⚡ OPTIMIZED: Reduced from 400ms (200ms caused 400 error)
+        endpointing: 400, // ⚡ OPTIMIZED: Reduced from 400ms (200ms caused 400 error)
       });
 
       // ⚡ CRITICAL: Attach error handler IMMEDIATELY to prevent unhandled errors
