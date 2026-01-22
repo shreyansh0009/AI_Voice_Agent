@@ -74,6 +74,8 @@ class CallSession {
     this.flow = null; // Store loaded flow
     this.language = "en";
     this.voice = "anushka"; // Agent's configured voice
+    this.voiceProvider = "Sarvam"; // Default TTS provider (Sarvam, ElevenLabs, Tabbly)
+    this.voiceModel = "bulbul:v2"; // Default voice model
 
     // Audio buffering
     this.audioBuffer = [];
@@ -149,8 +151,14 @@ class CallSession {
         "Hello! How can I help you today?";
       this.language = agent.supportedLanguages?.[0] || "en";
       this.voice = agent.voice || "anushka"; // Use agent's configured voice
+      this.voiceProvider = agent.voiceProvider || "Sarvam"; // TTS provider from agent config
+      this.voiceModel = agent.voiceModel || "bulbul:v2"; // Voice model from agent config
       // Use agent.prompt (FULL SCRIPT) - same as web chat passes to VoiceChat
       this.systemPrompt = agent.prompt || "You are a helpful AI assistant.";
+
+      console.log(
+        `🔊 [${this.uuid}] TTS Config: Provider=${this.voiceProvider}, Voice=${this.voice}, Model=${this.voiceModel}`,
+      );
 
       console.log(
         `📋 [${this.uuid}] Flow: ${this.flowId}, Start: ${this.startStepId}`,
@@ -408,26 +416,54 @@ class CallSession {
    * Convert text to speech and stream to Asterisk
    */
   async speakResponse(text) {
-    console.log(`🔊 [${this.uuid}] TTS: "${text.substring(0, 50)}..."`);
+    console.log(
+      `🔊 [${this.uuid}] TTS: "${text.substring(0, 50)}..." (Provider: ${this.voiceProvider})`,
+    );
 
     try {
-      // Use existing TTS service with agent's configured voice
-      const audioBase64 = await ttsService.speak(
-        text,
-        this.language,
-        this.voice, // Use agent's configured voice
-      );
+      let audioBuffer;
 
-      if (!audioBase64) {
-        console.error(`❌ [${this.uuid}] No audio from TTS`);
+      // Route to appropriate TTS provider based on agent configuration
+      if (this.voiceProvider === "ElevenLabs") {
+        // Use ElevenLabs TTS
+        audioBuffer = await ttsService.speakWithElevenLabs(
+          text,
+          this.voice, // ElevenLabs voice ID
+          this.voiceModel || "eleven_multilingual_v2",
+        );
+      } else if (this.voiceProvider === "Tabbly") {
+        // Use Tabbly TTS
+        audioBuffer = await ttsService.speakWithTabbly(
+          text,
+          this.voice,
+          this.voiceModel || "tabbly-tts",
+        );
+      } else {
+        // Default to Sarvam TTS (returns base64)
+        const audioBase64 = await ttsService.speak(
+          text,
+          this.language,
+          this.voice,
+        );
+        if (audioBase64) {
+          audioBuffer = Buffer.from(audioBase64, "base64");
+        }
+      }
+
+      if (!audioBuffer) {
+        console.error(
+          `❌ [${this.uuid}] No audio from TTS (${this.voiceProvider})`,
+        );
         return;
       }
 
-      // Convert base64 to buffer and send to Asterisk
-      const audioBuffer = Buffer.from(audioBase64, "base64");
+      // Send audio buffer to Asterisk
       await this.streamAudioToAsterisk(audioBuffer);
     } catch (error) {
-      console.error(`❌ [${this.uuid}] TTS error:`, error.message);
+      console.error(
+        `❌ [${this.uuid}] TTS error (${this.voiceProvider}):`,
+        error.message,
+      );
 
       // Send µ-law silence instead of crashing
       this.sendSilence(500);
