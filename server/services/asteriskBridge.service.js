@@ -21,9 +21,9 @@ const AUDIOSOCKET_PORT = parseInt(process.env.AUDIOSOCKET_PORT || "9092", 10);
 const AUDIOSOCKET_HOST = process.env.AUDIOSOCKET_HOST || "0.0.0.0";
 const DEFAULT_AGENT_ID = process.env.DEFAULT_PHONE_AGENT_ID || null;
 
-// Audio settings for 16kHz wideband (HD Voice with G.722)
-const SAMPLE_RATE = 16000; // 16kHz for HD Voice
-const FRAME_SIZE = 640; // 20ms at 16kHz slin16 (640 bytes = 320 samples × 2 bytes)
+// Audio settings for 8kHz telephony (standard)
+const SAMPLE_RATE = 8000; // 8kHz for telephony
+const FRAME_SIZE = 320; // 20ms at 8kHz slin16 (320 bytes = 160 samples × 2 bytes)
 const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
 
 /**
@@ -179,16 +179,17 @@ class CallSession {
     try {
       const deepgram = createClient(apiKey);
 
-      // Deepgram settings for 16kHz wideband
+      // Deepgram settings for 8kHz telephony
       this.deepgramConnection = deepgram.listen.live({
         model: "nova-2",
         language: this.language === "hi" ? "hi" : "en-IN",
         encoding: "linear16",
-        sample_rate: 16000, // 16kHz for HD Voice
+        sample_rate: 8000, // 8kHz for standard telephony
         channels: 1,
         smart_format: true,
         punctuate: true,
         interim_results: true,
+        utterance_end_ms: 1200, // Triggers UtteranceEnd event
         vad_events: true,
         endpointing: 400,
       });
@@ -446,7 +447,7 @@ class CallSession {
           "-i",
           "pipe:0", // Input from stdin
           "-ar",
-          "16000", // Resample to 16kHz for HD Voice
+          "8000", // Resample to 8kHz for telephony
           "-ac",
           "1", // Mono
           "-acodec",
