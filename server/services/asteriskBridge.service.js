@@ -344,9 +344,14 @@ class CallSession {
         },
       );
 
-      // Collect full response from stream (same as streamChatController)
+      // ⚡ PHASE 2: Speak first sentence immediately while LLM continues
       let fullResponse = "";
       let updatedContext = null;
+      let firstSentenceSpoken = false;
+      let buffer = "";
+
+      // Sentence boundary pattern (English: . ? ! and Hindi: ।)
+      const sentenceBoundary = /[.?!।]/;
 
       for await (const chunk of stream) {
         if (chunk.type === "context") {
@@ -356,6 +361,46 @@ class CallSession {
 
         if (chunk.type === "content") {
           fullResponse += chunk.content;
+          buffer += chunk.content;
+
+          // ⚡ LATENCY OPTIMIZATION: Speak first sentence immediately
+          if (!firstSentenceSpoken) {
+            const match = buffer.match(sentenceBoundary);
+
+            // Fire TTS if: sentence boundary found OR buffer > 60 chars
+            if (match || buffer.length > 60) {
+              let firstSentence;
+
+              if (match) {
+                // Extract first complete sentence
+                const boundaryIndex = buffer.search(sentenceBoundary);
+                firstSentence = buffer.substring(0, boundaryIndex + 1).trim();
+              } else {
+                // No sentence boundary, but buffer is long enough
+                // Find a natural break point (space after 40+ chars)
+                const breakPoint = buffer.indexOf(" ", 40);
+                if (breakPoint > 0) {
+                  firstSentence = buffer.substring(0, breakPoint).trim();
+                }
+              }
+
+              if (firstSentence && firstSentence.length > 10) {
+                console.log(
+                  `⚡ [${this.uuid}] Speaking first sentence immediately: "${firstSentence.substring(0, 50)}..."`,
+                );
+
+                // Fire TTS without awaiting - let it run in parallel
+                this.speakResponse(firstSentence).catch((err) => {
+                  console.error(
+                    `❌ [${this.uuid}] First sentence TTS error:`,
+                    err.message,
+                  );
+                });
+
+                firstSentenceSpoken = true;
+              }
+            }
+          }
         }
 
         if (chunk.type === "done" || chunk.type === "error") {
@@ -400,8 +445,25 @@ class CallSession {
         content: aiResponse,
       });
 
-      // Convert response to speech and send back
-      await this.speakResponse(aiResponse);
+      // ⚡ If first sentence was already spoken, speak remaining text
+      // Otherwise speak the full response
+      if (firstSentenceSpoken && buffer.length > 0) {
+        // Find where we stopped speaking
+        const match = buffer.match(sentenceBoundary);
+        if (match) {
+          const boundaryIndex = buffer.search(sentenceBoundary);
+          const remaining = buffer.substring(boundaryIndex + 1).trim();
+          if (remaining.length > 5) {
+            console.log(
+              `🔊 [${this.uuid}] Speaking remaining text: "${remaining.substring(0, 50)}..."`,
+            );
+            await this.speakResponse(remaining);
+          }
+        }
+      } else if (!firstSentenceSpoken) {
+        // No first sentence was spoken, speak full response
+        await this.speakResponse(aiResponse);
+      }
     } catch (error) {
       console.error(`❌ [${this.uuid}] Processing error:`, error);
       await this.speakResponse(
