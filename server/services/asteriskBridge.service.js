@@ -197,13 +197,13 @@ class CallSession {
         smart_format: false,
         punctuate: true,
         interim_results: true,
-        utterance_end_ms: 1200, // ⚡ OPTIMIZED: Reduced from 1200ms (was causing 400 at 800)
+        utterance_end_ms: 800, // ⚡ OPTIMIZED: Reduced from 1200ms (was causing 400 at 800)
         vad_events: true,
-        endpointing: 400, // ⚡ OPTIMIZED: Reduced from 400ms (200ms caused 400 error)
+        endpointing: 200, // ⚡ OPTIMIZED: Reduced from 400ms (200ms caused 400 error)
       });
 
       // ⚡ CRITICAL: Attach error handler IMMEDIATELY to prevent unhandled errors
-      connection.on("error", (error) => {
+      connection.on("Error", (error) => {
         console.error(
           `❌ [${this.uuid}] Deepgram WebSocket error:`,
           error?.message || error,
@@ -216,13 +216,13 @@ class CallSession {
           reject(new Error("Deepgram connection timeout"));
         }, 5000);
 
-        connection.on("open", () => {
+        connection.on("Open", () => {
           clearTimeout(timeout);
           console.log(`✅ [${this.uuid}] Deepgram WebSocket connected`);
           resolve();
         });
 
-        connection.on("error", (error) => {
+        connection.on("Error", (error) => {
           clearTimeout(timeout);
           reject(error);
         });
