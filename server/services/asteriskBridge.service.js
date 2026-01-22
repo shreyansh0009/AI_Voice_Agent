@@ -571,18 +571,9 @@ class CallSession {
   handleAudio(audioData) {
     this.lastAudioTime = Date.now();
     this.sendAudioToSTT(audioData);
-
-    // Reset silence timer
-    if (this.silenceTimer) {
-      clearTimeout(this.silenceTimer);
-    }
-
-    this.silenceTimer = setTimeout(async () => {
-      if (this.transcript && !this.isProcessing) {
-        console.log(`⏱️ [${this.uuid}] Silence timeout, processing...`);
-        await this.processUserInput();
-      }
-    }, SILENCE_THRESHOLD_MS);
+    // ⚡ LATENCY FIX: Removed local silence timer
+    // Only Deepgram's UtteranceEnd event triggers processing now
+    // This eliminates ~1.5s of double-wait latency
   }
 
   /**
