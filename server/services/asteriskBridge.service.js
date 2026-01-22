@@ -349,6 +349,7 @@ class CallSession {
       let updatedContext = null;
       let spoken = false;
       let ttsBuffer = "";
+      let firstSpeakPromise = null; // Store the first TTS promise
 
       const shouldSpeakNow = (text) => {
         return text.length >= 50 || /[.!?।]\s*$/.test(text);
@@ -370,7 +371,13 @@ class CallSession {
             const toSpeak = ttsBuffer.trim();
             ttsBuffer = "";
             console.log(`⚡ [${this.uuid}] Early speak triggered`);
-            this.speakResponse(toSpeak).catch(() => {});
+            // Store the promise so we can await it later
+            firstSpeakPromise = this.speakResponse(toSpeak).catch((err) => {
+              console.error(
+                `❌ [${this.uuid}] Early speak error:`,
+                err.message,
+              );
+            });
           }
         }
 
@@ -418,7 +425,12 @@ class CallSession {
 
       // Speak remaining text or fallback
       if (spoken) {
-        // Early speak happened - now speak the remaining text
+        // ⚡ WAIT for first TTS to complete before speaking remaining
+        if (firstSpeakPromise) {
+          await firstSpeakPromise;
+        }
+
+        // Now speak the remaining text
         const remaining = ttsBuffer.trim();
         if (remaining.length > 0) {
           console.log(
