@@ -24,7 +24,7 @@ const DEFAULT_AGENT_ID = process.env.DEFAULT_PHONE_AGENT_ID || null;
 // Audio settings for 8kHz telephony (standard)
 const SAMPLE_RATE = 8000; // 8kHz for telephony
 const FRAME_SIZE = 320; // 20ms at 8kHz slin16 (320 bytes = 160 samples × 2 bytes)
-const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
+const SILENCE_THRESHOLD_MS = 600; // ⚡ OPTIMIZED: Reduced from 1500ms for faster response
 
 /**
  * Detect language from response text (same as streamChatController)
@@ -187,19 +187,19 @@ class CallSession {
     try {
       const deepgram = createClient(apiKey);
 
-      // Deepgram settings for 8kHz telephony
+      // Deepgram settings for 8kHz telephony - ⚡ OPTIMIZED FOR LOW LATENCY
       this.deepgramConnection = deepgram.listen.live({
         model: "nova-2",
         language: this.language === "hi" ? "hi" : "en-IN",
         encoding: "linear16",
         sample_rate: 8000, // 8kHz for standard telephony
         channels: 1,
-        smart_format: true,
+        smart_format: false, // ⚡ OPTIMIZED: Disabled for ~50-100ms savings
         punctuate: true,
         interim_results: true,
-        utterance_end_ms: 1200, // Triggers UtteranceEnd event
+        utterance_end_ms: 800, // ⚡ OPTIMIZED: Reduced from 1200ms for faster turn detection
         vad_events: true,
-        endpointing: 400,
+        endpointing: 200, // ⚡ OPTIMIZED: Reduced from 400ms for faster response
       });
 
       // Handle transcription results
@@ -477,9 +477,14 @@ class CallSession {
    */
   async convertToSlin16(wavBuffer) {
     return new Promise((resolve, reject) => {
+      // ⚡ OPTIMIZED: Added low-latency flags for faster audio processing
       const ffmpeg = spawn(
         "ffmpeg",
         [
+          "-fflags",
+          "+nobuffer", // ⚡ Don't buffer input - reduces latency
+          "-flags",
+          "low_delay", // ⚡ Low delay mode
           "-i",
           "pipe:0", // Input from stdin
           "-ar",
