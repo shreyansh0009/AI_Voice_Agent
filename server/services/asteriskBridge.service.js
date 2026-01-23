@@ -96,6 +96,9 @@ class CallSession {
     this.audioQueue = [];
     this.isSpeaking = false;
 
+    // ⚡ Phase 4: Barge-in detection (speech cancellation token)
+    this.currentSpeechToken = 0;
+
     console.log(
       `📞 [${uuid}] New call session created (DID: ${
         calledNumber || "unknown"
@@ -277,7 +280,8 @@ class CallSession {
     try {
       while (this.audioQueue.length > 0) {
         const nextChunk = this.audioQueue.shift();
-        await this.speakResponse(nextChunk);
+        const token = ++this.currentSpeechToken; // ⚡ Phase 4: Bind token to each TTS
+        await this.speakResponse(nextChunk, token);
       }
     } finally {
       this.isSpeaking = false;
@@ -467,7 +471,7 @@ class CallSession {
   /**
    * Convert text to speech and stream to Asterisk
    */
-  async speakResponse(text) {
+  async speakResponse(text, token = this.currentSpeechToken) {
     console.log(
       `🔊 [${this.uuid}] TTS: "${text.substring(0, 50)}..." (Provider: ${this.voiceProvider})`,
     );
@@ -509,8 +513,8 @@ class CallSession {
         return;
       }
 
-      // Send audio buffer to Asterisk
-      await this.streamAudioToAsterisk(audioBuffer);
+      // Send audio buffer to Asterisk (with cancellation token)
+      await this.streamAudioToAsterisk(audioBuffer, token);
     } catch (error) {
       console.error(
         `❌ [${this.uuid}] TTS error (${this.voiceProvider}):`,
@@ -593,13 +597,22 @@ class CallSession {
    * Stream audio back to Asterisk via AudioSocket
    * Uses ffmpeg to convert WAV → slin16 8kHz
    * REAL-TIME pacing: 20ms per frame (matches telephony clocking)
+   * ⚡ Phase 4: Supports barge-in cancellation via token
    */
-  async streamAudioToAsterisk(audioBuffer) {
+  async streamAudioToAsterisk(audioBuffer, token = this.currentSpeechToken) {
     try {
       const slinData = await this.convertToSlin16(audioBuffer);
       const chunks = splitIntoChunks(slinData, FRAME_SIZE);
 
       for (const chunk of chunks) {
+        // 🛑 Phase 4: Stop immediately if barge-in occurred
+        if (token !== this.currentSpeechToken) {
+          console.log(
+            `⛔ [${this.uuid}] Speech cancelled mid-playback (barge-in)`,
+          );
+          break;
+        }
+
         if (!this.socket.writable) break;
 
         this.socket.write(createAudioFrame(chunk));
@@ -608,9 +621,12 @@ class CallSession {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
 
-      console.log(
-        `✅ [${this.uuid}] Audio stream complete (${chunks.length} frames)`,
-      );
+      // Only log completion if not cancelled
+      if (token === this.currentSpeechToken) {
+        console.log(
+          `✅ [${this.uuid}] Audio stream complete (${chunks.length} frames)`,
+        );
+      }
     } catch (error) {
       console.error(`❌ [${this.uuid}] Audio streaming failed:`, error.message);
       this.sendSilence(200);
@@ -622,6 +638,14 @@ class CallSession {
    */
   handleAudio(audioData) {
     this.lastAudioTime = Date.now();
+
+    // 🔥 Phase 4: Barge-in detection
+    if (this.isSpeaking) {
+      this.currentSpeechToken++;
+      this.audioQueue.length = 0; // Clear pending speech
+      console.log(`🛑 [${this.uuid}] Barge-in detected, stopping agent speech`);
+    }
+
     this.sendAudioToSTT(audioData);
     // ⚡ LATENCY FIX: Removed local silence timer
     // Only Deepgram's UtteranceEnd event triggers processing now
