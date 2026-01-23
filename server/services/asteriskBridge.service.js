@@ -396,10 +396,12 @@ class CallSession {
       let fullResponse = "";
       let updatedContext = null;
       let ttsBuffer = "";
+      const t0 = Date.now(); // Timestamp for measuring LLM latency
+      let firstContentLogged = false;
 
-      // 🔑 Speak after 35 chars OR sentence boundary (saves 500-800ms)
+      // 🔑 Speak after 20 chars OR sentence boundary (saves 500-800ms)
       const shouldFlush = (text) => {
-        return text.length >= 35 || /[.!?।]\s*$/.test(text);
+        return text.length >= 20 || /[.!?।]\s*$/.test(text);
       };
 
       for await (const chunk of stream) {
@@ -409,16 +411,24 @@ class CallSession {
         }
 
         if (chunk.type === "content") {
+          // Log first content arrival time
+          if (!firstContentLogged) {
+            console.log(
+              `[${this.uuid}] First content after ${Date.now() - t0}ms`,
+            );
+            firstContentLogged = true;
+          }
+
           fullResponse += chunk.content;
           ttsBuffer += chunk.content;
 
-          // 🔊 Speak when threshold reached
+          // Speak when threshold reached
           if (shouldFlush(ttsBuffer)) {
             const sentence = ttsBuffer.trim();
             ttsBuffer = "";
 
             console.log(
-              `🗣️ [${this.uuid}] Streaming chunk: "${sentence.substring(0, 50)}..."`,
+              `[${this.uuid}] Streaming chunk: "${sentence.substring(0, 50)}..."`,
             );
             this.enqueueSpeech(sentence); // ⚡ DO NOT await - AI keeps generating while audio plays
           }
@@ -433,7 +443,7 @@ class CallSession {
       const remaining = ttsBuffer.trim();
       if (remaining.length > 0) {
         console.log(
-          `🗣️ [${this.uuid}] Final sentence: "${remaining.substring(0, 50)}..."`,
+          `[${this.uuid}] Final sentence: "${remaining.substring(0, 50)}..."`,
         );
         this.enqueueSpeech(remaining);
       }
@@ -443,7 +453,7 @@ class CallSession {
         fullResponse || "I couldn't process that. Please try again.";
 
       console.log(
-        `🤖 [${this.uuid}] AI Response: "${aiResponse.substring(0, 100)}..."`,
+        `[${this.uuid}] AI Response: "${aiResponse.substring(0, 100)}..."`,
       );
 
       // Update customer context if returned
@@ -458,7 +468,7 @@ class CallSession {
       const detectedLang = detectResponseLanguage(aiResponse);
       if (detectedLang && detectedLang !== this.language) {
         console.log(
-          `🌐 [${this.uuid}] Language switch detected: ${this.language} → ${detectedLang}`,
+          `[${this.uuid}] Language switch detected: ${this.language} → ${detectedLang}`,
         );
         this.language = detectedLang;
 
@@ -489,7 +499,7 @@ class CallSession {
    */
   async speakResponse(text, token = this.currentSpeechToken) {
     console.log(
-      `🔊 [${this.uuid}] TTS: "${text.substring(0, 50)}..." (Provider: ${this.voiceProvider})`,
+      `[${this.uuid}] TTS: "${text.substring(0, 50)}..." (Provider: ${this.voiceProvider})`,
     );
 
     try {
@@ -621,7 +631,7 @@ class CallSession {
       const chunks = splitIntoChunks(slinData, FRAME_SIZE);
 
       for (const chunk of chunks) {
-        // 🛑 Phase 4: Stop immediately if barge-in occurred
+        // Phase 4: Stop immediately if barge-in occurred
         if (token !== this.currentSpeechToken) {
           console.log(
             `⛔ [${this.uuid}] Speech cancelled mid-playback (barge-in)`,
@@ -640,7 +650,7 @@ class CallSession {
       // Only log completion if not cancelled
       if (token === this.currentSpeechToken) {
         console.log(
-          `✅ [${this.uuid}] Audio stream complete (${chunks.length} frames)`,
+          `[${this.uuid}] Audio stream complete (${chunks.length} frames)`,
         );
       }
     } catch (error) {
@@ -654,7 +664,7 @@ class CallSession {
    */
   handleAudio(audioData) {
     this.lastAudioTime = Date.now();
-    // 🔥 Phase 4: Barge-in now handled by Deepgram VAD (in Results handler)
+    // Phase 4: Barge-in now handled by Deepgram VAD (in Results handler)
     // Removed raw audio barge-in trigger to prevent false positives from noise
     this.sendAudioToSTT(audioData);
   }
@@ -667,13 +677,13 @@ class CallSession {
       this.welcomeMessage ||
       "Hello! I'm your AI assistant. How can I help you today?";
 
-    console.log(`👋 [${this.uuid}] Playing welcome message`);
+    console.log(`[${this.uuid}] Playing welcome message`);
 
     // Auto-detect language from welcome message (same as VoiceChat.jsx)
     const detectedLang = detectResponseLanguage(welcomeMessage);
     if (detectedLang && detectedLang !== this.language) {
       console.log(
-        `🌐 [${this.uuid}] Welcome in ${detectedLang}, switching Deepgram language`,
+        `[${this.uuid}] Welcome in ${detectedLang}, switching Deepgram language`,
       );
       this.language = detectedLang;
 
@@ -691,7 +701,7 @@ class CallSession {
    * Clean up session
    */
   cleanup() {
-    console.log(`🧹 [${this.uuid}] Cleaning up session`);
+    console.log(`[${this.uuid}] Cleaning up session`);
 
     if (this.silenceTimer) {
       clearTimeout(this.silenceTimer);
@@ -821,7 +831,7 @@ class AudioSocketServer {
     });
 
     socket.on("close", () => {
-      console.log(`📴 Connection closed`);
+      console.log(`Connection closed`);
       if (session) {
         session.cleanup();
         this.sessions.delete(session.uuid);
