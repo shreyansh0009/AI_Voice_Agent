@@ -401,10 +401,17 @@ class CallSession {
 
       // 🔑 Speak after 20 chars OR sentence boundary (saves 500-800ms)
       const shouldFlush = (text) => {
-        return text.length >= 40 || /[.!?।]\s*$/.test(text);
+        return text.length >= 30 || /[.!?।]\s*$/.test(text);
       };
 
       for await (const chunk of stream) {
+        // ⚡ FAST PATH: Speak flow text immediately (no LLM wait)
+        if (chunk.type === "flow_text") {
+          console.log(`⚡ [${this.uuid}] Speaking flow text immediately`);
+          this.enqueueSpeech(chunk.content);
+          continue;
+        }
+
         if (chunk.type === "context") {
           updatedContext = chunk.customerContext;
           continue;

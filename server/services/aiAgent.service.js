@@ -2853,6 +2853,41 @@ CRITICAL RULES:
       );
       yield { type: "context", customerContext: updatedContext };
 
+      // ========================================================================
+      // 🔥 FAST PATH: Try state engine first for immediate flow text
+      // ========================================================================
+      let flowText = null;
+      const conversationId = options.conversationId || `stream-${Date.now()}`;
+      const useCase = options.useCase || "default";
+
+      try {
+        const turnResult = stateEngine.processTurn(
+          conversationId,
+          userMessage,
+          {
+            useCase,
+            language,
+            agentId,
+          },
+        );
+
+        // If state engine returned text, emit it IMMEDIATELY
+        if (turnResult?.text) {
+          flowText = turnResult.text;
+          console.log(`⚡ FAST PATH: Emitting flow text immediately`);
+          yield {
+            type: "flow_text",
+            content: turnResult.text,
+          };
+        }
+      } catch (flowError) {
+        // State engine failed - continue with LLM-only path
+        console.warn(
+          `⚠️ State engine failed, using LLM-only:`,
+          flowError.message,
+        );
+      }
+
       const currentLanguageName = LANGUAGE_CODES[language] || "English";
 
       // Build memory block from collected data (prevents re-asking)
