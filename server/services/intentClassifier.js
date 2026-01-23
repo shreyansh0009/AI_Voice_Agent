@@ -544,7 +544,7 @@ Return JSON only:
 
   try {
     const response = await openaiClient.chat.completions.create({
-      model: "gpt-3.5-turbo", // Use cheaper model for classification
+      model: "gpt-4o-mini", // Using consistent model across all services
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
       max_tokens: 20,
@@ -614,7 +614,7 @@ export async function classifyIntentSmart(userInput, context = {}) {
     console.log(
       `🔍 Keyword match insufficient (${
         keywordResult.intent
-      }, ${keywordResult.confidence.toFixed(2)}) - using LLM`
+      }, ${keywordResult.confidence.toFixed(2)}) - using LLM`,
     );
     return await classifyIntentWithLLM(userInput, openaiClient);
   }

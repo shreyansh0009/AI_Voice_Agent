@@ -153,7 +153,7 @@ function buildMemoryBlock(collectedData) {
   }
 
   const lines = Object.entries(collectedData).map(
-    ([key, value]) => `- ${key}: ${value}`
+    ([key, value]) => `- ${key}: ${value}`,
   );
 
   return `
@@ -240,15 +240,15 @@ class AIAgentService {
           {
             useCase: null,
             openaiClient: this.openai,
-          }
+          },
         );
 
         console.log(
-          `🎯 Intent: ${intentResult.intent} (source: ${intentResult.source})`
+          `🎯 Intent: ${intentResult.intent} (source: ${intentResult.source})`,
         );
 
         effectiveUseCase = intentClassifier.mapIntentToUseCase(
-          intentResult.intent
+          intentResult.intent,
         );
 
         // Handle special intents
@@ -276,7 +276,7 @@ class AIAgentService {
       const state = stateEngine.getOrCreateState(
         conversationId,
         effectiveUseCase,
-        { language, agentId }
+        { language, agentId },
       );
       const currentStep = stateEngine.getCurrentStep(state);
 
@@ -284,7 +284,7 @@ class AIAgentService {
         // Extract slots for current step
         const slots = slotExtractor.extractSlotsByExpects(
           currentStep,
-          userMessage
+          userMessage,
         );
 
         if (Object.keys(slots).length > 0) {
@@ -318,15 +318,15 @@ class AIAgentService {
       if (result.text) {
         // For JSON flow text, validate against contract
         const contractResult = responseContract.extractResponse(
-          JSON.stringify({ type: "SPEAK", text: result.text })
+          JSON.stringify({ type: "SPEAK", text: result.text }),
         );
 
         if (contractResult.success) {
           console.log(
             `✅ Contract validated: "${contractResult.text.substring(
               0,
-              50
-            )}..."`
+              50,
+            )}..."`,
           );
 
           return {
@@ -370,7 +370,7 @@ class AIAgentService {
           // Use sanitized text if available
           const fallbackText =
             responseContract.validateResponse(
-              JSON.stringify({ type: "SPEAK", text: result.text })
+              JSON.stringify({ type: "SPEAK", text: result.text }),
             ).sanitized?.text || result.text;
 
           return {
@@ -436,7 +436,7 @@ class AIAgentService {
     const prompt = responseContract.buildContractPrompt(instruction, isRetry);
 
     const response = await this.openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: AI_CONFIG.MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
       max_tokens: 100,
@@ -484,7 +484,7 @@ class AIAgentService {
 
         // Call LLM
         const response = await this.openai.chat.completions.create({
-          model: "gpt-3.5-turbo",
+          model: AI_CONFIG.MODEL,
           messages: [{ role: "user", content: prompt }],
           temperature: 0,
           max_tokens: 100,
@@ -500,7 +500,7 @@ class AIAgentService {
         const validated = responseContract.validateLLMResponse(parsed);
 
         console.log(
-          `✅ LLM response validated: "${validated.text?.substring(0, 40)}..."`
+          `✅ LLM response validated: "${validated.text?.substring(0, 40)}..."`,
         );
         return validated;
       } catch (error) {
@@ -516,7 +516,7 @@ class AIAgentService {
 
     // Max retries exceeded - throw the error
     console.error(
-      `❌ LLM failed after ${MAX_RETRIES} attempts: ${lastError?.message}`
+      `❌ LLM failed after ${MAX_RETRIES} attempts: ${lastError?.message}`,
     );
     throw lastError;
   }
@@ -643,7 +643,7 @@ class AIAgentService {
           `You are ${
             result.agentConfig?.name || "an assistant"
           }. Answer briefly.`,
-          { agentId }
+          { agentId },
         );
 
         if (ragResponse) {
@@ -819,7 +819,7 @@ class AIAgentService {
           `You are ${
             flowResult.agentConfig?.name || "an assistant"
           }. Answer briefly.`,
-          { agentId }
+          { agentId },
         );
 
         if (ragResponse) {
@@ -928,7 +928,7 @@ class AIAgentService {
       console.log(
         `📊 State: Step ${state.stepIndex + 1}/${state.totalSteps} | ${
           state.currentStepId
-        }`
+        }`,
       );
       console.log(`🔒 Forbidden steps: [${state.forbiddenSteps.join(", ")}]`);
 
@@ -974,7 +974,7 @@ class AIAgentService {
       const enforcement = stateMachine.enforceRulesBeforeLLM(
         sessionId,
         userMessage,
-        requestedLanguage
+        requestedLanguage,
       );
 
       // If rules say don't proceed, return immediately (LLM never called)
@@ -1005,13 +1005,13 @@ class AIAgentService {
       if (currentRequirements.length > 0) {
         // This is a data collection step - VALIDATE USER INPUT
         console.log(
-          `🔍 Validating input for: ${currentRequirements.join(", ")}`
+          `🔍 Validating input for: ${currentRequirements.join(", ")}`,
         );
 
         validationResult = inputValidator.validateStepInput(
           currentRequirements,
           userMessage,
-          state.customerData
+          state.customerData,
         );
 
         if (!validationResult.allValid) {
@@ -1036,10 +1036,10 @@ class AIAgentService {
           if (Object.keys(validationResult.newData).length > 0) {
             stateMachine.updateCustomerData(
               sessionId,
-              validationResult.newData
+              validationResult.newData,
             );
             console.log(
-              `✅ Validated data: ${JSON.stringify(validationResult.newData)}`
+              `✅ Validated data: ${JSON.stringify(validationResult.newData)}`,
             );
           }
         }
@@ -1049,7 +1049,7 @@ class AIAgentService {
         if (Object.keys(opportunisticData).length > 0) {
           stateMachine.updateCustomerData(sessionId, opportunisticData);
           console.log(
-            `📦 Opportunistic data: ${JSON.stringify(opportunisticData)}`
+            `📦 Opportunistic data: ${JSON.stringify(opportunisticData)}`,
           );
         }
       }
@@ -1068,12 +1068,12 @@ class AIAgentService {
         // Data collection step - check if all required data is NOW collected
         const updatedState = stateMachine.getState(sessionId);
         stepComplete = currentRequirements.every(
-          (field) => updatedState.customerData[field]
+          (field) => updatedState.customerData[field],
         );
 
         if (stepComplete) {
           console.log(
-            `✅ Step requirements VALIDATED: ${currentRequirements.join(", ")}`
+            `✅ Step requirements VALIDATED: ${currentRequirements.join(", ")}`,
           );
         }
       } else {
@@ -1121,7 +1121,7 @@ class AIAgentService {
         const failedField = currentRequirements[0];
         stepInstruction = promptBuilder.getRetryPrompt(
           failedField,
-          validationError
+          validationError,
         );
         console.log(`🔄 Using retry prompt for: ${failedField}`);
       } else {
@@ -1129,7 +1129,7 @@ class AIAgentService {
         stepInstruction = promptBuilder.getStepInstruction(
           postAdvanceState.currentStepId,
           postAdvanceState.stepDetails?.[postAdvanceState.stepIndex]
-            ?.instruction
+            ?.instruction,
         );
       }
 
@@ -1169,13 +1169,13 @@ class AIAgentService {
       const parsed = outputParser.parseResponse(
         rawResponse,
         effectiveLanguage,
-        stepInstruction // Fallback if parsing fails
+        stepInstruction, // Fallback if parsing fails
       );
 
       console.log(
         `✅ Parsed: "${parsed.spoken_text.substring(0, 50)}..." (${
           parsed.language
-        })`
+        })`,
       );
 
       if (!parsed.parsed) {
@@ -1312,7 +1312,7 @@ class AIAgentService {
     agentId = "default",
     customerContext = {},
     conversationHistory = [],
-    options = {}
+    options = {},
   ) {
     try {
       const {
@@ -1337,13 +1337,13 @@ class AIAgentService {
           if (agent && agent.requiredSlots && agent.requiredSlots.length > 0) {
             agentSlots = agent.requiredSlots;
             console.log(
-              `📋 Loaded ${agentSlots.length} dynamic slots for agent ${agentId}`
+              `📋 Loaded ${agentSlots.length} dynamic slots for agent ${agentId}`,
             );
           }
         } catch (error) {
           console.warn(
             "⚠️  Could not load agent slots, using universal extraction:",
-            error.message
+            error.message,
           );
         }
       }
@@ -1386,7 +1386,7 @@ class AIAgentService {
         const updatedContext = await this.extractCustomerInfo(
           userMessage,
           customerContext,
-          agentSlots // Pass dynamic slots
+          agentSlots, // Pass dynamic slots
         );
 
         const agentforceResponse = await this.getAgentforceResponse(
@@ -1398,7 +1398,7 @@ class AIAgentService {
             agentId,
             conversationHistory,
             systemPrompt,
-          }
+          },
         );
 
         return {
@@ -1413,7 +1413,7 @@ class AIAgentService {
       const updatedContext = await this.extractCustomerInfo(
         userMessage,
         customerContext,
-        agentSlots // Pass dynamic slots
+        agentSlots, // Pass dynamic slots
       );
 
       // Preserve originalQuery and conversationIntent if they already exist
@@ -1433,16 +1433,15 @@ class AIAgentService {
         const isProblemStatement = userMessage
           .toLowerCase()
           .match(
-            /\b(not working|broken|issue|problem|charging|starting|error|need|want|buy|purchase|book|interested)\b/
+            /\b(not working|broken|issue|problem|charging|starting|error|need|want|buy|purchase|book|interested)\b/,
           );
         if (isProblemStatement && userMessage.trim().length > 10) {
           updatedContext.originalQuery = userMessage;
-          updatedContext.conversationIntent = await this.extractUserIntent(
-            userMessage
-          );
+          updatedContext.conversationIntent =
+            await this.extractUserIntent(userMessage);
           console.log(
             "🎯 Captured original query:",
-            updatedContext.originalQuery
+            updatedContext.originalQuery,
           );
         }
       }
@@ -1450,7 +1449,7 @@ class AIAgentService {
       // Determine conversation stage and next required field
       const conversationState = this.determineConversationState(
         updatedContext,
-        systemPrompt
+        systemPrompt,
       );
 
       // Build customer context summary for the prompt
@@ -1459,48 +1458,48 @@ class AIAgentService {
       // Add original query/intent at the top so AI never forgets it
       if (updatedContext.originalQuery) {
         contextSummary.push(
-          `🎯 ORIGINAL USER REQUEST: "${updatedContext.originalQuery}"`
+          `🎯 ORIGINAL USER REQUEST: "${updatedContext.originalQuery}"`,
         );
       }
       if (updatedContext.conversationIntent) {
         contextSummary.push(
-          `📌 USER'S INTENT: ${updatedContext.conversationIntent}`
+          `📌 USER'S INTENT: ${updatedContext.conversationIntent}`,
         );
       }
 
       if (updatedContext.name)
         contextSummary.push(
-          `✅ Name: ${updatedContext.name} (ALREADY COLLECTED - DO NOT ASK AGAIN)`
+          `✅ Name: ${updatedContext.name} (ALREADY COLLECTED - DO NOT ASK AGAIN)`,
         );
       if (updatedContext.phone)
         contextSummary.push(
-          `✅ Phone: ${updatedContext.phone} (ALREADY COLLECTED - DO NOT ASK AGAIN)`
+          `✅ Phone: ${updatedContext.phone} (ALREADY COLLECTED - DO NOT ASK AGAIN)`,
         );
       if (updatedContext.pincode)
         contextSummary.push(
-          `✅ Pincode: ${updatedContext.pincode} (ALREADY COLLECTED - DO NOT ASK AGAIN)`
+          `✅ Pincode: ${updatedContext.pincode} (ALREADY COLLECTED - DO NOT ASK AGAIN)`,
         );
       if (updatedContext.email)
         contextSummary.push(
-          `✅ Email: ${updatedContext.email} (ALREADY COLLECTED - DO NOT ASK AGAIN)`
+          `✅ Email: ${updatedContext.email} (ALREADY COLLECTED - DO NOT ASK AGAIN)`,
         );
       if (updatedContext.address)
         contextSummary.push(
-          `✅ Address: ${updatedContext.address} (ALREADY COLLECTED - DO NOT ASK AGAIN)`
+          `✅ Address: ${updatedContext.address} (ALREADY COLLECTED - DO NOT ASK AGAIN)`,
         );
       if (
         updatedContext.orderDetails &&
         Object.keys(updatedContext.orderDetails).length > 0
       ) {
         contextSummary.push(
-          `Order: ${JSON.stringify(updatedContext.orderDetails)}`
+          `Order: ${JSON.stringify(updatedContext.orderDetails)}`,
         );
       }
 
       const customerContextString =
         contextSummary.length > 0
           ? `\n\nCUSTOMER INFORMATION (Already collected - DO NOT ask again):\n${contextSummary.join(
-              "\n"
+              "\n",
             )}\n`
           : "";
 
@@ -1512,7 +1511,7 @@ class AIAgentService {
       const trackingInfo =
         alreadyAsked.length > 0
           ? `\n\nQUESTIONS ALREADY ASKED (Never repeat these):\n${alreadyAsked.join(
-              "\n"
+              "\n",
             )}\n`
           : "";
 
@@ -1536,7 +1535,7 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
       const intentSection = this.detectIntentAndSection(
         userMessage,
         conversationHistory,
-        systemPrompt
+        systemPrompt,
       );
 
       // Build enhanced system prompt - add context and guidance to user's script
@@ -1556,7 +1555,7 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
             userMessage,
             conversationHistory,
             enhancedSystemPrompt,
-            { temperature, maxTokens, agentId }
+            { temperature, maxTokens, agentId },
           );
 
           if (ragResponse) {
@@ -1567,7 +1566,7 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
 
             const processedResponse = this.processLanguageSwitch(
               cleanedResponse,
-              LANGUAGE_CODES
+              LANGUAGE_CODES,
             );
             return {
               ...processedResponse,
@@ -1577,7 +1576,7 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
         } catch (ragError) {
           console.warn(
             "⚠️  RAG failed, falling back to standard OpenAI:",
-            ragError.message
+            ragError.message,
           );
         }
       }
@@ -1587,7 +1586,7 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
         userMessage,
         conversationHistory,
         enhancedSystemPrompt,
-        { temperature, maxTokens, languageNames: LANGUAGE_CODES }
+        { temperature, maxTokens, languageNames: LANGUAGE_CODES },
       );
 
       return {
@@ -1689,7 +1688,7 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
 
     for (const [intent, keywords] of Object.entries(intentKeywords)) {
       const matches = keywords.filter((keyword) =>
-        messageLower.includes(keyword)
+        messageLower.includes(keyword),
       ).length;
       if (matches > maxMatches) {
         maxMatches = matches;
@@ -1705,12 +1704,12 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
     const matchingSection = sections.find(
       (sec) =>
         sec.title.toLowerCase().includes(detectedIntent) ||
-        sec.title.toLowerCase().includes(detectedIntent + "s") // plural
+        sec.title.toLowerCase().includes(detectedIntent + "s"), // plural
     );
 
     if (matchingSection) {
       console.log(
-        `🎯 Intent detected: ${detectedIntent}, routing to section: ${matchingSection.title}`
+        `🎯 Intent detected: ${detectedIntent}, routing to section: ${matchingSection.title}`,
       );
       return {
         section: matchingSection.content,
@@ -1933,7 +1932,7 @@ CRITICAL RULES:
           temperature,
           max_tokens: maxTokens,
           agentId,
-        }
+        },
       );
 
       return response.response;
@@ -1950,7 +1949,7 @@ CRITICAL RULES:
     userMessage,
     conversationHistory,
     systemPrompt,
-    options
+    options,
   ) {
     const { temperature, maxTokens, languageNames, model } = options;
 
@@ -1960,7 +1959,7 @@ CRITICAL RULES:
 
     // Build messages array with FULL conversation history for better context
     const recentHistory = conversationHistory.slice(
-      -AI_CONFIG.CONVERSATION_HISTORY_LIMIT
+      -AI_CONFIG.CONVERSATION_HISTORY_LIMIT,
     );
     const messages = [
       {
@@ -2013,7 +2012,7 @@ CRITICAL RULES:
     if (matches.length >= 2) {
       // Extract items without numbers
       const items = matches.map((match) =>
-        match[1].replace(/^\d+[.)]\s*/, "").trim()
+        match[1].replace(/^\d+[.)]\s*/, "").trim(),
       );
 
       // Join with commas and "or" for last item
@@ -2073,7 +2072,7 @@ CRITICAL RULES:
       lines.splice(
         listStartIndex,
         listEndIndex - listStartIndex + 1,
-        replacement
+        replacement,
       );
       processed = lines.join("\n");
     }
@@ -2136,7 +2135,7 @@ CRITICAL RULES:
         console.log(`🔤 Translating input from ${language} to English...`);
         englishMessage = await translationService.translate(
           userMessage,
-          "English"
+          "English",
         );
         console.log(`   -> English: ${englishMessage}`);
       }
@@ -2153,7 +2152,7 @@ CRITICAL RULES:
 
       const agentResponse = await agentforceService.processMessage(
         messageToSend,
-        options
+        options,
       );
       console.log("   -> Agentforce Response:", agentResponse);
 
@@ -2164,7 +2163,7 @@ CRITICAL RULES:
         console.log(`🔤 Translating response from English to ${language}...`);
         finalResponse = await translationService.translate(
           agentResponse,
-          language
+          language,
         );
         console.log(`   -> Translated (${language}): ${finalResponse}`);
       }
@@ -2451,7 +2450,7 @@ CRITICAL RULES:
     const requiredFields = [];
     for (const field of fieldChecks) {
       const isInScript = field.patterns.some((pattern) =>
-        scriptLower.includes(pattern)
+        scriptLower.includes(pattern),
       );
       const isMissing = !customerContext[field.key];
 
@@ -2493,7 +2492,7 @@ CRITICAL RULES:
       // Purchase/Sales intents
       if (
         messageLower.match(
-          /\b(buy|purchase|book|test ride|demo|interested|looking for|want to buy)\b/
+          /\b(buy|purchase|book|test ride|demo|interested|looking for|want to buy)\b/,
         )
       ) {
         return "Purchase/Booking inquiry";
@@ -2502,7 +2501,7 @@ CRITICAL RULES:
       // Support/Issue intents
       if (
         messageLower.match(
-          /\b(not working|broken|issue|problem|repair|service|complaint|fix|error)\b/
+          /\b(not working|broken|issue|problem|repair|service|complaint|fix|error)\b/,
         )
       ) {
         return "Technical support/Issue resolution";
@@ -2511,7 +2510,7 @@ CRITICAL RULES:
       // Information/Query intents
       if (
         messageLower.match(
-          /\b(information|details|tell me|what is|features|specs|warranty|price)\b/
+          /\b(information|details|tell me|what is|features|specs|warranty|price)\b/,
         )
       ) {
         return "Information request";
@@ -2520,7 +2519,7 @@ CRITICAL RULES:
       // Service center intents
       if (
         messageLower.match(
-          /\b(service center|appointment|schedule|visit|location)\b/
+          /\b(service center|appointment|schedule|visit|location)\b/,
         )
       ) {
         return "Service center inquiry";
@@ -2596,7 +2595,7 @@ CRITICAL RULES:
           scriptAnalyzer.buildDynamicExtractionPrompt(agentSlots);
         console.log(
           `📋 Using DYNAMIC extraction for ${agentSlots.length} slots:`,
-          agentSlots.map((s) => s.name)
+          agentSlots.map((s) => s.name),
         );
       } else {
         // Fallback to universal extraction
@@ -2677,7 +2676,7 @@ CRITICAL RULES:
     } catch (error) {
       console.error(
         "❌ AI extraction failed, using regex fallback:",
-        error.message
+        error.message,
       );
 
       // Fallback to regex patterns
@@ -2710,7 +2709,7 @@ CRITICAL RULES:
 
       // Extract email
       const emailMatch = text.match(
-        /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/
+        /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/,
       );
       if (emailMatch) {
         updates.email = emailMatch[0];
@@ -2725,14 +2724,14 @@ CRITICAL RULES:
 
       // Extract name - multiple patterns
       let nameMatch = text.match(
-        /(?:my name is|i am|this is|i'm|call me)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i
+        /(?:my name is|i am|this is|i'm|call me)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i,
       );
 
       // If no explicit name pattern, try to extract capitalized words (likely names)
       // Only if text is short (1-3 words) and starts with capital letter
       if (!nameMatch && text.trim().split(/\s+/).length <= 3) {
         const capitalizedMatch = text.match(
-          /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\.?$/
+          /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\.?$/,
         );
         if (capitalizedMatch) {
           updates.name = capitalizedMatch[1];
@@ -2781,7 +2780,7 @@ CRITICAL RULES:
     }
 
     console.log(
-      "ℹ️ No customer info found in text, returning existing context"
+      "ℹ️ No customer info found in text, returning existing context",
     );
     return existingContext;
   }
@@ -2796,7 +2795,7 @@ CRITICAL RULES:
     agentId = "default",
     customerContext = {},
     conversationHistory = [],
-    options = {}
+    options = {},
   ) {
     try {
       const {
@@ -2823,13 +2822,13 @@ CRITICAL RULES:
           if (agent && agent.requiredSlots && agent.requiredSlots.length > 0) {
             agentSlots = agent.requiredSlots;
             console.log(
-              `📋 Loaded ${agentSlots.length} dynamic slots for streaming`
+              `📋 Loaded ${agentSlots.length} dynamic slots for streaming`,
             );
           }
         } catch (error) {
           console.warn(
             "⚠️  Could not load agent slots for streaming:",
-            error.message
+            error.message,
           );
         }
       }
@@ -2850,7 +2849,7 @@ CRITICAL RULES:
       const updatedContext = await this.extractCustomerInfo(
         userMessage,
         customerContext,
-        agentSlots // Pass dynamic slots!
+        agentSlots, // Pass dynamic slots!
       );
       yield { type: "context", customerContext: updatedContext };
 
@@ -2923,7 +2922,7 @@ CRITICAL LANGUAGE INSTRUCTION:
               // Remove the prefix from what we're yielding
               const cleanContent = content.replace(
                 /^LANGUAGE_SWITCH:[a-z]{2}\s*/i,
-                ""
+                "",
               );
               if (cleanContent) {
                 yield { type: "content", content: cleanContent };

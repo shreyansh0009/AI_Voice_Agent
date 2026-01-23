@@ -401,7 +401,7 @@ class CallSession {
 
       // 🔑 Speak after 20 chars OR sentence boundary (saves 500-800ms)
       const shouldFlush = (text) => {
-        return text.length >= 20 || /[.!?।]\s*$/.test(text);
+        return text.length >= 40 || /[.!?।]\s*$/.test(text);
       };
 
       for await (const chunk of stream) {
