@@ -2845,16 +2845,9 @@ CRITICAL RULES:
         return;
       }
 
-      // Extract customer info first (non-streaming) with dynamic slots
-      const updatedContext = await this.extractCustomerInfo(
-        userMessage,
-        customerContext,
-        agentSlots, // Pass dynamic slots!
-      );
-      yield { type: "context", customerContext: updatedContext };
-
       // ========================================================================
-      // 🔥 FAST PATH: Try state engine first for immediate flow text
+      // FAST PATH: Try state engine FIRST for immediate flow text
+      // This MUST happen before slot extraction or LLM
       // ========================================================================
       let flowText = null;
       const conversationId = options.conversationId || `stream-${Date.now()}`;
@@ -2887,6 +2880,19 @@ CRITICAL RULES:
           flowError.message,
         );
       }
+
+      // ========================================================================
+      // FIRE-AND-FORGET: Slot extraction runs in parallel, does NOT block LLM
+      // ========================================================================
+      let updatedContext = { ...customerContext };
+      this.extractCustomerInfo(userMessage, customerContext, agentSlots)
+        .then((ctx) => {
+          updatedContext = ctx;
+        })
+        .catch((err) => console.error("Slot extraction failed:", err.message));
+
+      // Emit context immediately with what we have
+      yield { type: "context", customerContext: updatedContext };
 
       const currentLanguageName = LANGUAGE_CODES[language] || "English";
 

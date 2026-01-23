@@ -378,6 +378,9 @@ class CallSession {
         this.conversationHistory = this.conversationHistory.slice(-12);
       }
 
+      // ⏱️ Start timer BEFORE stream call to measure full latency
+      const t0 = Date.now();
+
       // Process through AI Agent Service - USE STREAMING (SAME as web chat!)
       // This is the key fix: web uses processMessageStream, so phone must too
       const stream = await aiAgentService.processMessageStream(
@@ -396,18 +399,19 @@ class CallSession {
       let fullResponse = "";
       let updatedContext = null;
       let ttsBuffer = "";
-      const t0 = Date.now(); // Timestamp for measuring LLM latency
       let firstContentLogged = false;
+      let flowTextSpoken = false; // Guard: prevent LLM repeating flow text
 
-      // 🔑 Speak after 20 chars OR sentence boundary (saves 500-800ms)
+      // 🔑 Speak after 140 chars OR sentence boundary (reduces ElevenLabs calls)
       const shouldFlush = (text) => {
-        return text.length >= 30 || /[.!?।]\s*$/.test(text);
+        return text.length >= 140 || /[.!?।]\s*$/.test(text);
       };
 
       for await (const chunk of stream) {
         // ⚡ FAST PATH: Speak flow text immediately (no LLM wait)
         if (chunk.type === "flow_text") {
           console.log(`⚡ [${this.uuid}] Speaking flow text immediately`);
+          flowTextSpoken = true;
           this.enqueueSpeech(chunk.content);
           continue;
         }
@@ -421,9 +425,15 @@ class CallSession {
           // Log first content arrival time
           if (!firstContentLogged) {
             console.log(
-              `[${this.uuid}] First content after ${Date.now() - t0}ms`,
+              `[${this.uuid}] First LLM content after ${Date.now() - t0}ms`,
             );
             firstContentLogged = true;
+          }
+
+          // Skip early LLM content if flow text already spoken (prevent repetition)
+          if (flowTextSpoken && fullResponse.length < 10) {
+            fullResponse += chunk.content;
+            continue;
           }
 
           fullResponse += chunk.content;
