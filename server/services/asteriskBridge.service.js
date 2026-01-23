@@ -372,12 +372,15 @@ class CallSession {
         },
       );
 
-      // ⚡ PHASE 3: True streaming TTS - sentence by sentence
+      // ⚡ PHASE 3.5: True streaming TTS - with character threshold
       let fullResponse = "";
       let updatedContext = null;
       let ttsBuffer = "";
 
-      const sentenceBoundary = /([.!?।])\s*$/;
+      // 🔑 Speak after 35 chars OR sentence boundary (saves 500-800ms)
+      const shouldFlush = (text) => {
+        return text.length >= 35 || /[.!?।]\s*$/.test(text);
+      };
 
       for await (const chunk of stream) {
         if (chunk.type === "context") {
@@ -389,12 +392,14 @@ class CallSession {
           fullResponse += chunk.content;
           ttsBuffer += chunk.content;
 
-          // 🔊 Speak sentence-by-sentence
-          if (sentenceBoundary.test(ttsBuffer)) {
+          // 🔊 Speak when threshold reached
+          if (shouldFlush(ttsBuffer)) {
             const sentence = ttsBuffer.trim();
             ttsBuffer = "";
 
-            console.log(`🗣️ [${this.uuid}] Streaming sentence: "${sentence.substring(0, 50)}..."`);
+            console.log(
+              `🗣️ [${this.uuid}] Streaming chunk: "${sentence.substring(0, 50)}..."`,
+            );
             this.enqueueSpeech(sentence); // ⚡ DO NOT await - AI keeps generating while audio plays
           }
         }
@@ -407,7 +412,9 @@ class CallSession {
       // Flush any remaining text that didn't end with a sentence boundary
       const remaining = ttsBuffer.trim();
       if (remaining.length > 0) {
-        console.log(`🗣️ [${this.uuid}] Final sentence: "${remaining.substring(0, 50)}..."`);
+        console.log(
+          `🗣️ [${this.uuid}] Final sentence: "${remaining.substring(0, 50)}..."`,
+        );
         this.enqueueSpeech(remaining);
       }
 
