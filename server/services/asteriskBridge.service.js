@@ -92,6 +92,10 @@ class CallSession {
     this.conversationHistory = [];
     this.customerContext = {};
 
+    // ⚡ Phase 3: Audio queue for sentence-by-sentence streaming
+    this.audioQueue = [];
+    this.isSpeaking = false;
+
     console.log(
       `📞 [${uuid}] New call session created (DID: ${
         calledNumber || "unknown"
@@ -257,6 +261,30 @@ class CallSession {
   }
 
   /**
+   * ⚡ Phase 3: Enqueue speech for sequential sentence-by-sentence TTS
+   * Guarantees: No overlapping audio, no interleaved socket writes
+   */
+  async enqueueSpeech(text) {
+    if (!text || !text.trim()) return;
+
+    this.audioQueue.push(text.trim());
+
+    // Single consumer guarantee - only one speech at a time
+    if (this.isSpeaking) return;
+
+    this.isSpeaking = true;
+
+    try {
+      while (this.audioQueue.length > 0) {
+        const nextChunk = this.audioQueue.shift();
+        await this.speakResponse(nextChunk);
+      }
+    } finally {
+      this.isSpeaking = false;
+    }
+  }
+
+  /**
    * Check if message is a "check-in" phrase (hello? are you there?)
    * User is checking if agent is still listening, not asking a new question
    */
@@ -344,16 +372,12 @@ class CallSession {
         },
       );
 
-      // ⚡ PHASE 2: Early speak - talk while AI still generating
+      // ⚡ PHASE 3: True streaming TTS - sentence by sentence
       let fullResponse = "";
       let updatedContext = null;
-      let spoken = false;
       let ttsBuffer = "";
-      let firstSpeakPromise = null; // Store the first TTS promise
 
-      const shouldSpeakNow = (text) => {
-        return text.length >= 50 || /[.!?।]\s*$/.test(text);
-      };
+      const sentenceBoundary = /([.!?।])\s*$/;
 
       for await (const chunk of stream) {
         if (chunk.type === "context") {
@@ -365,25 +389,26 @@ class CallSession {
           fullResponse += chunk.content;
           ttsBuffer += chunk.content;
 
-          // 🔊 Speak EARLY (only once)
-          if (!spoken && shouldSpeakNow(ttsBuffer)) {
-            spoken = true;
-            const toSpeak = ttsBuffer.trim();
+          // 🔊 Speak sentence-by-sentence
+          if (sentenceBoundary.test(ttsBuffer)) {
+            const sentence = ttsBuffer.trim();
             ttsBuffer = "";
-            console.log(`⚡ [${this.uuid}] Early speak triggered`);
-            // Store the promise so we can await it later
-            firstSpeakPromise = this.speakResponse(toSpeak).catch((err) => {
-              console.error(
-                `❌ [${this.uuid}] Early speak error:`,
-                err.message,
-              );
-            });
+
+            console.log(`🗣️ [${this.uuid}] Streaming sentence: "${sentence.substring(0, 50)}..."`);
+            this.enqueueSpeech(sentence); // ⚡ DO NOT await - AI keeps generating while audio plays
           }
         }
 
         if (chunk.type === "done" || chunk.type === "error") {
           break;
         }
+      }
+
+      // Flush any remaining text that didn't end with a sentence boundary
+      const remaining = ttsBuffer.trim();
+      if (remaining.length > 0) {
+        console.log(`🗣️ [${this.uuid}] Final sentence: "${remaining.substring(0, 50)}..."`);
+        this.enqueueSpeech(remaining);
       }
 
       // Get AI response for logging and history
@@ -422,28 +447,6 @@ class CallSession {
         role: "assistant",
         content: aiResponse,
       });
-
-      // Speak remaining text or fallback
-      if (spoken) {
-        // ⚡ WAIT for first TTS to complete before speaking remaining
-        if (firstSpeakPromise) {
-          await firstSpeakPromise;
-        }
-
-        // Now speak the remaining text
-        const remaining = ttsBuffer.trim();
-        if (remaining.length > 0) {
-          console.log(
-            `🔊 [${this.uuid}] Speaking remaining text: "${remaining.substring(0, 50)}..."`,
-          );
-          await this.speakResponse(remaining);
-        }
-      } else {
-        // Nothing was spoken early - speak full response
-        const fallback =
-          fullResponse || "I couldn't process that. Please try again.";
-        await this.speakResponse(fallback);
-      }
     } catch (error) {
       console.error(`❌ [${this.uuid}] Processing error:`, error);
       await this.speakResponse(
