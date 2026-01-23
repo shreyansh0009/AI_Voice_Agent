@@ -98,6 +98,7 @@ class CallSession {
 
     // ⚡ Phase 4: Barge-in detection (speech cancellation token)
     this.currentSpeechToken = 0;
+    this.userIsSpeaking = false; // Set true when Deepgram detects actual speech
 
     console.log(
       `📞 [${uuid}] New call session created (DID: ${
@@ -215,6 +216,16 @@ class CallSession {
         const isFinal = data.is_final;
 
         if (transcript) {
+          // 🔥 Phase 4: User is speaking - trigger barge-in if agent is talking
+          if (this.isSpeaking && !this.userIsSpeaking) {
+            this.userIsSpeaking = true;
+            this.currentSpeechToken++;
+            this.audioQueue.length = 0; // Clear pending speech
+            console.log(
+              `🛑 [${this.uuid}] Barge-in detected (user speaking), stopping agent`,
+            );
+          }
+
           if (isFinal) {
             this.transcript += (this.transcript ? " " : "") + transcript;
             console.log(`🎤 [${this.uuid}] Final: "${transcript}"`);
@@ -227,6 +238,7 @@ class CallSession {
       // Handle utterance end (user stopped speaking)
       this.deepgramConnection.on("UtteranceEnd", async () => {
         console.log(`🔇 [${this.uuid}] Utterance ended`);
+        this.userIsSpeaking = false; // 🔥 Phase 4: Reset speech flag
         if (this.transcript && !this.isProcessing) {
           await this.processUserInput();
         }
@@ -638,18 +650,9 @@ class CallSession {
    */
   handleAudio(audioData) {
     this.lastAudioTime = Date.now();
-
-    // 🔥 Phase 4: Barge-in detection
-    if (this.isSpeaking) {
-      this.currentSpeechToken++;
-      this.audioQueue.length = 0; // Clear pending speech
-      console.log(`🛑 [${this.uuid}] Barge-in detected, stopping agent speech`);
-    }
-
+    // 🔥 Phase 4: Barge-in now handled by Deepgram VAD (in Results handler)
+    // Removed raw audio barge-in trigger to prevent false positives from noise
     this.sendAudioToSTT(audioData);
-    // ⚡ LATENCY FIX: Removed local silence timer
-    // Only Deepgram's UtteranceEnd event triggers processing now
-    // This eliminates ~1.5s of double-wait latency
   }
 
   /**
