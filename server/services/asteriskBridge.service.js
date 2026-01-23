@@ -216,13 +216,17 @@ class CallSession {
         const isFinal = data.is_final;
 
         if (transcript) {
-          // 🔥 Phase 4: User is speaking - trigger barge-in if agent is talking
-          if (this.isSpeaking && !this.userIsSpeaking) {
+          // 🔥 Phase 4: Check if this is real speech (not noise/fillers)
+          const isRealSpeech =
+            transcript.length >= 3 && /[a-zA-Z\u0900-\u097F]/.test(transcript);
+
+          // Trigger barge-in only on confirmed real speech
+          if (isRealSpeech && this.isSpeaking && !this.userIsSpeaking) {
             this.userIsSpeaking = true;
             this.currentSpeechToken++;
             this.audioQueue.length = 0; // Clear pending speech
             console.log(
-              `🛑 [${this.uuid}] Barge-in detected (user speaking), stopping agent`,
+              `🛑 [${this.uuid}] Barge-in confirmed (real speech), stopping agent`,
             );
           }
 
@@ -292,7 +296,7 @@ class CallSession {
     try {
       while (this.audioQueue.length > 0) {
         const nextChunk = this.audioQueue.shift();
-        const token = ++this.currentSpeechToken; // ⚡ Phase 4: Bind token to each TTS
+        const token = this.currentSpeechToken; // ⚡ Phase 4: Read token (increment only on barge-in)
         await this.speakResponse(nextChunk, token);
       }
     } finally {
