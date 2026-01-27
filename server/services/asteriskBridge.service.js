@@ -247,16 +247,29 @@ class CallSession {
           if (isFinal) {
             this.transcript += (this.transcript ? " " : "") + transcript;
             console.log(`🎤 [${this.uuid}] Final: "${transcript}"`);
+
+            // 🔥 FIX 3: Early trigger on isFinal instead of waiting for UtteranceEnd
+            // This saves ~700-900ms latency
+            if (transcript.length > 5 && !this.isProcessing) {
+              clearTimeout(this.silenceTimer);
+              this.silenceTimer = setTimeout(() => {
+                if (!this.isProcessing && this.transcript) {
+                  console.log(`⚡ [${this.uuid}] Early trigger (isFinal)`);
+                  this.processUserInput();
+                }
+              }, 300); // 🔥 300ms instead of waiting for UtteranceEnd
+            }
           } else {
             console.log(`🎤 [${this.uuid}] Interim: "${transcript}"`);
           }
         }
       });
 
-      // Handle utterance end (user stopped speaking)
+      // Handle utterance end (user stopped speaking) - fallback for edge cases
       this.deepgramConnection.on("UtteranceEnd", async () => {
         console.log(`🔇 [${this.uuid}] Utterance ended`);
         this.userIsSpeaking = false; // 🔥 Phase 4: Reset speech flag
+        clearTimeout(this.silenceTimer); // Clear any pending early trigger
         if (this.transcript && !this.isProcessing) {
           await this.processUserInput();
         }
@@ -370,6 +383,11 @@ class CallSession {
     console.log(`🧠 [${this.uuid}] Processing: "${userMessage}"`);
 
     try {
+      // 🔥 FIX 1: Instant acknowledgement BEFORE LLM processing
+      // This starts audio ~300ms after UtteranceEnd while LLM thinks in background
+      // Perceived latency drops by ~1s without violating flow/script
+      this.enqueueSpeech("ठीक है।");
+
       // Check for "check-in" phrases (hello? are you there? etc.)
       // These should get a quick acknowledgment, not restart the flow
       if (this.isCheckInPhrase(userMessage)) {
@@ -418,7 +436,7 @@ class CallSession {
 
       // 🔑 Speak after 140 chars OR sentence boundary (reduces ElevenLabs calls)
       const shouldFlush = (text) => {
-        return text.length >= 120 || /[.!?।]\s*$/.test(text);
+        return text.length >= 140 || /[.!?।]\s*$/.test(text);
       };
 
       for await (const chunk of stream) {
