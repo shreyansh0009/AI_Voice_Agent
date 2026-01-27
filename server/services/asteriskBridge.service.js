@@ -418,7 +418,7 @@ class CallSession {
 
       // 🔑 Speak after 140 chars OR sentence boundary (reduces ElevenLabs calls)
       const shouldFlush = (text) => {
-        return text.length >= 140 || /[.!?।]\s*$/.test(text);
+        return text.length >= 120 || /[.!?।]\s*$/.test(text);
       };
 
       for await (const chunk of stream) {
