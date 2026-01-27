@@ -16,6 +16,7 @@ import agentforceRoutes from "./routes/agentforceRoutes.js";
 import agentRoutes from "./routes/agentRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import speechRoutes from "./routes/speechRoutes.js";
+import phoneNumberRoutes from "./routes/phoneNumberRoutes.js";
 
 dotenv.config();
 
@@ -32,7 +33,7 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
-  })
+  }),
 );
 
 console.log("🔓 CORS: Allowing all origins (DEBUG MODE)");
@@ -56,6 +57,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/agentforce", agentforceRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/speech", speechRoutes);
+app.use("/api/phone-numbers", phoneNumberRoutes);
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, "uploads");
@@ -86,7 +88,7 @@ const fileFilter = (req, file, cb) => {
   } else {
     cb(
       new Error("Invalid file type. Only PDF, DOC, and DOCX are allowed."),
-      false
+      false,
     );
   }
 };
@@ -201,7 +203,7 @@ app.post(
           if (fileInfo.extractedText) {
             const vectorResult = await ragService.storeDocument(
               fileInfo,
-              fileInfo.extractedText
+              fileInfo.extractedText,
             );
             fileInfo.vectorStored = vectorResult?.success || false;
             fileInfo.chunksStored = vectorResult?.chunksStored || 0;
@@ -245,7 +247,7 @@ app.post(
         error: error.message || "Failed to upload files",
       });
     }
-  }
+  },
 );
 
 // Get all uploaded files - PROTECTED
@@ -377,7 +379,7 @@ app.post("/api/rag/chat", authenticate, async (req, res) => {
     const result = await ragService.generateRAGResponse(
       query,
       conversationHistory,
-      systemPrompt
+      systemPrompt,
     );
 
     console.log("✅ RAG CHAT: Success", { userId: req.user.id });
@@ -481,7 +483,7 @@ app.patch("/api/knowledge-files/:filename/agent", authenticate, (req, res) => {
 
     const updatedFile = fileManagementService.updateFileAgent(
       filename,
-      agentId
+      agentId,
     );
 
     if (updatedFile) {

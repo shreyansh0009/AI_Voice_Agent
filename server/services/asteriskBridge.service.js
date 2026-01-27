@@ -8,7 +8,7 @@ import Conversation from "../models/Conversation.js";
 import Agent from "../models/Agent.js";
 import axios from "axios";
 import ttsService from "./tts.service.js";
-import { getAgentIdForDID, getDefaultAgentId } from "../config/didMapping.js";
+import PhoneNumber from "../models/PhoneNumber.js";
 import {
   MESSAGE_TYPES,
   parseFrame,
@@ -112,12 +112,26 @@ class CallSession {
    */
   async initializeAgent() {
     try {
-      // 1. Get agent ID from DID mapping
-      let agentId = getAgentIdForDID(this.calledNumber);
+      // 1. Get agent ID from database (PhoneNumber collection)
+      const cleanedNumber = PhoneNumber.cleanNumber(this.calledNumber);
+      const phoneRecord = await PhoneNumber.findOne({ number: cleanedNumber });
+
+      let agentId = phoneRecord?.linkedAgentId?.toString() || null;
+
+      if (phoneRecord && agentId) {
+        console.log(`📞 DID ${this.calledNumber} → Agent ${agentId}`);
+      } else {
+        console.warn(
+          `⚠️ No agent mapped for DID: ${this.calledNumber} (cleaned: ${cleanedNumber})`,
+        );
+      }
 
       // Fallback to default if no mapping found
       if (!agentId) {
-        agentId = getDefaultAgentId();
+        agentId = process.env.DEFAULT_PHONE_AGENT_ID || null;
+        if (agentId) {
+          console.log(`📞 Using default agent: ${agentId}`);
+        }
       }
 
       if (!agentId) {

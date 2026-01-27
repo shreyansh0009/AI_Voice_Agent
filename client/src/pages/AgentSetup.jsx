@@ -33,7 +33,7 @@ export default function AgentSetupSingle() {
   const [welcome, setWelcome] = useState("Hello from crml");
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [prompt, setPrompt] = useState(
-    "You are a helpful agent. You will help the customer with their queries and doubts. You will never speak more than 2 sentences. Keep your responses concise."
+    "You are a helpful agent. You will help the customer with their queries and doubts. You will never speak more than 2 sentences. Keep your responses concise.",
   );
 
   // LLM Configuration
@@ -82,6 +82,12 @@ export default function AgentSetupSingle() {
   // Save button state - prevent multiple clicks
   const [isSaving, setIsSaving] = useState(false);
 
+  // Phone Number Linking state
+  const [linkedPhoneNumber, setLinkedPhoneNumber] = useState(null);
+  const [availablePhoneNumbers, setAvailablePhoneNumbers] = useState([]);
+  const [selectedPhoneNumber, setSelectedPhoneNumber] = useState("");
+  const [isLinkingPhone, setIsLinkingPhone] = useState(false);
+
   // Fetch agents from backend
   useEffect(() => {
     fetchAgents();
@@ -97,12 +103,12 @@ export default function AgentSetupSingle() {
       if (savedAgentId && res.data.length > 0) {
         // Find the agent with the saved ID
         const agentToLoad = res.data.find(
-          (agent) => agent._id === savedAgentId
+          (agent) => agent._id === savedAgentId,
         );
         if (agentToLoad) {
           console.log(
             "✅ Auto-loading previously selected agent:",
-            agentToLoad.name
+            agentToLoad.name,
           );
           handleSelectAgent(agentToLoad);
         } else {
@@ -115,6 +121,80 @@ export default function AgentSetupSingle() {
       console.error("Failed to fetch agents:", err);
     }
   };
+
+  // Fetch phone number linked to current agent
+  const fetchAgentPhoneNumber = async (agentId) => {
+    if (!agentId) {
+      setLinkedPhoneNumber(null);
+      return;
+    }
+    try {
+      const res = await api.get(`/api/phone-numbers/agent/${agentId}`);
+      setLinkedPhoneNumber(res.data.phoneNumber);
+    } catch (err) {
+      console.error("Failed to fetch agent phone number:", err);
+      setLinkedPhoneNumber(null);
+    }
+  };
+
+  // Fetch available phone numbers
+  const fetchAvailablePhoneNumbers = async () => {
+    try {
+      const res = await api.get("/api/phone-numbers/available");
+      setAvailablePhoneNumbers(res.data.phoneNumbers || []);
+    } catch (err) {
+      console.error("Failed to fetch available phone numbers:", err);
+    }
+  };
+
+  // Link phone number to agent
+  const handleLinkPhoneNumber = async () => {
+    if (!selectedPhoneNumber || !selectedAgentId) return;
+
+    setIsLinkingPhone(true);
+    try {
+      await api.post(`/api/phone-numbers/${selectedPhoneNumber}/link`, {
+        agentId: selectedAgentId,
+      });
+      // Refresh data
+      await fetchAgentPhoneNumber(selectedAgentId);
+      await fetchAvailablePhoneNumbers();
+      setSelectedPhoneNumber("");
+    } catch (err) {
+      console.error("Failed to link phone number:", err);
+      alert(err.response?.data?.error || "Failed to link phone number");
+    } finally {
+      setIsLinkingPhone(false);
+    }
+  };
+
+  // Unlink phone number from agent
+  const handleUnlinkPhoneNumber = async () => {
+    if (!linkedPhoneNumber) return;
+
+    setIsLinkingPhone(true);
+    try {
+      await api.post(`/api/phone-numbers/${linkedPhoneNumber.number}/unlink`);
+      // Refresh data
+      setLinkedPhoneNumber(null);
+      await fetchAvailablePhoneNumbers();
+    } catch (err) {
+      console.error("Failed to unlink phone number:", err);
+      alert(err.response?.data?.error || "Failed to unlink phone number");
+    } finally {
+      setIsLinkingPhone(false);
+    }
+  };
+
+  // Fetch phone number when agent changes
+  useEffect(() => {
+    if (selectedAgentId) {
+      fetchAgentPhoneNumber(selectedAgentId);
+      fetchAvailablePhoneNumbers();
+    } else {
+      setLinkedPhoneNumber(null);
+    }
+  }, [selectedAgentId]);
 
   // Load chat history from localStorage on mount
   useEffect(() => {
@@ -146,7 +226,7 @@ export default function AgentSetupSingle() {
               headers: {
                 Authorization: `Bearer ${token}`,
               },
-            }
+            },
           );
           const data = await response.json();
 
@@ -154,16 +234,16 @@ export default function AgentSetupSingle() {
             // Match localStorage files with server files
             const serverFileNames = data.files.map((f) => f.fileName);
             const validFiles = parsed.filter((file) =>
-              serverFileNames.includes(file.fileName)
+              serverFileNames.includes(file.fileName),
             );
 
             if (validFiles.length !== parsed.length) {
               console.log(
-                "⚠️ Some files no longer exist on server, cleaning up..."
+                "⚠️ Some files no longer exist on server, cleaning up...",
               );
               localStorage.setItem(
                 "uploaded_knowledge_files",
-                JSON.stringify(validFiles)
+                JSON.stringify(validFiles),
               );
             }
 
@@ -203,7 +283,7 @@ export default function AgentSetupSingle() {
           headers: {
             Authorization: `Bearer ${token}`,
           },
-        }
+        },
       );
       const data = await response.json();
 
@@ -227,7 +307,7 @@ export default function AgentSetupSingle() {
     if (uploadedFiles.length > 0) {
       localStorage.setItem(
         "uploaded_knowledge_files",
-        JSON.stringify(uploadedFiles)
+        JSON.stringify(uploadedFiles),
       );
       console.log("💾 Saved files to localStorage:", uploadedFiles.length);
     } else {
@@ -250,7 +330,7 @@ export default function AgentSetupSingle() {
 
           // For now, we'll keep files persistent across reloads
           console.log(
-            "🔄 Page reload/close detected. Files preserved in localStorage."
+            "🔄 Page reload/close detected. Files preserved in localStorage.",
           );
         }
       }
@@ -346,8 +426,8 @@ export default function AgentSetupSingle() {
         const res = await api.put(`/api/agents/${selectedAgentId}`, agentData);
         setSavedAgents(
           savedAgents.map((agent) =>
-            agent._id === selectedAgentId ? res.data : agent
-          )
+            agent._id === selectedAgentId ? res.data : agent,
+          ),
         );
         // Ensure localStorage is updated
         localStorage.setItem("lastSelectedAgentId", res.data._id);
@@ -452,7 +532,7 @@ export default function AgentSetupSingle() {
         {
           temperature: 0.7,
           max_tokens: 500,
-        }
+        },
       );
 
       if (result.success) {
@@ -501,7 +581,7 @@ export default function AgentSetupSingle() {
 
       if (!isValid) {
         setUploadError(
-          `${file.name}: Invalid file type. Only PDF, DOC, DOCX allowed.`
+          `${file.name}: Invalid file type. Only PDF, DOC, DOCX allowed.`,
         );
         return false;
       }
@@ -542,7 +622,7 @@ export default function AgentSetupSingle() {
             Authorization: `Bearer ${token}`,
           },
           body: formData,
-        }
+        },
       );
 
       const data = await response.json();
@@ -561,7 +641,7 @@ export default function AgentSetupSingle() {
     } catch (error) {
       console.error("Upload error:", error);
       setUploadError(
-        "Failed to upload files. Make sure the server is running."
+        "Failed to upload files. Make sure the server is running.",
       );
     } finally {
       setIsUploading(false);
@@ -580,7 +660,7 @@ export default function AgentSetupSingle() {
           headers: {
             Authorization: `Bearer ${token}`,
           },
-        }
+        },
       );
 
       const data = await response.json();
@@ -593,7 +673,7 @@ export default function AgentSetupSingle() {
         if (updatedFiles.length > 0) {
           localStorage.setItem(
             "uploaded_knowledge_files",
-            JSON.stringify(updatedFiles)
+            JSON.stringify(updatedFiles),
           );
         } else {
           localStorage.removeItem("uploaded_knowledge_files");
@@ -616,7 +696,7 @@ export default function AgentSetupSingle() {
     if (uploadedFiles.length === 0) return;
 
     const confirmed = window.confirm(
-      `Are you sure you want to delete all ${uploadedFiles.length} file(s)? This action cannot be undone.`
+      `Are you sure you want to delete all ${uploadedFiles.length} file(s)? This action cannot be undone.`,
     );
 
     if (!confirmed) return;
@@ -637,7 +717,7 @@ export default function AgentSetupSingle() {
             headers: {
               Authorization: `Bearer ${token}`,
             },
-          }
+          },
         );
 
         const data = await response.json();
@@ -660,7 +740,7 @@ export default function AgentSetupSingle() {
     setUploadSuccess(
       `Deleted ${successCount} file(s)${
         failCount > 0 ? `, ${failCount} failed` : ""
-      }`
+      }`,
     );
     setTimeout(() => setUploadSuccess(null), 3000);
   };
@@ -839,22 +919,85 @@ export default function AgentSetupSingle() {
                     Share
                   </button>
                 </div>
-                <button className="w-full px-4 py-1.5 bg-blue-600 text-white rounded-md text-xs sm:text-sm whitespace-nowrap hover:bg-blue-700 transition-colors flex items-center justify-center gap-1">
-                  <svg
-                    className="w-3 h-3 sm:w-4 sm:h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                    />
-                  </svg>
-                  Get call from agent
-                </button>
+                {/* Phone Number Linking Section */}
+                {isNewAgent ? (
+                  <div className="w-full px-4 py-2.5 bg-slate-100 text-slate-500 rounded-md text-xs text-center">
+                    📞 Save agent first to link a phone number
+                  </div>
+                ) : linkedPhoneNumber ? (
+                  /* If number is linked - show it grayed out with unlink option */
+                  <div className="w-full flex items-center gap-2">
+                    <div className="flex-1 px-4 py-2 bg-slate-100 text-slate-600 rounded-md text-xs sm:text-sm flex items-center gap-2">
+                      <svg
+                        className="w-4 h-4 text-green-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                        />
+                      </svg>
+                      <span className="font-medium">
+                        {linkedPhoneNumber.displayNumber}
+                      </span>
+                      <span className="text-green-600 text-xs">(linked)</span>
+                    </div>
+                    <button
+                      onClick={handleUnlinkPhoneNumber}
+                      disabled={isLinkingPhone}
+                      className="px-3 py-2 bg-red-50 text-red-600 border border-red-200 rounded-md text-xs hover:bg-red-100 transition-colors disabled:opacity-50"
+                    >
+                      {isLinkingPhone ? "..." : "Unlink"}
+                    </button>
+                  </div>
+                ) : (
+                  /* If no number linked - show dropdown to select and link */
+                  <div className="w-full flex items-center gap-2">
+                    <select
+                      value={selectedPhoneNumber}
+                      onChange={(e) => setSelectedPhoneNumber(e.target.value)}
+                      className="flex-1 px-3 py-2 border border-slate-200 rounded-md text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={
+                        isLinkingPhone || availablePhoneNumbers.length === 0
+                      }
+                    >
+                      <option value="">
+                        {availablePhoneNumbers.length === 0
+                          ? "No numbers available"
+                          : "Select phone number..."}
+                      </option>
+                      {availablePhoneNumbers.map((phone) => (
+                        <option key={phone.number} value={phone.number}>
+                          {phone.displayNumber}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleLinkPhoneNumber}
+                      disabled={!selectedPhoneNumber || isLinkingPhone}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md text-xs sm:text-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                        />
+                      </svg>
+                      {isLinkingPhone ? "Linking..." : "Link"}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1365,8 +1508,8 @@ export default function AgentSetupSingle() {
                                   file.status === "processed"
                                     ? "text-green-600"
                                     : file.status === "failed"
-                                    ? "text-red-600"
-                                    : "text-blue-600"
+                                      ? "text-red-600"
+                                      : "text-blue-600"
                                 }`}
                               >
                                 {isPDF ? (
@@ -1482,7 +1625,7 @@ export default function AgentSetupSingle() {
                                           />
                                         </svg>
                                         {new Date(
-                                          file.uploadedAt
+                                          file.uploadedAt,
                                         ).toLocaleDateString()}
                                       </span>
                                     </>
@@ -1524,7 +1667,7 @@ export default function AgentSetupSingle() {
                           {(
                             uploadedFiles.reduce(
                               (acc, f) => acc + (f.size || 0),
-                              0
+                              0,
                             ) / 1024
                           ).toFixed(1)}{" "}
                           KB total
@@ -1532,7 +1675,7 @@ export default function AgentSetupSingle() {
                         <span className="text-blue-600">
                           {
                             uploadedFiles.filter(
-                              (f) => f.status === "processed"
+                              (f) => f.status === "processed",
                             ).length
                           }{" "}
                           ready
@@ -1624,8 +1767,8 @@ export default function AgentSetupSingle() {
               {isSaving
                 ? "Saving..."
                 : isNewAgent
-                ? "Create Agent"
-                : "Update Agent"}
+                  ? "Create Agent"
+                  : "Update Agent"}
             </button>
             <div className="text-xs text-slate-400">
               {isNewAgent
@@ -1673,16 +1816,16 @@ export default function AgentSetupSingle() {
                             msg.role === "user"
                               ? "bg-blue-100 text-blue-900 ml-4"
                               : msg.role === "error"
-                              ? "bg-red-100 text-red-900"
-                              : "bg-gray-100 text-gray-900 mr-4"
+                                ? "bg-red-100 text-red-900"
+                                : "bg-gray-100 text-gray-900 mr-4"
                           }`}
                         >
                           <div className="text-xs font-semibold mb-1 opacity-75">
                             {msg.role === "user"
                               ? "You"
                               : msg.role === "error"
-                              ? "Error"
-                              : agentName}
+                                ? "Error"
+                                : agentName}
                           </div>
                           {msg.content}
                         </div>
