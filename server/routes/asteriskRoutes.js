@@ -81,4 +81,32 @@ router.get("/stats", (req, res) => {
   });
 });
 
+/**
+ * GET /api/asterisk/register-call
+ *
+ * Called by Asterisk BEFORE AudioSocket connects
+ * Registers UUID → DID mapping so the call can be routed correctly
+ */
+router.get("/register-call", (req, res) => {
+  const { uuid, did } = req.query;
+
+  if (!uuid || !did) {
+    return res.status(400).json({
+      success: false,
+      error: "Missing uuid or did parameter",
+    });
+  }
+
+  // Register the mapping in audioSocketServer
+  audioSocketServer.registerPendingCall(uuid, did);
+
+  console.log(`📋 Registered pending call: ${uuid} → DID ${did}`);
+
+  res.json({
+    success: true,
+    uuid,
+    did,
+  });
+});
+
 export default router;

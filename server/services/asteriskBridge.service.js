@@ -783,6 +783,24 @@ class AudioSocketServer {
   constructor() {
     this.server = null;
     this.sessions = new Map(); // uuid -> CallSession
+    this.pendingCalls = new Map(); // uuid -> DID (registered before AudioSocket connects)
+  }
+
+  /**
+   * Register a pending call (called by /api/asterisk/register-call)
+   * This stores the UUID -> DID mapping before AudioSocket connects
+   */
+  registerPendingCall(uuid, did) {
+    this.pendingCalls.set(uuid, did);
+    console.log(`📋 Pending call registered: ${uuid} → ${did}`);
+
+    // Clean up after 30 seconds if not used
+    setTimeout(() => {
+      if (this.pendingCalls.has(uuid)) {
+        this.pendingCalls.delete(uuid);
+        console.log(`🗑️ Expired pending call: ${uuid}`);
+      }
+    }, 30000);
   }
 
   /**
@@ -831,15 +849,22 @@ class AudioSocketServer {
 
         switch (frame.type) {
           case MESSAGE_TYPES.UUID:
-            // First message: call UUID (format: uuid:calledNumber)
-            const uuidData = frame.data.toString("utf8");
-            const parts = uuidData.split(":");
-            const uuid = parts[0];
-            const calledNumber = parts[1] || null; // DID that was called
+            // First message: call UUID
+            const uuidData = frame.data.toString("utf8").trim();
+            const uuid = uuidData;
 
-            console.log(
-              `📞 Call connected: ${uuid} (DID: ${calledNumber || "unknown"})`,
-            );
+            // Look up DID from pending calls (registered via /api/asterisk/register-call)
+            const calledNumber = this.pendingCalls.get(uuid) || null;
+            if (calledNumber) {
+              this.pendingCalls.delete(uuid); // Clean up after use
+              console.log(
+                `📞 Call connected: ${uuid} (DID: ${calledNumber} from registry)`,
+              );
+            } else {
+              console.log(
+                `📞 Call connected: ${uuid} (DID: unknown - not pre-registered)`,
+              );
+            }
 
             session = new CallSession(uuid, socket, calledNumber);
             this.sessions.set(uuid, session);
