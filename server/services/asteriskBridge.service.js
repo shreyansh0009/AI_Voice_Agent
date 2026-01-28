@@ -850,8 +850,18 @@ class AudioSocketServer {
         switch (frame.type) {
           case MESSAGE_TYPES.UUID:
             // First message: call UUID
-            const uuidData = frame.data.toString("utf8").trim();
-            const uuid = uuidData;
+            // AudioSocket sends UUID as 16 raw bytes (binary), need to convert to string
+            let uuid;
+            if (frame.data.length === 16) {
+              // Binary UUID (16 bytes) - convert to standard UUID string format
+              const hex = frame.data.toString("hex");
+              uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+            } else {
+              // String UUID (fallback)
+              uuid = frame.data.toString("utf8").trim();
+            }
+
+            console.log(`🔑 Parsed UUID: ${uuid} (${frame.data.length} bytes)`);
 
             // Look up DID from pending calls (registered via /api/asterisk/register-call)
             const calledNumber = this.pendingCalls.get(uuid) || null;
