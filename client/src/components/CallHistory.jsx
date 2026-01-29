@@ -1,46 +1,92 @@
-import { useState } from 'react';
-import { 
-  Phone, 
-  PhoneIncoming, 
-  PhoneOutgoing, 
-  Clock, 
-  MessageSquare,
-  Download,
+import { useState, useEffect } from 'react';
+import {
   RefreshCw,
   ChevronDown,
-  ChevronUp,
-  Filter
+  Copy,
+  ExternalLink,
+  FileText,
+  Calendar,
+  Phone,
+  Clock
 } from 'lucide-react';
-import axios from 'axios';
+import { VscGraph } from "react-icons/vsc";
+import api from '../utils/api';
 import { showSuccess, showError } from '../utils/toast';
 
-const API_URL = `${import.meta.env.VITE_API_URL}/api`;
+const API_URL = '/api';
 
 export default function CallHistory() {
   const [calls, setCalls] = useState([]);
+  const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [expandedCall, setExpandedCall] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState({
-    direction: 'all', // all, inbound, outbound
-    status: 'all', // all, completed, failed, in_progress
+
+  // Filters
+  const [selectedAgent, setSelectedAgent] = useState('');
+  const [dateRange, setDateRange] = useState({
+    start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    end: new Date().toISOString().split('T')[0]
   });
+  const [groupBy, setGroupBy] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [callTypeFilter, setCallTypeFilter] = useState('');
+  const [providerFilter, setProviderFilter] = useState('');
+
+  // Performance metrics (calculated from calls data)
+  const [metrics, setMetrics] = useState({
+    totalExecutions: 0,
+    totalCost: 0,
+    totalDuration: 0,
+    avgCost: 0,
+    avgDuration: 0,
+    statusBreakdown: {
+      completed: 0,
+      noAnswer: 0,
+      failed: 0,
+      busy: 0
+    }
+  });
+
+  // Fetch agents on mount
+  useEffect(() => {
+    fetchAgents();
+  }, []);
+
+  // Fetch calls when filters change
+  useEffect(() => {
+    fetchCalls();
+  }, [selectedAgent, dateRange, statusFilter, callTypeFilter, providerFilter]);
+
+  const fetchAgents = async () => {
+    try {
+      const response = await api.get(`${API_URL}/agents`);
+      setAgents(response.data || []);
+    } catch (err) {
+      console.error('Error fetching agents:', err);
+    }
+  };
 
   const fetchCalls = async () => {
     try {
       setLoading(true);
       setError('');
-      
+
       // Build query params
       const params = new URLSearchParams();
-      if (filters.direction !== 'all') params.append('direction', filters.direction);
-      if (filters.status !== 'all') params.append('status', filters.status);
-      
-      const response = await axios.get(`${API_URL}/call/history?${params.toString()}`);
-      
+      if (selectedAgent) params.append('agentId', selectedAgent);
+      if (dateRange.start) params.append('startDate', dateRange.start);
+      if (dateRange.end) params.append('endDate', dateRange.end);
+      if (statusFilter) params.append('status', statusFilter);
+      if (callTypeFilter) params.append('callType', callTypeFilter);
+      if (providerFilter) params.append('provider', providerFilter);
+
+      const response = await api.get(`${API_URL}/call/history?${params.toString()}`);
+
       if (response.data.success) {
-        setCalls(response.data.calls || []);
+        const callsData = response.data.calls || [];
+        setCalls(callsData);
+        calculateMetrics(callsData);
       } else {
         throw new Error(response.data.error || 'Failed to fetch calls');
       }
@@ -54,334 +100,381 @@ export default function CallHistory() {
     }
   };
 
-  const fetchCallTranscript = async (callId) => {
-    try {
-      const response = await axios.get(`${API_URL}/call/${callId}`);
-      if (response.data.success) {
-        return response.data.call;
-      }
-    } catch (err) {
-      console.error('Error fetching call details:', err);
-      showError('Failed to load call details');
-    }
-    return null;
-  };
+  const calculateMetrics = (callsData) => {
+    const totalExecutions = callsData.length;
+    const totalCost = callsData.reduce((sum, call) => sum + (call.cost || 0), 0);
+    const totalDuration = callsData.reduce((sum, call) => sum + (call.duration || 0), 0);
+    const avgCost = totalExecutions > 0 ? totalCost / totalExecutions : 0;
+    const avgDuration = totalExecutions > 0 ? totalDuration / totalExecutions : 0;
 
-  const toggleCallExpanded = async (callId) => {
-    if (expandedCall === callId) {
-      setExpandedCall(null);
-    } else {
-      setExpandedCall(callId);
-      
-      // Fetch full call details if not already loaded
-      const call = calls.find(c => c.id === callId);
-      if (call && !call.transcript) {
-        const fullCall = await fetchCallTranscript(callId);
-        if (fullCall) {
-          setCalls(calls.map(c => c.id === callId ? fullCall : c));
-        }
-      }
-    }
-  };
+    const statusBreakdown = {
+      completed: callsData.filter(c => c.status === 'completed').length,
+      noAnswer: callsData.filter(c => c.status === 'no-answer').length,
+      failed: callsData.filter(c => c.status === 'failed').length,
+      busy: callsData.filter(c => c.status === 'busy').length
+    };
 
-  const formatDuration = (seconds) => {
-    if (!seconds) return '0:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const formatPhoneNumber = (number) => {
-    // Format +919876543210 to +91 98765 43210
-    if (number.startsWith('+91')) {
-      const rest = number.slice(3);
-      if (rest.length === 10) {
-        return `+91 ${rest.slice(0, 5)} ${rest.slice(5)}`;
-      }
-    }
-    return number;
-  };
-
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} min${diffMins > 1 ? 's' : ''} ago`;
-    
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    
-    return date.toLocaleString('en-IN', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+    setMetrics({
+      totalExecutions,
+      totalCost,
+      totalDuration,
+      avgCost,
+      avgDuration,
+      statusBreakdown
     });
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'completed': return 'text-green-600 bg-green-50';
-      case 'in_progress': return 'text-blue-600 bg-blue-50';
-      case 'failed': return 'text-red-600 bg-red-50';
-      case 'initiated': return 'text-yellow-600 bg-yellow-50';
-      default: return 'text-gray-600 bg-gray-50';
-    }
+  const formatDuration = (seconds) => {
+    if (!seconds) return '0s';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
   };
 
-  const exportTranscript = (call) => {
-    try {
-      const transcript = call.transcript || [];
-      const text = transcript.map(msg => {
-        const time = new Date(msg.timestamp).toLocaleTimeString();
-        return `[${time}] ${msg.type.toUpperCase()}: ${msg.content}`;
-      }).join('\n');
-      
-      const blob = new Blob([text], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `call-transcript-${call.id}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      showSuccess('Transcript exported successfully');
-    } catch (err) {
-      console.error('Error exporting transcript:', err);
-      showError('Failed to export transcript');
-    }
+  const formatCost = (cost) => {
+    return `$${(cost || 0).toFixed(2)}`;
   };
+
+  const formatTimestamp = (timestamp) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+    const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const offset = diffHours > 0 ? `(-${diffHours}:${Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)).toString().padStart(2, '0')})` : '';
+
+    return `${dateStr}, ${timeStr} ${offset}`;
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    showSuccess('Copied to clipboard');
+  };
+
+  const stopQueuedCalls = () => {
+    showSuccess('Queued calls stopped');
+  };
+
+  const downloadRecords = () => {
+    showSuccess('Downloading records...');
+  };
+
+  const filteredCalls = calls.filter((call) => {
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      return call.executionId?.toLowerCase().includes(query) ||
+        call.userNumber?.toLowerCase().includes(query);
+    }
+    return true;
+  });
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-      <div className="p-6 border-b border-gray-200">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <MessageSquare className="w-5 h-5" />
-            Call History
-          </h2>
-          <button
-            onClick={fetchCalls}
-            disabled={loading}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-[1400px] mx-auto">
+        {/* Header with Filters */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-4">
+              {/* Agent Selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-700">Agent:</span>
+                <select
+                  value={selectedAgent}
+                  onChange={(e) => setSelectedAgent(e.target.value)}
+                  className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">All Agents</option>
+                  {agents.map((agent) => (
+                    <option key={agent._id} value={agent._id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-        {/* Search Bar */}
-        <div className="mb-3">
-          <input
-            type="text"
-            placeholder="Search by phone number..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        {/* Filters */}
-        <div className="flex flex-wrap gap-3">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-gray-500" />
-            <select
-              value={filters.direction}
-              onChange={(e) => setFilters({ ...filters, direction: e.target.value })}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Calls</option>
-              <option value="inbound">Inbound</option>
-              <option value="outbound">Outbound</option>
-            </select>
-          </div>
-          
-          <select
-            value={filters.status}
-            onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="all">All Status</option>
-            <option value="completed">Completed</option>
-            <option value="in_progress">In Progress</option>
-            <option value="failed">Failed</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Error Display */}
-      {error && (
-        <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Loading State */}
-      {loading && calls.length === 0 && (
-        <div className="flex items-center justify-center py-12">
-          <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
-        </div>
-      )}
-
-      {/* Empty State */}
-      {!loading && calls.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-12 text-gray-500">
-          <Phone className="w-12 h-12 mb-3 opacity-30" />
-          <p className="text-lg font-medium">No calls yet</p>
-          <p className="text-sm">Make your first call to see it here</p>
-        </div>
-      )}
-
-      {/* Calls List */}
-      <div className="divide-y divide-gray-200">
-        {calls
-          .filter((call) => {
-            // Search filter
-            if (searchQuery) {
-              const query = searchQuery.toLowerCase();
-              const phoneMatch = call.phone_number?.toLowerCase().includes(query);
-              const idMatch = call.id?.toString().includes(query);
-              if (!phoneMatch && !idMatch) return false;
-            }
-            return true;
-          })
-          .map((call) => (
-          <div key={call.id} className="p-4 hover:bg-gray-50 transition-colors">
-            {/* Call Summary */}
-            <div
-              className="flex items-center justify-between cursor-pointer"
-              onClick={() => toggleCallExpanded(call.id)}
-            >
-              <div className="flex items-center gap-3 flex-1">
-                {/* Direction Icon */}
-                <div className={`p-2 rounded-full ${
-                  call.direction === 'inbound' ? 'bg-blue-100' : 'bg-green-100'
-                }`}>
-                  {call.direction === 'inbound' ? (
-                    <PhoneIncoming className="w-4 h-4 text-blue-600" />
-                  ) : (
-                    <PhoneOutgoing className="w-4 h-4 text-green-600" />
-                  )}
-                </div>
-
-                {/* Call Info */}
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium">{formatPhoneNumber(call.phoneNumber)}</p>
-                    <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusColor(call.status)}`}>
-                      {call.status}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-1 text-sm text-gray-600">
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {formatDate(call.createdAt)}
-                    </span>
-                    {call.duration > 0 && (
-                      <span>Duration: {formatDuration(call.duration)}</span>
-                    )}
-                    {call.transcript && call.transcript.length > 0 && (
-                      <span>{call.transcript.length} messages</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Expand Icon */}
-                {expandedCall === call.id ? (
-                  <ChevronUp className="w-5 h-5 text-gray-400" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-gray-400" />
-                )}
+              {/* Date Range Picker */}
+              <div className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg">
+                <Calendar className="w-4 h-4 text-gray-500" />
+                <input
+                  type="date"
+                  value={dateRange.start}
+                  onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                  className="text-sm border-none focus:ring-0 focus:outline-none"
+                />
+                <span className="text-gray-500">-</span>
+                <input
+                  type="date"
+                  value={dateRange.end}
+                  onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                  className="text-sm border-none focus:ring-0 focus:outline-none"
+                />
               </div>
             </div>
 
-            {/* Expanded Transcript */}
-            {expandedCall === call.id && (
-              <div className="mt-4 pl-11">
-                {call.transcript && call.transcript.length > 0 ? (
-                  <>
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-sm font-medium text-gray-700">Transcript</h4>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          exportTranscript(call);
-                        }}
-                        className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
-                      >
-                        <Download className="w-3 h-3" />
-                        Export
-                      </button>
-                    </div>
-                    
-                    <div className="space-y-2 max-h-96 overflow-y-auto bg-gray-50 rounded-lg p-3">
-                      {call.transcript.map((msg, idx) => (
-                        <div
-                          key={idx}
-                          className={`p-2 rounded ${
-                            msg.type === 'user' ? 'bg-blue-100 ml-4' :
-                            msg.type === 'assistant' ? 'bg-green-100 mr-4' :
-                            'bg-gray-200 text-gray-600 text-xs'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium capitalize">{msg.type}</span>
-                            <span className="text-xs text-gray-600">
-                              {new Date(msg.timestamp).toLocaleTimeString()}
-                            </span>
-                          </div>
-                          <p className="text-sm">{msg.content}</p>
-                          {msg.audioUrl && (
-                            <a
-                              href={msg.audioUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-blue-600 hover:underline mt-1 inline-block"
-                            >
-                              🎵 Listen to recording
-                            </a>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-sm text-gray-500 italic">No transcript available</p>
-                )}
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={fetchCalls}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+              <button
+                onClick={stopQueuedCalls}
+                className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Stop Queued Calls
+              </button>
+              <button
+                onClick={downloadRecords}
+                className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Download Records
+              </button>
+            </div>
+          </div>
+        </div>
 
-                {/* Customer Context */}
-                {call.customerContext && Object.keys(call.customerContext).length > 0 && (
-                  <div className="mt-3 p-3 bg-blue-50 rounded-lg">
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">Customer Info</h4>
-                    <div className="text-sm text-gray-600 space-y-1">
-                      {call.customerContext.name && (
-                        <p><strong>Name:</strong> {call.customerContext.name}</p>
-                      )}
-                      {call.customerContext.email && (
-                        <p><strong>Email:</strong> {call.customerContext.email}</p>
-                      )}
-                      {call.customerContext.phone && (
-                        <p><strong>Phone:</strong> {call.customerContext.phone}</p>
-                      )}
-                    </div>
-                  </div>
-                )}
+        {/* Performance Metrics */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <VscGraph className="text-xl" />
+              Performance Metrics
+            </h2>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setGroupBy(groupBy === 'group' ? '' : 'group')}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg"
+              >
+                Group by
+                <ChevronDown className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setStatusFilter(statusFilter === 'status' ? '' : 'status')}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg"
+              >
+                Status
+                <ChevronDown className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setCallTypeFilter(callTypeFilter === 'type' ? '' : 'type')}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg"
+              >
+                Call type
+                <ChevronDown className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setProviderFilter(providerFilter === 'provider' ? '' : 'provider')}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg"
+              >
+                Provider
+                <ChevronDown className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
 
-                {/* Call Metadata */}
-                <div className="mt-3 p-2 bg-gray-100 rounded text-xs text-gray-600 font-mono">
-                  <p>Call ID: {call.id}</p>
-                  {call.exotelCallSid && <p>Exotel SID: {call.exotelCallSid}</p>}
-                  {call.agentId && <p>Agent: {call.agentId}</p>}
+          {/* Metrics Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
+            {/* Total Executions */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-600">Total Executions</span>
+                <Phone className="w-4 h-4 text-gray-400" />
+              </div>
+              <div className="text-3xl font-semibold text-gray-900">{metrics.totalExecutions}</div>
+              <div className="text-xs text-gray-500 mt-1">All call attempts</div>
+            </div>
+
+            {/* Total Cost */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-600">Total Cost</span>
+              </div>
+              <div className="text-3xl font-semibold text-gray-900">{formatCost(metrics.totalCost)}</div>
+              <div className="text-xs text-gray-500 mt-1">Total campaign spend</div>
+            </div>
+
+            {/* Total Duration */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-600">Total Duration</span>
+                <Clock className="w-4 h-4 text-gray-400" />
+              </div>
+              <div className="text-3xl font-semibold text-gray-900">{formatDuration(metrics.totalDuration)}</div>
+              <div className="text-xs text-gray-500 mt-1">Total call time</div>
+            </div>
+
+            {/* Status Breakdown */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-600">Status Breakdown</span>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-sm border border-gray-300 rounded-lg p-2">
+                  <span className="text-gray-600 ">Completed</span>
+                  <span className="font-medium text-gray-900">{metrics.statusBreakdown.completed}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm border border-gray-300 rounded-lg p-2">
+                  <span className="text-gray-600">No-Answer</span>
+                  <span className="font-medium text-gray-900">{metrics.statusBreakdown.noAnswer}</span>
                 </div>
               </div>
-            )}
+            </div>
           </div>
-        ))
-        }
+
+          {/* Second Row Metrics */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Avg Cost */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-600">Avg Cost</span>
+              </div>
+              <div className="text-3xl font-semibold text-gray-900">{formatCost(metrics.avgCost)}</div>
+              <div className="text-xs text-gray-500 mt-1">Average cost per call</div>
+            </div>
+
+            {/* Avg Duration */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-600">Avg Duration</span>
+                <Clock className="w-4 h-4 text-gray-400" />
+              </div>
+              <div className="text-3xl font-semibold text-gray-900">{formatDuration(metrics.avgDuration)}</div>
+              <div className="text-xs text-gray-500 mt-1">Average call length</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Calls Table */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          {/* Search Bar */}
+          <div className="p-4 border-b border-gray-200">
+            <input
+              type="text"
+              placeholder="Search by execution id"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full max-w-md px-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 tracking-wider">
+                    Execution ID
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 tracking-wider">
+                    User Number
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 tracking-wider">
+                    Conversation Type
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 tracking-wider">
+                    Duration (s)
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 tracking-wider">
+                    Hangup By
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 tracking-wider">
+                    Batch
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 tracking-wider">
+                    Timestamp
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 tracking-wider">
+                    Cost
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 tracking-wider">
+                    Conversation Data
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 tracking-wider">
+                    Trace Data
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 tracking-wider">
+                    Raw Data
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {loading && filteredCalls.length === 0 ? (
+                  <tr>
+                    <td colSpan="12" className="px-4 py-8 text-center text-gray-500">
+                      <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+                      Loading calls...
+                    </td>
+                  </tr>
+                ) : filteredCalls.length === 0 ? (
+                  <tr>
+                    <td colSpan="12" className="px-4 py-8 text-center text-gray-500">
+                      No calls found
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCalls.map((call) => (
+                    <tr key={call.executionId || call._id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-gray-900">{call.executionId?.substring(0, 6)}...</span>
+                          <button
+                            onClick={() => copyToClipboard(call.executionId)}
+                            className="text-gray-400 hover:text-gray-600"
+                          >
+                            <Copy className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">{call.userNumber || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-900">{call.conversationType || 'plivo inbound'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-900">{call.duration || 0}</td>
+                      <td className="px-4 py-3 text-sm text-gray-900">{call.hangupBy || 'Plivo'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-900">{call.batch || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        <div className="whitespace-nowrap">{formatTimestamp(call.timestamp || call.createdAt)}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">{formatCost(call.cost)}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${call.status === 'completed' ? 'bg-green-100 text-green-800' :
+                          call.status === 'no-answer' ? 'bg-yellow-100 text-yellow-800' :
+                            call.status === 'failed' ? 'bg-red-100 text-red-800' :
+                              'bg-gray-100 text-gray-800'
+                          }`}>
+                          {call.status || 'Completed'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <button className="flex items-center gap-1 text-blue-600 hover:text-blue-800">
+                          <span className="text-xs">Recordings, transcripts, etc</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <button className="text-gray-400 hover:text-gray-600">
+                          <FileText className="w-4 h-4" />
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <button className="text-gray-400 hover:text-gray-600">
+                          <FileText className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   );

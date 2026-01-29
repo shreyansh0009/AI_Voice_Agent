@@ -10,6 +10,7 @@ import Layout from "./components/Layout";
 import Dashboard from "./pages/dashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import AgentSetup from "./pages/AgentSetup";
+import CallHistory from "./components/CallHistory";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import { ToastContainer } from "./components/Toast";
@@ -60,6 +61,7 @@ function App() {
                     <Routes>
                       <Route path="/" element={<DashboardWrapper />} />
                       <Route path="/voice" element={<AgentSetup />} />
+                      <Route path="/callHistory" element={<CallHistory />} />
                     </Routes>
                   </Layout>
                 </PrivateRoute>

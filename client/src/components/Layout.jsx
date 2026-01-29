@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { MdDashboard, MdCall, MdContacts, MdBarChart, MdSettings } from 'react-icons/md';
+import { SlCallIn } from "react-icons/sl";
 import { IoPeopleSharp } from "react-icons/io5";
 import { IoAnalyticsSharp } from "react-icons/io5";
 import { MdPhoneCallback } from "react-icons/md";
@@ -11,7 +12,7 @@ import { FaBullseye } from 'react-icons/fa';
 import { CgDialpad } from "react-icons/cg";
 import { BsStars } from "react-icons/bs";
 import { HiMenuAlt3, HiX } from 'react-icons/hi';
-import Footer from './Footer';
+//import Footer from './Footer';
 
 
 function Layout({ children }) {
@@ -23,6 +24,7 @@ function Layout({ children }) {
     { id: 'dashboard', label: 'Dashboard', path: '/', icon: MdDashboard },
     { id: 'analytics', label: 'Analytics', path: '/analytics', icon: IoAnalyticsSharp },
     { id: 'voice-agent', label: 'AI Voice Agent', path: '/voice', icon: HiMicrophone },
+    { id: 'callHistory', label: 'Call History', path: '/callHistory', icon: SlCallIn},
     { id: 'phone', label: 'Phone Numbers', path: '/phones', icon: MdCall },
     { id: 'workflow', label: 'Workflows', path: '/workflows', icon: IoIosGitNetwork },
     { id: 'salesdialer', label: 'Sales Dialer', path: '/salesdialer', icon: CgDialpad },
@@ -100,7 +102,7 @@ function Layout({ children }) {
       
       <main className="flex-1 overflow-auto bg-gray-50 w-full lg:w-auto">
         {children}
-        <Footer />
+        {/* <Footer /> */}
       </main>
     </div>
   );
