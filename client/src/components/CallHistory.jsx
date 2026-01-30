@@ -7,7 +7,8 @@ import {
   FileText,
   Calendar,
   Phone,
-  Clock
+  Clock,
+  X
 } from 'lucide-react';
 import { VscGraph } from "react-icons/vsc";
 import api from '../utils/api';
@@ -47,6 +48,9 @@ export default function CallHistory() {
       busy: 0
     }
   });
+
+  // Raw data modal state
+  const [rawDataModal, setRawDataModal] = useState({ isOpen: false, data: null });
 
   // Fetch agents on mount
   useEffect(() => {
@@ -464,7 +468,11 @@ export default function CallHistory() {
                         </button>
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        <button className="text-gray-400 hover:text-gray-600">
+                        <button
+                          onClick={() => setRawDataModal({ isOpen: true, data: call.rawData })}
+                          className="text-gray-400 hover:text-gray-600"
+                          title="View Raw Data"
+                        >
                           <FileText className="w-4 h-4" />
                         </button>
                       </td>
@@ -476,6 +484,51 @@ export default function CallHistory() {
           </div>
         </div>
       </div>
+
+      {/* Raw Data Modal */}
+      {rawDataModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Raw Call Data</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(JSON.stringify(rawDataModal.data, null, 2));
+                    showSuccess('Copied to clipboard');
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-md text-gray-700"
+                >
+                  <Copy className="w-4 h-4" />
+                  Copy
+                </button>
+                <button
+                  onClick={() => setRawDataModal({ isOpen: false, data: null })}
+                  className="p-1.5 hover:bg-gray-100 rounded-md text-gray-500"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-auto p-4">
+              {rawDataModal.data ? (
+                <pre className="bg-gray-900 text-green-400 p-4 rounded-lg text-sm font-mono whitespace-pre-wrap overflow-x-auto">
+                  {JSON.stringify(rawDataModal.data, null, 2)}
+                </pre>
+              ) : (
+                <div className="text-center text-gray-500 py-12">
+                  <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No raw data available for this call</p>
+                  <p className="text-sm mt-2">Raw data is captured for new calls only</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
