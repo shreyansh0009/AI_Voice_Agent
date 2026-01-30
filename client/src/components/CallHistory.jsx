@@ -52,6 +52,9 @@ export default function CallHistory() {
   // Raw data modal state
   const [rawDataModal, setRawDataModal] = useState({ isOpen: false, data: null });
 
+  // Conversation data modal state
+  const [conversationModal, setConversationModal] = useState({ isOpen: false, call: null });
+
   // Fetch agents on mount
   useEffect(() => {
     fetchAgents();
@@ -457,7 +460,10 @@ export default function CallHistory() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        <button className="flex items-center gap-1 text-blue-600 hover:text-blue-800">
+                        <button
+                          onClick={() => setConversationModal({ isOpen: true, call: call })}
+                          className="flex items-center gap-1 text-blue-600 hover:text-blue-800"
+                        >
                           <span className="text-xs">Recordings, transcripts, etc</span>
                           <ExternalLink className="w-3 h-3" />
                         </button>
@@ -525,6 +531,114 @@ export default function CallHistory() {
                   <p className="text-sm mt-2">Raw data is captured for new calls only</p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Conversation Data Modal */}
+      {conversationModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-50 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 bg-white rounded-t-lg border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Conversation data</h3>
+              <button
+                onClick={() => setConversationModal({ isOpen: false, call: null })}
+                className="p-1.5 hover:bg-gray-100 rounded-md text-gray-500"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body - Scrollable */}
+            <div className="flex-1 overflow-auto p-4 space-y-4">
+              {/* Recording Section - Placeholder */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-medium text-gray-900">Recording</h4>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => showSuccess('Recording feature coming soon!')}
+                      className="p-1.5 hover:bg-gray-100 rounded text-gray-400"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="bg-gray-100 rounded-lg p-4 flex items-center justify-center">
+                  <div className="text-center text-gray-500">
+                    <div className="w-full h-12 bg-gradient-to-r from-blue-200 via-blue-400 to-blue-200 rounded opacity-50 mb-2" />
+                    <p className="text-sm">Recording feature coming soon</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Transcript Section */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-medium text-gray-900">Transcript</h4>
+                  <button
+                    onClick={() => {
+                      const transcript = conversationModal.call?.transcript
+                        ?.map(t => `${t.role}: ${t.content}`)
+                        .join('\n') || '';
+                      navigator.clipboard.writeText(transcript);
+                      showSuccess('Transcript copied');
+                    }}
+                    className="p-1.5 hover:bg-gray-100 rounded text-gray-400"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {conversationModal.call?.transcript?.length > 0 ? (
+                    conversationModal.call.transcript.map((entry, index) => (
+                      <div
+                        key={index}
+                        className={`flex ${entry.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`max-w-[80%] rounded-lg p-3 ${entry.role === 'user'
+                              ? 'bg-gray-100 text-gray-900'
+                              : 'bg-blue-50 border border-blue-100 text-gray-800'
+                            }`}
+                        >
+                          <div className={`text-xs font-medium mb-1 ${entry.role === 'user' ? 'text-right text-gray-500' : 'text-blue-600'}`}>
+                            {entry.role === 'user' ? 'User' : 'Assistant'}
+                          </div>
+                          <p className="text-sm">{entry.content}</p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-gray-500 text-center py-4">No transcript available</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Summary Section */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <h4 className="font-medium text-gray-900 mb-3">Summary</h4>
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  {conversationModal.call?.rawData?.summary ||
+                    `Call with ${conversationModal.call?.userNumber || 'unknown'} lasted ${formatDuration(conversationModal.call?.duration || 0)}. 
+                   ${conversationModal.call?.transcript?.length || 0} messages exchanged. 
+                   Status: ${conversationModal.call?.status || 'completed'}.`}
+                </p>
+              </div>
+
+              {/* Extracted Data Section */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <h4 className="font-medium text-gray-900 mb-3">Extracted data</h4>
+                {conversationModal.call?.customerContext && Object.keys(conversationModal.call.customerContext).length > 0 ? (
+                  <pre className="bg-gray-50 p-3 rounded-lg text-sm font-mono text-gray-800 overflow-x-auto">
+                    {JSON.stringify(conversationModal.call.customerContext, null, 2)}
+                  </pre>
+                ) : (
+                  <p className="text-gray-500 text-sm">No data extracted from this call</p>
+                )}
+              </div>
             </div>
           </div>
         </div>
