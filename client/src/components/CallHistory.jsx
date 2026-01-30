@@ -316,11 +316,11 @@ export default function CallHistory() {
               </div>
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-sm border border-gray-300 rounded-lg p-2">
-                  <span className="text-gray-600 ">Completed</span>
+                  <span className="text-gray-600 font-semibold">Completed</span>
                   <span className="font-medium text-gray-900">{metrics.statusBreakdown.completed}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm border border-gray-300 rounded-lg p-2">
-                  <span className="text-gray-600">No-Answer</span>
+                  <span className="text-gray-600 font-semibold">No-Answer</span>
                   <span className="font-medium text-gray-900">{metrics.statusBreakdown.noAnswer}</span>
                 </div>
               </div>

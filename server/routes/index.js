@@ -13,6 +13,7 @@ import speechRoutes from "./speechRoutes.js";
 import chatRoutes from "./chatRoutes.js";
 import asteriskRoutes from "./asteriskRoutes.js";
 import phoneNumberRoutes from "./phoneNumberRoutes.js";
+import callRoutes from "./callRoutes.js";
 
 const router = express.Router();
 
@@ -67,6 +68,7 @@ router.use("/agentforce", agentforceRoutes);
 router.use("/speech", speechRoutes);
 router.use("/chat", chatRoutes);
 router.use("/asterisk", asteriskRoutes);
+router.use("/call", authenticate, callRoutes);
 
 // Protect all routes below (except /auth and health checks)
 router.use("/rag", authenticate, ragRoutes);

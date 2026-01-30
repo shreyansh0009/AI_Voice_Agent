@@ -11,7 +11,7 @@ export const signup = async (req, res) => {
   console.log("SIGNUP: Handler started", { body: req.body });
 
   try {
-    // Ensure database connection before any DB operations
+
     console.log("SIGNUP: Ensuring database connection...");
     await connectDB();
     console.log("SIGNUP: Database connected");
@@ -93,7 +93,7 @@ export const signup = async (req, res) => {
 };
 
 export const login = async (req, res) => {
-  // console.log("🔵 LOGIN: Handler started", {
+  // console.log("LOGIN: Handler started", {
   //   body: req.body,
   //   headers: req.headers,
   //   JWT_SECRET: JWT_SECRET ? "present" : "MISSING",
@@ -101,7 +101,7 @@ export const login = async (req, res) => {
   // });
 
   try {
-    // Ensure database connection before any DB operations
+
     console.log("LOGIN: Ensuring database connection...");
     await connectDB();
     console.log("LOGIN: Database connected");
@@ -204,7 +204,7 @@ export const verifyToken = async (req, res) => {
   // });
 
   try {
-    // Ensure database connection
+    
     await connectDB();
 
     const authHeader = req.headers["authorization"];
@@ -264,9 +264,9 @@ export const googleLogin = async (req, res) => {
   }
 
   try {
+
     await connectDB();
 
-    // Lazy load OAuth2Client to avoid top-level await issues if config is missing
     const { OAuth2Client } = await import("google-auth-library");
     const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -282,7 +282,7 @@ export const googleLogin = async (req, res) => {
       email = payload.email;
     } else if (access_token) {
       console.log("GOOGLE LOGIN: Verifying Access Token via UserInfo...");
-      // Use fetch to get user info
+      
       const userInfoResponse = await fetch(
         "https://www.googleapis.com/oauth2/v3/userinfo",
         {
@@ -306,10 +306,9 @@ export const googleLogin = async (req, res) => {
 
     let user = await User.findOne({ email });
 
-    // Create new user if not found
     if (!user) {
       console.log("GOOGLE LOGIN: User not found, creating new user");
-      // Generate random password for google users
+
       const randomPassword =
         (await import("crypto")).randomBytes(16).toString("hex") + "A1!"; // Ensure it meets complexity requirements
       const hashed = await bcrypt.hash(randomPassword, BCRYPT_SALT_ROUNDS);
@@ -324,7 +323,6 @@ export const googleLogin = async (req, res) => {
     } else {
       console.log("GOOGLE LOGIN: User found");
 
-      // If this is a signup attempt and user exists, return error
       if (isSignup) {
         console.log("GOOGLE LOGIN: Signup attempted for existing user", {
           email,

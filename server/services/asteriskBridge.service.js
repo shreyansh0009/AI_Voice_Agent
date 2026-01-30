@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import { createClient } from "@deepgram/sdk";
 import aiAgentService from "./aiAgent.service.js";
 import Conversation from "../models/Conversation.js";
+import Call from "../models/Call.js";
 import Agent from "../models/Agent.js";
 import axios from "axios";
 import ttsService from "./tts.service.js";
@@ -100,9 +101,14 @@ class CallSession {
     this.currentSpeechToken = 0;
     this.userIsSpeaking = false; // Set true when Deepgram detects actual speech
 
+    // 📊 Call tracking for database
+    this.callDbId = null; // MongoDB _id for this call
+    this.callStartTime = Date.now();
+    this.fullTranscript = []; // Full conversation transcript
+    this.callerNumber = null; // Caller's phone number (from SIP headers)
+
     console.log(
-      `📞 [${uuid}] New call session created (DID: ${
-        calledNumber || "unknown"
+      `📞 [${uuid}] New call session created (DID: ${calledNumber || "unknown"
       })`,
     );
   }
@@ -193,6 +199,43 @@ class CallSession {
         error.message,
       );
       throw error;
+    }
+  }
+
+  /**
+   * Create call record in database
+   * Called after agent is initialized, before welcome message
+   */
+  async createCallRecord() {
+    try {
+      const callRecord = await Call.create({
+        callId: this.uuid,
+        executionId: this.uuid.substring(0, 8),
+        agentId: this.agentId,
+        calledNumber: this.calledNumber,
+        callerNumber: this.callerNumber || this.calledNumber,
+        userNumber: this.callerNumber || this.calledNumber,
+        status: "answered",
+        startedAt: new Date(this.callStartTime),
+        conversationType: "asterisk inbound",
+        provider: "Asterisk",
+        rawData: {
+          uuid: this.uuid,
+          calledNumber: this.calledNumber,
+          agentId: this.agentId,
+          flowId: this.flowId,
+          language: this.language,
+          voiceProvider: this.voiceProvider,
+        },
+      });
+
+      this.callDbId = callRecord._id;
+      console.log(`📊 [${this.uuid}] Call record created: ${callRecord._id}`);
+      return callRecord;
+    } catch (error) {
+      console.error(`❌ [${this.uuid}] Failed to create call record:`, error.message);
+      // Don't throw - call should continue even if DB fails
+      return null;
     }
   }
 
@@ -405,6 +448,13 @@ class CallSession {
         content: userMessage,
       });
 
+      // 📊 Save to full transcript for database
+      this.fullTranscript.push({
+        role: "user",
+        content: userMessage,
+        timestamp: new Date(),
+      });
+
       // Keep history manageable (last 6 turns = 12 messages)
       if (this.conversationHistory.length > 12) {
         this.conversationHistory = this.conversationHistory.slice(-12);
@@ -532,6 +582,13 @@ class CallSession {
       this.conversationHistory.push({
         role: "assistant",
         content: aiResponse,
+      });
+
+      // 📊 Save to full transcript for database
+      this.fullTranscript.push({
+        role: "assistant",
+        content: aiResponse,
+        timestamp: new Date(),
       });
     } catch (error) {
       console.error(`❌ [${this.uuid}] Processing error:`, error);
@@ -773,6 +830,25 @@ class CallSession {
         },
       }).catch((e) => console.error(`Failed to update conversation:`, e));
     }
+
+    // 📊 Finalize call record in database
+    if (this.callDbId) {
+      const duration = Math.floor((Date.now() - this.callStartTime) / 1000);
+      const cost = Call.calculateCost(duration);
+
+      Call.findByIdAndUpdate(this.callDbId, {
+        status: "completed",
+        endedAt: new Date(),
+        duration: duration,
+        cost: cost,
+        hangupBy: "user",
+        transcript: this.fullTranscript,
+        transcriptCount: this.fullTranscript.length,
+        customerContext: this.customerContext,
+      }).then(() => {
+        console.log(`📊 [${this.uuid}] Call record finalized: duration=${duration}s, cost=₹${cost.toFixed(3)}`);
+      }).catch((e) => console.error(`Failed to finalize call record:`, e));
+    }
   }
 }
 
@@ -882,6 +958,9 @@ class AudioSocketServer {
             // Initialize agent from DID mapping
             try {
               await session.initializeAgent();
+
+              // 📊 Create call record in database
+              await session.createCallRecord();
 
               // Initialize STT and play welcome
               await session.initDeepgram();
