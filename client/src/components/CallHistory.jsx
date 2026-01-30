@@ -553,25 +553,51 @@ export default function CallHistory() {
 
             {/* Modal Body - Scrollable */}
             <div className="flex-1 overflow-auto p-4 space-y-4">
-              {/* Recording Section - Placeholder */}
+              {/* Recording Section */}
               <div className="bg-white rounded-lg border border-gray-200 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="font-medium text-gray-900">Recording</h4>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => showSuccess('Recording feature coming soon!')}
-                      className="p-1.5 hover:bg-gray-100 rounded text-gray-400"
+                  {conversationModal.call?.recordingUrl && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(conversationModal.call.recordingUrl);
+                          showSuccess('Recording URL copied');
+                        }}
+                        className="p-1.5 hover:bg-gray-100 rounded text-gray-400"
+                        title="Copy URL"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                      <a
+                        href={conversationModal.call.recordingUrl}
+                        download
+                        className="p-1.5 hover:bg-gray-100 rounded text-gray-400"
+                        title="Download"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+                {conversationModal.call?.recordingUrl ? (
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <audio
+                      controls
+                      className="w-full"
+                      src={conversationModal.call.recordingUrl}
                     >
-                      <Copy className="w-4 h-4" />
-                    </button>
+                      Your browser does not support the audio element.
+                    </audio>
                   </div>
-                </div>
-                <div className="bg-gray-100 rounded-lg p-4 flex items-center justify-center">
-                  <div className="text-center text-gray-500">
-                    <div className="w-full h-12 bg-gradient-to-r from-blue-200 via-blue-400 to-blue-200 rounded opacity-50 mb-2" />
-                    <p className="text-sm">Recording feature coming soon</p>
+                ) : (
+                  <div className="bg-gray-100 rounded-lg p-4 flex items-center justify-center">
+                    <div className="text-center text-gray-500">
+                      <div className="w-full h-12 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded opacity-50 mb-2" />
+                      <p className="text-sm">Recording not available for this call</p>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Transcript Section */}
@@ -600,8 +626,8 @@ export default function CallHistory() {
                       >
                         <div
                           className={`max-w-[80%] rounded-lg p-3 ${entry.role === 'user'
-                              ? 'bg-gray-100 text-gray-900'
-                              : 'bg-blue-50 border border-blue-100 text-gray-800'
+                            ? 'bg-gray-100 text-gray-900'
+                            : 'bg-blue-50 border border-blue-100 text-gray-800'
                             }`}
                         >
                           <div className={`text-xs font-medium mb-1 ${entry.role === 'user' ? 'text-right text-gray-500' : 'text-blue-600'}`}>

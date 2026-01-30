@@ -10,6 +10,7 @@ import Agent from "../models/Agent.js";
 import axios from "axios";
 import OpenAI from "openai";
 import ttsService from "./tts.service.js";
+import recordingService from "./recording.service.js";
 import PhoneNumber from "../models/PhoneNumber.js";
 import {
   MESSAGE_TYPES,
@@ -169,6 +170,9 @@ class CallSession {
     this.totalInputTokens = 0;
     this.totalOutputTokens = 0;
 
+    // 🎙️ Call recording
+    this.recording = null;
+
     console.log(
       `📞 [${uuid}] New call session created (DID: ${calledNumber || "unknown"
       })`,
@@ -293,6 +297,10 @@ class CallSession {
 
       this.callDbId = callRecord._id;
       console.log(`📊 [${this.uuid}] Call record created: ${callRecord._id}`);
+
+      // 🎙️ Start recording
+      this.recording = recordingService.startRecording(this.uuid);
+
       return callRecord;
     } catch (error) {
       console.error(`❌ [${this.uuid}] Failed to create call record:`, error.message);
@@ -811,6 +819,11 @@ class CallSession {
 
         this.socket.write(createAudioFrame(chunk));
 
+        // 🎙️ Capture AI audio for recording
+        if (this.recording) {
+          this.recording.addAIAudio(chunk);
+        }
+
         // REAL-TIME pacing: 20ms per frame
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
@@ -832,6 +845,12 @@ class CallSession {
    */
   handleAudio(audioData) {
     this.lastAudioTime = Date.now();
+
+    // 🎙️ Capture user audio for recording
+    if (this.recording) {
+      this.recording.addUserAudio(audioData);
+    }
+
     // Phase 4: Barge-in now handled by Deepgram VAD (in Results handler)
     // Removed raw audio barge-in trigger to prevent false positives from noise
     this.sendAudioToSTT(audioData);
@@ -925,6 +944,16 @@ class CallSession {
         console.log(`📝 [${this.uuid}] Call summary generated`);
       }
 
+      // 🎙️ Upload recording to Cloudinary
+      let recordingUrl = null;
+      if (this.recording) {
+        const recordingResult = await recordingService.stopAndUpload(this.uuid);
+        if (recordingResult) {
+          recordingUrl = recordingResult.url;
+          console.log(`☁️ [${this.uuid}] Recording uploaded: ${recordingUrl}`);
+        }
+      }
+
       // 📦 Build comprehensive rawData JSON for detailed analytics
       const formattedTranscript = this.fullTranscript
         .map(entry => `${entry.role}: ${entry.content}`)
@@ -994,7 +1023,7 @@ class CallSession {
           duration: duration.toString(),
           to_number: this.callerNumber || this.calledNumber,
           from_number: this.calledNumber,
-          recording_url: null,
+          recording_url: recordingUrl,
           hosted_telephony: false,
           provider_call_id: this.uuid,
           call_type: "inbound",
@@ -1061,6 +1090,7 @@ class CallSession {
         transcriptCount: this.fullTranscript.length,
         customerContext: this.customerContext,
         rawData: rawData,
+        recordingUrl: recordingUrl,
       }).then(() => {
         console.log(`📊 [${this.uuid}] Call record finalized: duration=${duration}s, telephony=₹${telephonyCost.toFixed(2)}, LLM=$${llmCostUSD.toFixed(4)} (${estimatedInputTokens}+${estimatedOutputTokens} tokens), total=₹${totalCost.toFixed(2)}`);
       }).catch((e) => console.error(`Failed to finalize call record:`, e));
