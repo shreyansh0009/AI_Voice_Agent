@@ -640,8 +640,7 @@ class AIAgentService {
         const ragResponse = await this.getRAGResponse(
           userMessage,
           [],
-          `You are ${
-            result.agentConfig?.name || "an assistant"
+          `You are ${result.agentConfig?.name || "an assistant"
           }. Answer briefly.`,
           { agentId },
         );
@@ -816,8 +815,7 @@ class AIAgentService {
         const ragResponse = await this.getRAGResponse(
           userMessage,
           [], // No history needed
-          `You are ${
-            flowResult.agentConfig?.name || "an assistant"
+          `You are ${flowResult.agentConfig?.name || "an assistant"
           }. Answer briefly.`,
           { agentId },
         );
@@ -926,8 +924,7 @@ class AIAgentService {
       });
 
       console.log(
-        `📊 State: Step ${state.stepIndex + 1}/${state.totalSteps} | ${
-          state.currentStepId
+        `📊 State: Step ${state.stepIndex + 1}/${state.totalSteps} | ${state.currentStepId
         }`,
       );
       console.log(`🔒 Forbidden steps: [${state.forbiddenSteps.join(", ")}]`);
@@ -1173,8 +1170,7 @@ class AIAgentService {
       );
 
       console.log(
-        `✅ Parsed: "${parsed.spoken_text.substring(0, 50)}..." (${
-          parsed.language
+        `✅ Parsed: "${parsed.spoken_text.substring(0, 50)}..." (${parsed.language
         })`,
       );
 
@@ -1499,8 +1495,8 @@ class AIAgentService {
       const customerContextString =
         contextSummary.length > 0
           ? `\n\nCUSTOMER INFORMATION (Already collected - DO NOT ask again):\n${contextSummary.join(
-              "\n",
-            )}\n`
+            "\n",
+          )}\n`
           : "";
 
       // Build memory block from all collected data (NEW: Cleaner approach)
@@ -1511,19 +1507,17 @@ class AIAgentService {
       const trackingInfo =
         alreadyAsked.length > 0
           ? `\n\nQUESTIONS ALREADY ASKED (Never repeat these):\n${alreadyAsked.join(
-              "\n",
-            )}\n`
+            "\n",
+          )}\n`
           : "";
 
       // Add conversation stage guidance
       const stageGuidance = conversationState.nextAction
-        ? `\n\n🎯 CURRENT STEP (${conversationState.currentStep}/${
-            conversationState.totalSteps
-          }): ${conversationState.nextAction}
+        ? `\n\n🎯 CURRENT STEP (${conversationState.currentStep}/${conversationState.totalSteps
+        }): ${conversationState.nextAction}
 📋 COMPLETED: ${conversationState.completedSteps?.join(", ") || "None"}
-⏭️  REMAINING: ${
-            conversationState.remainingSteps?.slice(0, 3).join(", ") || "None"
-          }
+⏭️  REMAINING: ${conversationState.remainingSteps?.slice(0, 3).join(", ") || "None"
+        }
 
 CRITICAL: You MUST complete the current step before proceeding. Follow your numbered flow exactly.\n`
         : `\n\n✅ All flow steps completed. ${conversationState.nextAction}\n`;
@@ -2885,14 +2879,17 @@ CRITICAL RULES:
       // FIRE-AND-FORGET: Slot extraction runs in parallel, does NOT block LLM
       // ========================================================================
       let updatedContext = { ...customerContext };
-      this.extractCustomerInfo(userMessage, customerContext, agentSlots)
+      const extractionPromise = this.extractCustomerInfo(userMessage, customerContext, agentSlots)
         .then((ctx) => {
           updatedContext = ctx;
+          return ctx;
         })
-        .catch((err) => console.error("Slot extraction failed:", err.message));
+        .catch((err) => {
+          console.error("Slot extraction failed:", err.message);
+          return customerContext;
+        });
 
-      // Emit context immediately with what we have
-      yield { type: "context", customerContext: updatedContext };
+      // Note: Context will be yielded AFTER LLM completes, when extraction is done
 
       const currentLanguageName = LANGUAGE_CODES[language] || "English";
 
@@ -2975,6 +2972,10 @@ CRITICAL LANGUAGE INSTRUCTION:
           yield { type: "content", content };
         }
       }
+
+      // Wait for extraction to complete and yield final context
+      await extractionPromise;
+      yield { type: "context", customerContext: updatedContext };
 
       yield { type: "done" };
     } catch (error) {
