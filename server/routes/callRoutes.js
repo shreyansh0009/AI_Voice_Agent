@@ -62,6 +62,7 @@ router.get("/history", async (req, res) => {
             agentName: call.agentId?.name || "Unknown Agent",
             customerContext: call.customerContext,
             rawData: call.rawData,
+            recordingUrl: call.recordingUrl || call.rawData?.telephony_data?.recording_url || null,
         }));
 
         res.json({
