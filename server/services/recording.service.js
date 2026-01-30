@@ -92,14 +92,16 @@ class CallRecording {
         const mp3Path = path.join(tempDir, `${this.callId}.mp3`);
 
         try {
-            // Combine all audio buffers into single PCM file
-            // For simplicity, we'll just concatenate all buffers in order
-            // A more sophisticated approach would interleave user/AI audio
-            const combinedBuffer = Buffer.concat(
-                this.audioBuffers
-                    .sort((a, b) => a.timestamp - b.timestamp)
-                    .map((chunk) => chunk.data)
-            );
+            // Combine audio buffers
+            // Note: We only use USER audio for now because AI audio chunks 
+            // come in bursts with similar timestamps which breaks interleaving.
+            // For proper stereo recording, we'd need to track audio position
+            // rather than wall-clock time.
+            const userBuffers = this.audioBuffers
+                .filter(chunk => chunk.type === "user")
+                .map(chunk => chunk.data);
+
+            const combinedBuffer = Buffer.concat(userBuffers);
 
             // Write raw PCM to temp file
             fs.writeFileSync(rawPath, combinedBuffer);
