@@ -839,10 +839,27 @@ class CallSession {
     if (this.callDbId) {
       const duration = Math.floor((Date.now() - this.callStartTime) / 1000);
 
+      // 💰 Estimate tokens from transcript (~4 characters = 1 token)
+      // User messages = input tokens, Assistant messages = output tokens
+      let estimatedInputTokens = 0;
+      let estimatedOutputTokens = 0;
+
+      for (const entry of this.fullTranscript) {
+        const tokenCount = Math.ceil((entry.content?.length || 0) / 4);
+        if (entry.role === "user") {
+          estimatedInputTokens += tokenCount;
+        } else if (entry.role === "assistant") {
+          estimatedOutputTokens += tokenCount;
+        }
+      }
+
+      // Add system prompt tokens (~500 tokens estimated)
+      estimatedInputTokens += 500;
+
       // Calculate all costs
       const telephonyCost = Call.calculateTelephonyCost(duration);
-      const llmCostUSD = Call.calculateLLMCost(this.totalInputTokens, this.totalOutputTokens);
-      const totalCost = Call.calculateTotalCost(duration, this.totalInputTokens, this.totalOutputTokens);
+      const llmCostUSD = Call.calculateLLMCost(estimatedInputTokens, estimatedOutputTokens);
+      const totalCost = Call.calculateTotalCost(duration, estimatedInputTokens, estimatedOutputTokens);
 
       Call.findByIdAndUpdate(this.callDbId, {
         status: "completed",
@@ -850,8 +867,8 @@ class CallSession {
         duration: duration,
         telephonyCost: telephonyCost,
         llmTokens: {
-          input: this.totalInputTokens,
-          output: this.totalOutputTokens,
+          input: estimatedInputTokens,
+          output: estimatedOutputTokens,
         },
         llmCostUSD: llmCostUSD,
         cost: totalCost,
@@ -860,7 +877,7 @@ class CallSession {
         transcriptCount: this.fullTranscript.length,
         customerContext: this.customerContext,
       }).then(() => {
-        console.log(`📊 [${this.uuid}] Call record finalized: duration=${duration}s, telephony=₹${telephonyCost.toFixed(2)}, LLM=$${llmCostUSD.toFixed(4)} (${this.totalInputTokens}+${this.totalOutputTokens} tokens), total=₹${totalCost.toFixed(2)}`);
+        console.log(`📊 [${this.uuid}] Call record finalized: duration=${duration}s, telephony=₹${telephonyCost.toFixed(2)}, LLM=$${llmCostUSD.toFixed(4)} (${estimatedInputTokens}+${estimatedOutputTokens} tokens), total=₹${totalCost.toFixed(2)}`);
       }).catch((e) => console.error(`Failed to finalize call record:`, e));
     }
   }
