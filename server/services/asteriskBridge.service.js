@@ -107,6 +107,10 @@ class CallSession {
     this.fullTranscript = []; // Full conversation transcript
     this.callerNumber = null; // Caller's phone number (from SIP headers)
 
+    // 💰 LLM token tracking for cost calculation
+    this.totalInputTokens = 0;
+    this.totalOutputTokens = 0;
+
     console.log(
       `📞 [${uuid}] New call session created (DID: ${calledNumber || "unknown"
       })`,
@@ -834,19 +838,29 @@ class CallSession {
     // 📊 Finalize call record in database
     if (this.callDbId) {
       const duration = Math.floor((Date.now() - this.callStartTime) / 1000);
-      const cost = Call.calculateCost(duration);
+
+      // Calculate all costs
+      const telephonyCost = Call.calculateTelephonyCost(duration);
+      const llmCostUSD = Call.calculateLLMCost(this.totalInputTokens, this.totalOutputTokens);
+      const totalCost = Call.calculateTotalCost(duration, this.totalInputTokens, this.totalOutputTokens);
 
       Call.findByIdAndUpdate(this.callDbId, {
         status: "completed",
         endedAt: new Date(),
         duration: duration,
-        cost: cost,
+        telephonyCost: telephonyCost,
+        llmTokens: {
+          input: this.totalInputTokens,
+          output: this.totalOutputTokens,
+        },
+        llmCostUSD: llmCostUSD,
+        cost: totalCost,
         hangupBy: "user",
         transcript: this.fullTranscript,
         transcriptCount: this.fullTranscript.length,
         customerContext: this.customerContext,
       }).then(() => {
-        console.log(`📊 [${this.uuid}] Call record finalized: duration=${duration}s, cost=₹${cost.toFixed(3)}`);
+        console.log(`📊 [${this.uuid}] Call record finalized: duration=${duration}s, telephony=₹${telephonyCost.toFixed(2)}, LLM=$${llmCostUSD.toFixed(4)} (${this.totalInputTokens}+${this.totalOutputTokens} tokens), total=₹${totalCost.toFixed(2)}`);
       }).catch((e) => console.error(`Failed to finalize call record:`, e));
     }
   }

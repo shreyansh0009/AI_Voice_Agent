@@ -6,10 +6,16 @@ import mongoose from "mongoose";
  * Stores telephony call records from Asterisk/SIP integration.
  * Used by Call History dashboard to display call analytics.
  * 
- * Cost calculation: ₹0.05 per minute (configurable via COST_PER_MINUTE)
+ * Cost calculation:
+ * - Telephony: ₹0.05 per minute
+ * - LLM (GPT-4o-mini): $0.15/1M input tokens, $0.60/1M output tokens
  */
 
-const COST_PER_MINUTE = 0.05; // INR per minute
+// Cost configuration
+const TELEPHONY_COST_PER_MINUTE = 0.05; // INR per minute
+const LLM_INPUT_COST_PER_TOKEN = 0.00000015; // $0.15 per 1M tokens
+const LLM_OUTPUT_COST_PER_TOKEN = 0.0000006; // $0.60 per 1M tokens
+const USD_TO_INR = 83; // Conversion rate
 
 const callSchema = new mongoose.Schema(
     {
@@ -118,8 +124,27 @@ const callSchema = new mongoose.Schema(
         },
 
         // ============================================
-        // COST (₹0.05 per minute)
+        // COST
         // ============================================
+        // Telephony cost (₹0.5 per minute)
+        telephonyCost: {
+            type: Number,
+            default: 0,
+        },
+
+        // LLM token tracking
+        llmTokens: {
+            input: { type: Number, default: 0 },
+            output: { type: Number, default: 0 },
+        },
+
+        // LLM cost in USD
+        llmCostUSD: {
+            type: Number,
+            default: 0,
+        },
+
+        // Total cost in INR (telephony + LLM converted)
         cost: {
             type: Number,
             default: 0,
@@ -166,12 +191,42 @@ callSchema.index({ callerNumber: 1, startedAt: -1 });
 // ============================================
 
 /**
- * Calculate cost based on duration
- * Rate: ₹0.05 per minute
+ * Calculate telephony cost based on duration
+ * Rate: ₹0.5 per minute (rounded up)
+ */
+callSchema.statics.calculateTelephonyCost = function (durationSeconds) {
+    const minutes = Math.ceil(durationSeconds / 60);
+    return parseFloat((minutes * TELEPHONY_COST_PER_MINUTE).toFixed(3));
+};
+
+/**
+ * Calculate LLM cost based on token usage
+ * GPT-4o-mini: $0.15/1M input, $0.60/1M output
+ * @returns {number} Cost in USD
+ */
+callSchema.statics.calculateLLMCost = function (inputTokens, outputTokens) {
+    const inputCost = inputTokens * LLM_INPUT_COST_PER_TOKEN;
+    const outputCost = outputTokens * LLM_OUTPUT_COST_PER_TOKEN;
+    return parseFloat((inputCost + outputCost).toFixed(6));
+};
+
+/**
+ * Calculate total cost (telephony + LLM)
+ * All costs returned in INR
+ */
+callSchema.statics.calculateTotalCost = function (durationSeconds, inputTokens = 0, outputTokens = 0) {
+    const telephonyCost = this.calculateTelephonyCost(durationSeconds);
+    const llmCostUSD = this.calculateLLMCost(inputTokens, outputTokens);
+    const llmCostINR = llmCostUSD * USD_TO_INR;
+    return parseFloat((telephonyCost + llmCostINR).toFixed(3));
+};
+
+/**
+ * Backwards compatible - returns telephony cost only
+ * @deprecated Use calculateTelephonyCost or calculateTotalCost
  */
 callSchema.statics.calculateCost = function (durationSeconds) {
-    const minutes = Math.ceil(durationSeconds / 60);
-    return parseFloat((minutes * COST_PER_MINUTE).toFixed(3));
+    return this.calculateTelephonyCost(durationSeconds);
 };
 
 /**
@@ -281,14 +336,26 @@ callSchema.statics.getStats = async function (filters = {}) {
 // ============================================
 
 /**
- * End the call and calculate cost
+ * End the call and calculate all costs
+ * @param {string} status - Call status
+ * @param {string} hangupBy - Who ended the call
+ * @param {number} inputTokens - LLM input tokens used
+ * @param {number} outputTokens - LLM output tokens used
  */
-callSchema.methods.endCall = function (status = "completed", hangupBy = "user") {
+callSchema.methods.endCall = function (status = "completed", hangupBy = "user", inputTokens = 0, outputTokens = 0) {
     this.endedAt = new Date();
     this.status = status;
     this.hangupBy = hangupBy;
     this.duration = Math.floor((this.endedAt - this.startedAt) / 1000);
-    this.cost = this.constructor.calculateCost(this.duration);
+
+    // Calculate individual costs
+    this.telephonyCost = this.constructor.calculateTelephonyCost(this.duration);
+    this.llmTokens = { input: inputTokens, output: outputTokens };
+    this.llmCostUSD = this.constructor.calculateLLMCost(inputTokens, outputTokens);
+
+    // Calculate total cost in INR
+    this.cost = this.constructor.calculateTotalCost(this.duration, inputTokens, outputTokens);
+
     this.transcriptCount = this.transcript?.length || 0;
 };
 
