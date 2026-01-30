@@ -8,6 +8,7 @@ import Conversation from "../models/Conversation.js";
 import Call from "../models/Call.js";
 import Agent from "../models/Agent.js";
 import axios from "axios";
+import OpenAI from "openai";
 import ttsService from "./tts.service.js";
 import PhoneNumber from "../models/PhoneNumber.js";
 import {
@@ -53,6 +54,63 @@ function detectResponseLanguage(text) {
   }
 
   return "en";
+}
+
+// Initialize OpenAI client for summary generation
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+/**
+ * Generate a concise call summary using GPT-4o-mini
+ * @param {Array} transcript - Array of {role, content} objects
+ * @param {Object} customerContext - Extracted customer data
+ * @returns {Promise<string>} Summary text (100-150 words max)
+ */
+async function generateCallSummary(transcript, customerContext = {}) {
+  if (!transcript || transcript.length === 0) {
+    return null;
+  }
+
+  try {
+    const formattedTranscript = transcript
+      .map(entry => `${entry.role}: ${entry.content}`)
+      .join('\n');
+
+    const contextInfo = Object.keys(customerContext).length > 0
+      ? `\nExtracted data: ${JSON.stringify(customerContext)}`
+      : '';
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are a call summary generator. Create a brief, professional summary of the call in 100-150 words maximum.
+          
+The summary should:
+- Describe who called and the purpose
+- Mention key points discussed
+- Include any important outcomes or data collected
+- Be written in third person, past tense
+- Be concise and professional
+
+Do NOT include any headers or bullet points. Write as a single paragraph.`
+        },
+        {
+          role: "user",
+          content: `Generate a summary for this call:\n\n${formattedTranscript}${contextInfo}`
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 200,
+    });
+
+    return response.choices[0].message.content.trim();
+  } catch (error) {
+    console.error(`Failed to generate call summary:`, error.message);
+    return null;
+  }
 }
 
 /**
@@ -810,7 +868,7 @@ class CallSession {
   /**
    * Clean up session
    */
-  cleanup() {
+  async cleanup() {
     console.log(`[${this.uuid}] Cleaning up session`);
 
     if (this.silenceTimer) {
@@ -860,6 +918,12 @@ class CallSession {
       const telephonyCost = Call.calculateTelephonyCost(duration);
       const llmCostUSD = Call.calculateLLMCost(estimatedInputTokens, estimatedOutputTokens);
       const totalCost = Call.calculateTotalCost(duration, estimatedInputTokens, estimatedOutputTokens);
+
+      // 🤖 Generate AI summary of the call
+      const callSummary = await generateCallSummary(this.fullTranscript, this.customerContext);
+      if (callSummary) {
+        console.log(`📝 [${this.uuid}] Call summary generated`);
+      }
 
       // 📦 Build comprehensive rawData JSON for detailed analytics
       const formattedTranscript = this.fullTranscript
@@ -920,7 +984,7 @@ class CallSession {
           },
         },
         extracted_data: this.customerContext || {},
-        summary: null, // Can be added later with summarization
+        summary: callSummary, // AI-generated summary
         error_message: null,
         status: "completed",
         user_number: this.callerNumber || this.calledNumber,
