@@ -1,6 +1,11 @@
 /**
  * Recording Service
  * Handles call audio recording, encoding to MP3, and upload to Cloudinary
+ * 
+ * APPROACH: Timeline-based recording
+ * - Track audio by wall-clock time
+ * - Build timeline with proper gaps
+ * - Combine into single audio file with correct pacing
  */
 import fs from "fs";
 import path from "path";
@@ -19,15 +24,22 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// Constants
+const SAMPLE_RATE = 8000;
+const BYTES_PER_MS = (SAMPLE_RATE * 2) / 1000; // 16 bytes per ms at 8kHz 16-bit
+
 /**
  * Recording Manager - handles audio capture and processing for a single call
+ * Uses separate tracks for user and AI audio, then mixes with proper timing
  */
 class CallRecording {
     constructor(callId) {
         this.callId = callId;
-        this.audioBuffers = []; // Array of {timestamp, type: 'user'|'ai', data: Buffer}
+        this.userChunks = [];  // {startMs, data}
+        this.aiChunks = [];    // {startMs, data}
         this.isRecording = false;
         this.startTime = null;
+        this.aiSpeechStartMs = null;  // Track when current AI speech started
     }
 
     /**
@@ -40,49 +52,107 @@ class CallRecording {
     }
 
     /**
-     * Add user audio (from Asterisk)
-     * @param {Buffer} pcmData - Raw PCM audio (16-bit signed, 8kHz, mono)
+     * Add user audio (from Asterisk) - arrives in real-time
      */
     addUserAudio(pcmData) {
         if (!this.isRecording) return;
 
-        this.audioBuffers.push({
-            timestamp: Date.now() - this.startTime,
-            type: "user",
+        const nowMs = Date.now() - this.startTime;
+        this.userChunks.push({
+            startMs: nowMs,
             data: Buffer.from(pcmData),
         });
     }
 
     /**
-     * Add AI audio (TTS output)
-     * @param {Buffer} pcmData - Raw PCM audio (16-bit signed, 8kHz, mono)
+     * Mark start of AI speech (call before streaming TTS)
      */
-    addAIAudio(pcmData) {
+    markAISpeechStart() {
+        if (!this.isRecording) return;
+        this.aiSpeechStartMs = Date.now() - this.startTime;
+    }
+
+    /**
+     * Add AI audio chunk - arrives in bursts during TTS playback
+     * Uses sequential position within the current speech block
+     */
+    addAIAudio(pcmData, chunkIndex = 0) {
         if (!this.isRecording) return;
 
-        this.audioBuffers.push({
-            timestamp: Date.now() - this.startTime,
-            type: "ai",
+        // If no speech start marked, use current time
+        if (this.aiSpeechStartMs === null) {
+            this.aiSpeechStartMs = Date.now() - this.startTime;
+        }
+
+        // Calculate position based on chunk index (20ms per frame)
+        const chunkDurationMs = 20;
+        const startMs = this.aiSpeechStartMs + (chunkIndex * chunkDurationMs);
+
+        this.aiChunks.push({
+            startMs,
             data: Buffer.from(pcmData),
         });
     }
 
     /**
-     * Stop recording and return the total duration
+     * Stop recording
      */
     stop() {
         this.isRecording = false;
         const duration = Date.now() - this.startTime;
-        console.log(`🎙️ [${this.callId}] Recording stopped, ${this.audioBuffers.length} chunks, ${Math.round(duration / 1000)}s`);
+        const totalChunks = this.userChunks.length + this.aiChunks.length;
+        console.log(`🎙️ [${this.callId}] Recording stopped, ${totalChunks} chunks (user: ${this.userChunks.length}, ai: ${this.aiChunks.length}), ${Math.round(duration / 1000)}s`);
         return duration;
     }
 
     /**
+     * Build timeline and create combined audio
+     */
+    buildTimeline() {
+        // Combine all chunks with their timestamps
+        const allEvents = [
+            ...this.userChunks.map(c => ({ ...c, type: 'user' })),
+            ...this.aiChunks.map(c => ({ ...c, type: 'ai' })),
+        ].sort((a, b) => a.startMs - b.startMs);
+
+        if (allEvents.length === 0) return null;
+
+        // Find total duration
+        const lastEvent = allEvents[allEvents.length - 1];
+        const totalDurationMs = lastEvent.startMs + (lastEvent.data.length / BYTES_PER_MS);
+        const totalBytes = Math.ceil(totalDurationMs * BYTES_PER_MS);
+
+        // Create output buffer filled with silence
+        const output = Buffer.alloc(totalBytes, 0);
+
+        // Write each audio chunk at its correct position
+        for (const event of allEvents) {
+            const bytePosition = Math.floor(event.startMs * BYTES_PER_MS);
+            const endPosition = bytePosition + event.data.length;
+
+            if (endPosition <= totalBytes) {
+                // Mix audio (add samples, clamping to prevent overflow)
+                for (let i = 0; i < event.data.length; i += 2) {
+                    const pos = bytePosition + i;
+                    if (pos + 1 < totalBytes) {
+                        const existing = output.readInt16LE(pos);
+                        const newSample = event.data.readInt16LE(i);
+                        // Add and clamp to 16-bit range
+                        const mixed = Math.max(-32768, Math.min(32767, existing + newSample));
+                        output.writeInt16LE(mixed, pos);
+                    }
+                }
+            }
+        }
+
+        return output;
+    }
+
+    /**
      * Process and upload recording to Cloudinary
-     * @returns {Promise<{url: string, duration: number} | null>}
      */
     async processAndUpload() {
-        if (this.audioBuffers.length === 0) {
+        if (this.userChunks.length === 0 && this.aiChunks.length === 0) {
             console.log(`🎙️ [${this.callId}] No audio captured, skipping upload`);
             return null;
         }
@@ -92,12 +162,13 @@ class CallRecording {
         const mp3Path = path.join(tempDir, `${this.callId}.mp3`);
 
         try {
-            // Combine audio buffers in the order they were captured
-            // Audio is captured in real-time, so insertion order IS the correct sequence
-            // (Don't sort by timestamp - it breaks AI audio which comes in bursts)
-            const combinedBuffer = Buffer.concat(
-                this.audioBuffers.map(chunk => chunk.data)
-            );
+            // Build timeline-based audio
+            const combinedBuffer = this.buildTimeline();
+
+            if (!combinedBuffer || combinedBuffer.length === 0) {
+                console.log(`🎙️ [${this.callId}] No audio in timeline`);
+                return null;
+            }
 
             // Write raw PCM to temp file
             fs.writeFileSync(rawPath, combinedBuffer);
@@ -107,9 +178,9 @@ class CallRecording {
             await new Promise((resolve, reject) => {
                 ffmpeg(rawPath)
                     .inputOptions([
-                        "-f s16le",      // Signed 16-bit little-endian
-                        "-ar 8000",      // 8kHz sample rate
-                        "-ac 1",         // Mono
+                        "-f s16le",
+                        "-ar 8000",
+                        "-ac 1",
                     ])
                     .audioCodec("libmp3lame")
                     .audioBitrate("64k")
@@ -123,7 +194,7 @@ class CallRecording {
 
             // Upload to Cloudinary
             const uploadResult = await cloudinary.uploader.upload(mp3Path, {
-                resource_type: "video", // Cloudinary uses 'video' for audio files
+                resource_type: "video",
                 folder: "call-recordings",
                 public_id: this.callId,
                 format: "mp3",
@@ -131,10 +202,8 @@ class CallRecording {
 
             console.log(`☁️ [${this.callId}] Uploaded to Cloudinary: ${uploadResult.secure_url}`);
 
-            // Calculate duration from audio
-            const sampleRate = 8000;
-            const bytesPerSample = 2; // 16-bit
-            const durationMs = (combinedBuffer.length / (sampleRate * bytesPerSample)) * 1000;
+            // Calculate duration
+            const durationMs = combinedBuffer.length / BYTES_PER_MS;
 
             return {
                 url: uploadResult.secure_url,
@@ -145,7 +214,6 @@ class CallRecording {
             console.error(`🎙️ [${this.callId}] Recording processing failed:`, error.message);
             return null;
         } finally {
-            // Cleanup temp files
             try {
                 if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
                 if (fs.existsSync(mp3Path)) fs.unlinkSync(mp3Path);
@@ -159,7 +227,8 @@ class CallRecording {
      * Clear buffers to free memory
      */
     clear() {
-        this.audioBuffers = [];
+        this.userChunks = [];
+        this.aiChunks = [];
     }
 }
 
@@ -168,12 +237,9 @@ class CallRecording {
  */
 class RecordingService {
     constructor() {
-        this.recordings = new Map(); // callId -> CallRecording
+        this.recordings = new Map();
     }
 
-    /**
-     * Start recording for a call
-     */
     startRecording(callId) {
         const recording = new CallRecording(callId);
         recording.start();
@@ -181,16 +247,10 @@ class RecordingService {
         return recording;
     }
 
-    /**
-     * Get recording instance for a call
-     */
     getRecording(callId) {
         return this.recordings.get(callId);
     }
 
-    /**
-     * Stop and process recording, upload to Cloudinary
-     */
     async stopAndUpload(callId) {
         const recording = this.recordings.get(callId);
         if (!recording) {
@@ -201,7 +261,6 @@ class RecordingService {
         recording.stop();
         const result = await recording.processAndUpload();
 
-        // Cleanup
         recording.clear();
         this.recordings.delete(callId);
 
@@ -209,7 +268,6 @@ class RecordingService {
     }
 }
 
-// Export singleton instance
 const recordingService = new RecordingService();
 export default recordingService;
 export { CallRecording };

@@ -806,7 +806,14 @@ class CallSession {
       const slinData = await this.convertToSlin16(audioBuffer);
       const chunks = splitIntoChunks(slinData, FRAME_SIZE);
 
-      for (const chunk of chunks) {
+      // 🎙️ Mark when AI speech starts for timeline-based recording
+      if (this.recording) {
+        this.recording.markAISpeechStart();
+      }
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+
         // Phase 4: Stop immediately if barge-in occurred
         if (token !== this.currentSpeechToken) {
           console.log(
@@ -819,9 +826,9 @@ class CallSession {
 
         this.socket.write(createAudioFrame(chunk));
 
-        // 🎙️ Capture AI audio for recording
+        // 🎙️ Capture AI audio with chunk index for timeline positioning
         if (this.recording) {
-          this.recording.addAIAudio(chunk);
+          this.recording.addAIAudio(chunk, i);
         }
 
         // REAL-TIME pacing: 20ms per frame
