@@ -13,8 +13,8 @@ import mongoose from "mongoose";
 
 // Cost configuration
 const TELEPHONY_COST_PER_MINUTE = 0.05; // INR per minute
-const LLM_INPUT_COST_PER_TOKEN = 0.00000015; // $0.15 per 1M tokens
-const LLM_OUTPUT_COST_PER_TOKEN = 0.0000006; // $0.60 per 1M tokens
+const LLM_INPUT_COST_PER_TOKEN = 0.000000075; // $0.075 per 1M tokens (gpt-4o-mini)
+const LLM_OUTPUT_COST_PER_TOKEN = 0.0000003;  // $0.30 per 1M tokens (gpt-4o-mini)
 const USD_TO_INR = 83; // Conversion rate
 
 const callSchema = new mongoose.Schema(

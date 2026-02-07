@@ -30,7 +30,7 @@ export async function connectDB() {
     console.log('🔄 Connecting to MongoDB...');
     
     connectionPromise = mongoose.connect(process.env.MONGODB_URI, {
-      serverSelectionTimeoutMS: 10000, // 10 seconds
+      serverSelectionTimeoutMS: 10000, 
       socketTimeoutMS: 45000,
       maxPoolSize: 10,
       minPoolSize: 1,

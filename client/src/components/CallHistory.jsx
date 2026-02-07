@@ -47,7 +47,7 @@ export default function CallHistory() {
   // Filters
   const [selectedAgent, setSelectedAgent] = useState('');
   const [dateRange, setDateRange] = useState({
-    start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0]
   });
   const [groupBy, setGroupBy] = useState('');
@@ -505,8 +505,8 @@ export default function CallHistory() {
                     <tr
                       key={call.executionId || call._id}
                       className={`transition-all duration-300 cursor-pointer ${hoveredRow === index
-                          ? 'bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 shadow-sm scale-[1.01]'
-                          : 'hover:bg-gray-50'
+                        ? 'bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 shadow-sm scale-[1.01]'
+                        : 'hover:bg-gray-50'
                         }`}
                       onMouseEnter={() => setHoveredRow(index)}
                       onMouseLeave={() => setHoveredRow(null)}
@@ -736,8 +736,8 @@ export default function CallHistory() {
                       >
                         <div
                           className={`max-w-[80%] rounded-2xl p-3.5 shadow-sm transition-all duration-300 hover:shadow-md ${entry.role === 'user'
-                              ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white'
-                              : 'bg-white border-2 border-purple-100 text-gray-800'
+                            ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white'
+                            : 'bg-white border-2 border-purple-100 text-gray-800'
                             }`}
                         >
                           <div className={`text-xs font-semibold mb-1 ${entry.role === 'user' ? 'text-right text-indigo-100' : 'text-purple-600'}`}>

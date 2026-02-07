@@ -17,6 +17,7 @@ import agentRoutes from "./routes/agentRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import speechRoutes from "./routes/speechRoutes.js";
 import phoneNumberRoutes from "./routes/phoneNumberRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
 
 dotenv.config();
 
@@ -58,6 +59,7 @@ app.use("/api/agentforce", agentforceRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/speech", speechRoutes);
 app.use("/api/phone-numbers", phoneNumberRoutes);
+app.use("/api/payments", paymentRoutes);
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, "uploads");
@@ -186,7 +188,7 @@ app.post(
           } else if (
             file.mimetype === "application/msword" ||
             file.mimetype ===
-              "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           ) {
             fileInfo.extractedText = await extractTextFromWord(file.path);
           }

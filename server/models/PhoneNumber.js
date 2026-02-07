@@ -14,6 +14,13 @@ const phoneNumberSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    // Owner of the phone number (user who purchased it)
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
     // Linked agent (nullable when available)
     linkedAgentId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -30,10 +37,21 @@ const phoneNumberSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Purchase timestamp
+    purchasedAt: {
+      type: Date,
+      default: null,
+    },
+    // Subscription expiry date
+    expiresAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
     // Status for quick filtering
     status: {
       type: String,
-      enum: ["available", "linked"],
+      enum: ["available", "owned", "linked", "expired"],
       default: "available",
     },
   },

@@ -66,7 +66,7 @@ const openai = new OpenAI({
  * Generate a concise call summary using GPT-4o-mini
  * @param {Array} transcript - Array of {role, content} objects
  * @param {Object} customerContext - Extracted customer data
- * @returns {Promise<string>} Summary text (100-150 words max)
+ * @returns {Promise<{summary: string, tokens: {input: number, output: number}} | null>}
  */
 async function generateCallSummary(transcript, customerContext = {}) {
   if (!transcript || transcript.length === 0) {
@@ -107,7 +107,14 @@ Do NOT include any headers or bullet points. Write as a single paragraph.`
       max_tokens: 200,
     });
 
-    return response.choices[0].message.content.trim();
+    // Return both summary and token usage for cost tracking
+    return {
+      summary: response.choices[0].message.content.trim(),
+      tokens: {
+        input: response.usage?.prompt_tokens || 0,
+        output: response.usage?.completion_tokens || 0
+      }
+    };
   } catch (error) {
     console.error(`Failed to generate call summary:`, error.message);
     return null;
@@ -940,16 +947,27 @@ class CallSession {
       // Add system prompt tokens (~500 tokens estimated)
       estimatedInputTokens += 500;
 
-      // Calculate all costs
-      const telephonyCost = Call.calculateTelephonyCost(duration);
-      const llmCostUSD = Call.calculateLLMCost(estimatedInputTokens, estimatedOutputTokens);
-      const totalCost = Call.calculateTotalCost(duration, estimatedInputTokens, estimatedOutputTokens);
+      // 🤖 Generate AI summary of the call (returns {summary, tokens})
+      const summaryResult = await generateCallSummary(this.fullTranscript, this.customerContext);
+      let callSummary = null;
+      let summaryInputTokens = 0;
+      let summaryOutputTokens = 0;
 
-      // 🤖 Generate AI summary of the call
-      const callSummary = await generateCallSummary(this.fullTranscript, this.customerContext);
-      if (callSummary) {
-        console.log(`📝 [${this.uuid}] Call summary generated`);
+      if (summaryResult) {
+        callSummary = summaryResult.summary;
+        summaryInputTokens = summaryResult.tokens?.input || 0;
+        summaryOutputTokens = summaryResult.tokens?.output || 0;
+        console.log(`📝 [${this.uuid}] Call summary generated (${summaryInputTokens}+${summaryOutputTokens} tokens)`);
       }
+
+      // Add summary tokens to total LLM usage
+      const totalInputTokens = estimatedInputTokens + summaryInputTokens;
+      const totalOutputTokens = estimatedOutputTokens + summaryOutputTokens;
+
+      // Calculate all costs (now includes conversation + summary tokens)
+      const telephonyCost = Call.calculateTelephonyCost(duration);
+      const llmCostUSD = Call.calculateLLMCost(totalInputTokens, totalOutputTokens);
+      const totalCost = Call.calculateTotalCost(duration, totalInputTokens, totalOutputTokens);
 
       // 🎙️ Upload recording to Cloudinary
       let recordingUrl = null;
@@ -979,12 +997,12 @@ class CallSession {
         usage_breakdown: {
           llmModel: {
             "gpt-4o-mini": {
-              input: estimatedInputTokens,
-              output: estimatedOutputTokens,
+              input: totalInputTokens,
+              output: totalOutputTokens,
             },
           },
           voice_id: this.voice || null,
-          llmTokens: estimatedInputTokens + estimatedOutputTokens,
+          llmTokens: totalInputTokens + totalOutputTokens,
           buffer_size: 200,
           endpointing: 100,
           provider_source: {
@@ -1099,7 +1117,7 @@ class CallSession {
         rawData: rawData,
         recordingUrl: recordingUrl,
       }).then(() => {
-        console.log(`📊 [${this.uuid}] Call record finalized: duration=${duration}s, telephony=₹${telephonyCost.toFixed(2)}, LLM=$${llmCostUSD.toFixed(4)} (${estimatedInputTokens}+${estimatedOutputTokens} tokens), total=₹${totalCost.toFixed(2)}`);
+        console.log(`📊 [${this.uuid}] Call record finalized: duration=${duration}s, telephony=₹${telephonyCost.toFixed(2)}, LLM=$${llmCostUSD.toFixed(4)} (${totalInputTokens}+${totalOutputTokens} tokens), total=₹${totalCost.toFixed(2)}`);
       }).catch((e) => console.error(`Failed to finalize call record:`, e));
     }
   }

@@ -9,7 +9,10 @@ import Analytics from "../components/Analytics.jsx";
 import AgentModal from "../components/models/AgentModal.jsx";
 import { generateAgentResponseWithHistory } from "../config/openai.js";
 import { BiTrash } from "react-icons/bi";
+import { MdClose, MdAdd } from "react-icons/md";
+import { toast } from "react-toastify";
 import api from "../utils/api";
+import axios from "axios";
 import {
   getDomainTemplate,
   getDomainOptions,
@@ -88,9 +91,14 @@ export default function AgentSetupSingle() {
   const [selectedPhoneNumber, setSelectedPhoneNumber] = useState("");
   const [isLinkingPhone, setIsLinkingPhone] = useState(false);
 
+  // Wallet state
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [showAddFundsModal, setShowAddFundsModal] = useState(false);
+
   // Fetch agents from backend
   useEffect(() => {
     fetchAgents();
+    fetchWalletBalance();
   }, []);
 
   const fetchAgents = async () => {
@@ -122,6 +130,24 @@ export default function AgentSetupSingle() {
     }
   };
 
+  // Fetch wallet balance
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+  const fetchWalletBalance = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get(
+        `${API_URL}/api/payments/wallet`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (response.data.success) {
+        setWalletBalance(response.data.balance);
+      }
+    } catch (error) {
+      console.error("Error fetching wallet:", error);
+    }
+  };
+
   // Fetch phone number linked to current agent
   const fetchAgentPhoneNumber = async (agentId) => {
     if (!agentId) {
@@ -137,10 +163,10 @@ export default function AgentSetupSingle() {
     }
   };
 
-  // Fetch available phone numbers
+  // Fetch user's owned phone numbers (purchased with valid subscription)
   const fetchAvailablePhoneNumbers = async () => {
     try {
-      const res = await api.get("/api/phone-numbers/available");
+      const res = await api.get("/api/phone-numbers/owned");
       setAvailablePhoneNumbers(res.data.phoneNumbers || []);
     } catch (err) {
       console.error("Failed to fetch available phone numbers:", err);
@@ -276,8 +302,7 @@ export default function AgentSetupSingle() {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `${
-          import.meta.env.VITE_API_URL
+        `${import.meta.env.VITE_API_URL
         }/api/knowledge-files?agentId=${currentAgentId}`,
         {
           headers: {
@@ -709,8 +734,7 @@ export default function AgentSetupSingle() {
       try {
         const token = localStorage.getItem("token");
         const response = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/knowledge-files/${
-            file.fileName
+          `${import.meta.env.VITE_API_URL}/api/knowledge-files/${file.fileName
           }`,
           {
             method: "DELETE",
@@ -738,8 +762,7 @@ export default function AgentSetupSingle() {
 
     setIsUploading(false);
     setUploadSuccess(
-      `Deleted ${successCount} file(s)${
-        failCount > 0 ? `, ${failCount} failed` : ""
+      `Deleted ${successCount} file(s)${failCount > 0 ? `, ${failCount} failed` : ""
       }`,
     );
     setTimeout(() => setUploadSuccess(null), 3000);
@@ -770,11 +793,16 @@ export default function AgentSetupSingle() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-          <div className="text-xs sm:text-sm text-slate-500 whitespace-nowrap">
-            Available balance: <span className="font-medium">$5.00</span>
+          <div className="flex items-center bg-white border border-gray-200 rounded-lg px-3 py-1.5 shadow-sm">
+            <span className="text-xs text-gray-500 mr-2">Balance:</span>
+            <span className="font-semibold text-gray-900">${walletBalance.toFixed(2)}</span>
           </div>
-          <button className="px-2 sm:px-3 py-1 rounded-md bg-white border shadow-sm text-xs sm:text-sm whitespace-nowrap">
-            Add more funds
+          <button
+            onClick={() => setShowAddFundsModal(true)}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white shadow-sm text-xs sm:text-sm whitespace-nowrap transition-colors"
+          >
+            <MdAdd className="text-lg" />
+            Add funds
           </button>
           <button className="px-2 sm:px-3 py-1 rounded-md bg-white border text-xs sm:text-sm">
             Help
@@ -819,11 +847,10 @@ export default function AgentSetupSingle() {
                 <div
                   key={agent._id}
                   onClick={() => handleSelectAgent(agent)}
-                  className={`p-3 rounded-md border cursor-pointer transition-all ${
-                    selectedAgentId === agent._id
-                      ? "bg-blue-50 border-blue-500"
-                      : "bg-white border-slate-200 hover:border-blue-300"
-                  }`}
+                  className={`p-3 rounded-md border cursor-pointer transition-all ${selectedAgentId === agent._id
+                    ? "bg-blue-50 border-blue-500"
+                    : "bg-white border-slate-200 hover:border-blue-300"
+                    }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
@@ -839,11 +866,10 @@ export default function AgentSetupSingle() {
                         )}
                       </div>
                       <div
-                        className={`text-xs mt-1 ${
-                          agent.status === "active"
-                            ? "text-green-600"
-                            : "text-slate-400"
-                        }`}
+                        className={`text-xs mt-1 ${agent.status === "active"
+                          ? "text-green-600"
+                          : "text-slate-400"
+                          }`}
                       >
                         {agent.status}
                       </div>
@@ -1243,11 +1269,10 @@ export default function AgentSetupSingle() {
                   <button
                     key={t}
                     onClick={() => setActiveTab(t)}
-                    className={`flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 sm:px-3 sm:py-2 rounded-md transition-colors shrink-0 min-w-[60px] sm:min-w-0 ${
-                      active
-                        ? "bg-white text-blue-600 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700 hover:bg-slate-200"
-                    }`}
+                    className={`flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 sm:px-3 sm:py-2 rounded-md transition-colors shrink-0 min-w-[60px] sm:min-w-0 ${active
+                      ? "bg-white text-blue-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700 hover:bg-slate-200"
+                      }`}
                     aria-current={active ? "page" : undefined}
                   >
                     <span className="hidden sm:inline">{getIcon()}</span>
@@ -1392,9 +1417,8 @@ export default function AgentSetupSingle() {
                   <div className="space-y-3">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
                       <label
-                        className={`flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer transition-colors w-full sm:w-auto ${
-                          isUploading ? "opacity-50 cursor-not-allowed" : ""
-                        }`}
+                        className={`flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer transition-colors w-full sm:w-auto ${isUploading ? "opacity-50 cursor-not-allowed" : ""
+                          }`}
                       >
                         <svg
                           className="w-4 h-4 sm:w-5 sm:h-5 shrink-0"
@@ -1504,13 +1528,12 @@ export default function AgentSetupSingle() {
                             <div className="flex items-start gap-3 flex-1 min-w-0">
                               {/* File Icon */}
                               <div
-                                className={`shrink-0 mt-0.5 ${
-                                  file.status === "processed"
-                                    ? "text-green-600"
-                                    : file.status === "failed"
-                                      ? "text-red-600"
-                                      : "text-blue-600"
-                                }`}
+                                className={`shrink-0 mt-0.5 ${file.status === "processed"
+                                  ? "text-green-600"
+                                  : file.status === "failed"
+                                    ? "text-red-600"
+                                    : "text-blue-600"
+                                  }`}
                               >
                                 {isPDF ? (
                                   <svg
@@ -1812,13 +1835,12 @@ export default function AgentSetupSingle() {
                       chatMessages.map((msg, idx) => (
                         <div
                           key={idx}
-                          className={`p-2 rounded-md text-xs sm:text-sm overflow-wrap-break-word ${
-                            msg.role === "user"
-                              ? "bg-blue-100 text-blue-900 ml-4"
-                              : msg.role === "error"
-                                ? "bg-red-100 text-red-900"
-                                : "bg-gray-100 text-gray-900 mr-4"
-                          }`}
+                          className={`p-2 rounded-md text-xs sm:text-sm overflow-wrap-break-word ${msg.role === "user"
+                            ? "bg-blue-100 text-blue-900 ml-4"
+                            : msg.role === "error"
+                              ? "bg-red-100 text-red-900"
+                              : "bg-gray-100 text-gray-900 mr-4"
+                            }`}
                         >
                           <div className="text-xs font-semibold mb-1 opacity-75">
                             {msg.role === "user"
@@ -1896,6 +1918,149 @@ export default function AgentSetupSingle() {
         onGenerate={handleCreateAgent}
         onCreateScratch={handleCreateScratch}
       />
+
+      {/* Add Funds Modal */}
+      {showAddFundsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex justify-between items-start p-6 border-b">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Add Funds</h2>
+                <p className="text-gray-500 text-sm mt-1">Add money to your wallet</p>
+              </div>
+              <button onClick={() => setShowAddFundsModal(false)} className="text-gray-400 hover:text-gray-600">
+                <MdClose className="text-2xl" />
+              </button>
+            </div>
+
+            <AddFundsContent
+              onSuccess={(newBalance) => {
+                setWalletBalance(newBalance);
+                setShowAddFundsModal(false);
+              }}
+              onClose={() => setShowAddFundsModal(false)}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Add Funds Content Component
+function AddFundsContent({ onSuccess, onClose }) {
+  const [amount, setAmount] = useState(10);
+  const [loading, setLoading] = useState(false);
+  const presetAmounts = [5, 10, 25, 50, 100];
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+  const handlePayment = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+
+      const orderRes = await axios.post(
+        `${API_URL}/api/payments/create-order`,
+        { amount },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (!orderRes.data.success) {
+        throw new Error(orderRes.data.error);
+      }
+
+      const { order, key } = orderRes.data;
+
+      const options = {
+        key,
+        amount: order.amount,
+        currency: order.currency,
+        name: "CRM Landing Software",
+        description: `Add $${amount} to wallet`,
+        order_id: order.id,
+        handler: async function (response) {
+          try {
+            const verifyRes = await axios.post(
+              `${API_URL}/api/payments/verify`,
+              {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature
+              },
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            if (verifyRes.data.success) {
+              toast.success(`$${amount} added to wallet!`);
+              onSuccess(verifyRes.data.walletBalance);
+            }
+          } catch (err) {
+            toast.error("Payment verification failed");
+          }
+        },
+        prefill: {
+          email: localStorage.getItem("userEmail") || ""
+        },
+        theme: {
+          color: "#2563eb"
+        }
+      };
+
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
+
+    } catch (error) {
+      console.error("Payment error:", error);
+      toast.error(error.response?.data?.error || "Failed to initiate payment");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="p-6 space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {presetAmounts.map((preset) => (
+          <button
+            key={preset}
+            onClick={() => setAmount(preset)}
+            className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${amount === preset
+              ? "bg-blue-600 text-white"
+              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+          >
+            ${preset}
+          </button>
+        ))}
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Or enter custom amount
+        </label>
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+          <input
+            type="number"
+            min="1"
+            value={amount}
+            onChange={(e) => setAmount(Math.max(1, parseInt(e.target.value) || 1))}
+            className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+
+      <button
+        onClick={handlePayment}
+        disabled={loading}
+        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white py-3 rounded-lg font-semibold text-lg transition-colors"
+      >
+        {loading ? "Processing..." : `Pay $${amount}`}
+      </button>
+
+      <p className="text-xs text-gray-500 text-center">
+        Secure payment powered by Razorpay
+      </p>
     </div>
   );
 }

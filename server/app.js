@@ -17,6 +17,7 @@ import ragService from "./services/ragService.js";
 import { connectDB } from "./config/database.js";
 import freeswitchRoutes from "./routes/freeswitchRoutes.js";
 import audioSocketServer from "./services/asteriskBridge.service.js";
+import { startSubscriptionCron } from "./cron/subscriptionCron.js";
 
 const app = express();
 
@@ -124,11 +125,10 @@ app.use((err, req, res, next) => {
 if (config.env !== "production") {
   const PORT = config.port || 5000;
   app.listen(PORT, () => {
-    // console.log("=".repeat(50));
     console.log(`🚀 Server running on http://localhost:${PORT}`);
-    // console.log(`📁 Uploads directory: ${config.uploadsDir}`);
-    // console.log(`📊 Environment: ${config.env}`);
-    // console.log("=".repeat(50));
+
+    // Start subscription expiry cron job
+    startSubscriptionCron();
   });
 
   // Start AudioSocket server for Asterisk telephony (only in non-serverless)

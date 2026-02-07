@@ -14,6 +14,7 @@ import chatRoutes from "./chatRoutes.js";
 import asteriskRoutes from "./asteriskRoutes.js";
 import phoneNumberRoutes from "./phoneNumberRoutes.js";
 import callRoutes from "./callRoutes.js";
+import paymentRoutes from "./paymentRoutes.js";
 
 const router = express.Router();
 
@@ -74,6 +75,7 @@ router.use("/call", authenticate, callRoutes);
 router.use("/rag", authenticate, ragRoutes);
 router.use("/agents", authenticate, agentRoutes);
 router.use("/phone-numbers", authenticate, phoneNumberRoutes);
+router.use("/payments", authenticate, paymentRoutes);
 
 router.use("/", authenticate, knowledgeRoutes);
 router.use("/auth", authRoutes);
