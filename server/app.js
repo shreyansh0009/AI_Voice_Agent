@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 // Load environment variables FIRST
 dotenv.config();
@@ -72,8 +74,24 @@ app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api", routes);
 
-// 404 handler
-app.use(notFoundHandler);
+// Serve React static files (production)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const clientBuildPath = path.join(__dirname, "../client/dist");
+
+if (fs.existsSync(clientBuildPath)) {
+  app.use(express.static(clientBuildPath));
+
+  // Catch-all route for React Router (SPA)
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(clientBuildPath, "index.html"));
+  });
+  console.log("✅ Serving React app from", clientBuildPath);
+} else {
+  console.log("⚠️  React build not found. Run 'npm run build' in client folder.");
+  // 404 handler for API-only mode
+  app.use(notFoundHandler);
+}
 
 // Error handler (must be last)
 app.use(errorHandler);

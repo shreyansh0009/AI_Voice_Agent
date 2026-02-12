@@ -167,7 +167,7 @@ class CallSession {
     this.currentSpeechToken = 0;
     this.userIsSpeaking = false; // Set true when Deepgram detects actual speech
 
-    // 📊 Call tracking for database
+    //Call tracking for database
     this.callDbId = null; // MongoDB _id for this call
     this.callStartTime = Date.now();
     this.fullTranscript = []; // Full conversation transcript
@@ -177,11 +177,11 @@ class CallSession {
     this.totalInputTokens = 0;
     this.totalOutputTokens = 0;
 
-    // 🎙️ Call recording
+    //Call recording
     this.recording = null;
 
     console.log(
-      `📞 [${uuid}] New call session created (DID: ${calledNumber || "unknown"
+      `[${uuid}] New call session created (DID: ${calledNumber || "unknown"
       })`,
     );
   }
@@ -201,7 +201,7 @@ class CallSession {
         console.log(`📞 DID ${this.calledNumber} → Agent ${agentId}`);
       } else {
         console.warn(
-          `⚠️ No agent mapped for DID: ${this.calledNumber} (cleaned: ${cleanedNumber})`,
+          `⚠️No agent mapped for DID: ${this.calledNumber} (cleaned: ${cleanedNumber})`,
         );
       }
 
@@ -224,7 +224,7 @@ class CallSession {
         throw new Error(`Agent not found: ${agentId}`);
       }
 
-      console.log(`✅ [${this.uuid}] Loaded agent: ${agent.name} (${agentId})`);
+      console.log(`[${this.uuid}] Loaded agent: ${agent.name} (${agentId})`);
 
       // 3. Load flow using fs.readFileSync (same as chatV5Controller)
       const __filename = fileURLToPath(import.meta.url);
@@ -258,17 +258,17 @@ class CallSession {
       this.systemPrompt = agent.prompt || "You are a helpful AI assistant.";
 
       console.log(
-        `🔊 [${this.uuid}] TTS Config: Provider=${this.voiceProvider}, Voice=${this.voice}, Model=${this.voiceModel}`,
+        `[${this.uuid}] TTS Config: Provider=${this.voiceProvider}, Voice=${this.voice}, Model=${this.voiceModel}`,
       );
 
       console.log(
-        `📋 [${this.uuid}] Flow: ${this.flowId}, Start: ${this.startStepId}`,
+        `[${this.uuid}] Flow: ${this.flowId}, Start: ${this.startStepId}`,
       );
 
       return true;
     } catch (error) {
       console.error(
-        `❌ [${this.uuid}] Failed to initialize agent:`,
+        `[${this.uuid}] Failed to initialize agent:`,
         error.message,
       );
       throw error;
@@ -305,12 +305,12 @@ class CallSession {
       this.callDbId = callRecord._id;
       console.log(`📊 [${this.uuid}] Call record created: ${callRecord._id}`);
 
-      // 🎙️ Start recording
+      // Start recording
       this.recording = recordingService.startRecording(this.uuid);
 
       return callRecord;
     } catch (error) {
-      console.error(`❌ [${this.uuid}] Failed to create call record:`, error.message);
+      console.error(`[${this.uuid}] Failed to create call record:`, error.message);
       // Don't throw - call should continue even if DB fails
       return null;
     }
@@ -322,7 +322,7 @@ class CallSession {
   async initDeepgram() {
     const apiKey = process.env.DEEPGRAM_API_KEY;
     if (!apiKey) {
-      console.error(`❌ [${this.uuid}] DEEPGRAM_API_KEY not configured`);
+      console.error(`[${this.uuid}] DEEPGRAM_API_KEY not configured`);
       return false;
     }
 
@@ -350,7 +350,7 @@ class CallSession {
         const isFinal = data.is_final;
 
         if (transcript) {
-          // 🔥 Phase 4: Check if this is real speech (not noise/fillers)
+          //Phase 4: Check if this is real speech (not noise/fillers)
           const isRealSpeech =
             transcript.length >= 3 && /[a-zA-Z\u0900-\u097F]/.test(transcript);
 
@@ -360,7 +360,7 @@ class CallSession {
             this.currentSpeechToken++;
             this.audioQueue.length = 0; // Clear pending speech
             console.log(
-              `🛑 [${this.uuid}] Barge-in confirmed (real speech), stopping agent`,
+              `[${this.uuid}] Barge-in confirmed (real speech), stopping agent`,
             );
           }
 
@@ -368,7 +368,7 @@ class CallSession {
             this.transcript += (this.transcript ? " " : "") + transcript;
             console.log(`🎤 [${this.uuid}] Final: "${transcript}"`);
 
-            // 🔥 FIX 3: Early trigger on isFinal instead of waiting for UtteranceEnd
+            // FIX 3: Early trigger on isFinal instead of waiting for UtteranceEnd
             // This saves ~700-900ms latency
             if (transcript.length > 5 && !this.isProcessing) {
               clearTimeout(this.silenceTimer);
@@ -377,7 +377,7 @@ class CallSession {
                   console.log(`⚡ [${this.uuid}] Early trigger (isFinal)`);
                   this.processUserInput();
                 }
-              }, 300); // 🔥 300ms instead of waiting for UtteranceEnd
+              }, 300); //300ms instead of waiting for UtteranceEnd
             }
           } else {
             console.log(`🎤 [${this.uuid}] Interim: "${transcript}"`);
@@ -388,7 +388,7 @@ class CallSession {
       // Handle utterance end (user stopped speaking) - fallback for edge cases
       this.deepgramConnection.on("UtteranceEnd", async () => {
         console.log(`🔇 [${this.uuid}] Utterance ended`);
-        this.userIsSpeaking = false; // 🔥 Phase 4: Reset speech flag
+        this.userIsSpeaking = false; //Phase 4: Reset speech flag
         clearTimeout(this.silenceTimer); // Clear any pending early trigger
         if (this.transcript && !this.isProcessing) {
           await this.processUserInput();
@@ -403,11 +403,11 @@ class CallSession {
         console.log(`🔌 [${this.uuid}] Deepgram connection closed`);
       });
 
-      console.log(`✅ [${this.uuid}] Deepgram real-time STT initialized`);
+      console.log(`[${this.uuid}] Deepgram real-time STT initialized`);
       return true;
     } catch (error) {
       console.error(
-        `❌ [${this.uuid}] Failed to init Deepgram:`,
+        `[${this.uuid}] Failed to init Deepgram:`,
         error.message,
       );
       return false;
@@ -500,10 +500,10 @@ class CallSession {
     const userMessage = this.transcript.trim();
     this.transcript = "";
 
-    console.log(`🧠 [${this.uuid}] Processing: "${userMessage}"`);
+    console.log(`[${this.uuid}] Processing: "${userMessage}"`);
 
     try {
-      // 🔥 FIX 1: Instant acknowledgement BEFORE LLM processing
+      // FIX 1: Instant acknowledgement BEFORE LLM processing
       // This starts audio ~300ms after UtteranceEnd while LLM thinks in background
       // Perceived latency drops by ~1s without violating flow/script
       this.enqueueSpeech("ठीक है।");
@@ -512,7 +512,7 @@ class CallSession {
       // These should get a quick acknowledgment, not restart the flow
       if (this.isCheckInPhrase(userMessage)) {
         console.log(
-          `👋 [${this.uuid}] Check-in phrase detected, quick response`,
+          `[${this.uuid}] Check-in phrase detected, quick response`,
         );
         await this.speakResponse("जी हाँ, मैं यहाँ हूँ। कृपया बताइए।");
         this.isProcessing = false;
@@ -525,7 +525,7 @@ class CallSession {
         content: userMessage,
       });
 
-      // 📊 Save to full transcript for database
+      // Save to full transcript for database
       this.fullTranscript.push({
         role: "user",
         content: userMessage,
@@ -537,7 +537,7 @@ class CallSession {
         this.conversationHistory = this.conversationHistory.slice(-12);
       }
 
-      // ⏱️ Start timer BEFORE stream call to measure full latency
+      // Start timer BEFORE stream call to measure full latency
       const t0 = Date.now();
 
       // Process through AI Agent Service - USE STREAMING (SAME as web chat!)
@@ -561,13 +561,13 @@ class CallSession {
       let firstContentLogged = false;
       let flowTextSpoken = false; // Guard: prevent LLM repeating flow text
 
-      // 🔑 Speak after 140 chars OR sentence boundary (reduces ElevenLabs calls)
+      // Speak after 140 chars OR sentence boundary (reduces ElevenLabs calls)
       const shouldFlush = (text) => {
         return text.length >= 140 || /[.!?।]\s*$/.test(text);
       };
 
       for await (const chunk of stream) {
-        // ⚡ FAST PATH: Speak flow text immediately (no LLM wait)
+        // FAST PATH: Speak flow text immediately (no LLM wait)
         if (chunk.type === "flow_text") {
           console.log(`⚡ [${this.uuid}] Speaking flow text immediately`);
           flowTextSpoken = true;
@@ -661,14 +661,14 @@ class CallSession {
         content: aiResponse,
       });
 
-      // 📊 Save to full transcript for database
+      // Save to full transcript for database
       this.fullTranscript.push({
         role: "assistant",
         content: aiResponse,
         timestamp: new Date(),
       });
     } catch (error) {
-      console.error(`❌ [${this.uuid}] Processing error:`, error);
+      console.error(` [${this.uuid}] Processing error:`, error);
       await this.speakResponse(
         "Sorry, I encountered an error. Please try again.",
       );
@@ -717,7 +717,7 @@ class CallSession {
 
       if (!audioBuffer) {
         console.error(
-          `❌ [${this.uuid}] No audio from TTS (${this.voiceProvider})`,
+          ` [${this.uuid}] No audio from TTS (${this.voiceProvider})`,
         );
         return;
       }
@@ -726,7 +726,7 @@ class CallSession {
       await this.streamAudioToAsterisk(audioBuffer, token);
     } catch (error) {
       console.error(
-        `❌ [${this.uuid}] TTS error (${this.voiceProvider}):`,
+        ` [${this.uuid}] TTS error (${this.voiceProvider}):`,
         error.message,
       );
 
@@ -813,7 +813,7 @@ class CallSession {
       const slinData = await this.convertToSlin16(audioBuffer);
       const chunks = splitIntoChunks(slinData, FRAME_SIZE);
 
-      // 🎙️ Mark when AI speech starts for timeline-based recording
+      // Mark when AI speech starts for timeline-based recording
       if (this.recording) {
         this.recording.markAISpeechStart();
       }
@@ -824,7 +824,7 @@ class CallSession {
         // Phase 4: Stop immediately if barge-in occurred
         if (token !== this.currentSpeechToken) {
           console.log(
-            `⛔ [${this.uuid}] Speech cancelled mid-playback (barge-in)`,
+            ` [${this.uuid}] Speech cancelled mid-playback (barge-in)`,
           );
           break;
         }
@@ -833,7 +833,7 @@ class CallSession {
 
         this.socket.write(createAudioFrame(chunk));
 
-        // 🎙️ Capture AI audio with chunk index for timeline positioning
+        // Capture AI audio with chunk index for timeline positioning
         if (this.recording) {
           this.recording.addAIAudio(chunk, i);
         }
@@ -849,7 +849,7 @@ class CallSession {
         );
       }
     } catch (error) {
-      console.error(`❌ [${this.uuid}] Audio streaming failed:`, error.message);
+      console.error(` [${this.uuid}] Audio streaming failed:`, error.message);
       this.sendSilence(200);
     }
   }
@@ -860,7 +860,7 @@ class CallSession {
   handleAudio(audioData) {
     this.lastAudioTime = Date.now();
 
-    // 🎙️ Capture user audio for recording
+    // Capture user audio for recording
     if (this.recording) {
       this.recording.addUserAudio(audioData);
     }
@@ -926,11 +926,11 @@ class CallSession {
       }).catch((e) => console.error(`Failed to update conversation:`, e));
     }
 
-    // 📊 Finalize call record in database
+    // Finalize call record in database
     if (this.callDbId) {
       const duration = Math.floor((Date.now() - this.callStartTime) / 1000);
 
-      // 💰 Estimate tokens from transcript (~4 characters = 1 token)
+      // Estimate tokens from transcript (~4 characters = 1 token)
       // User messages = input tokens, Assistant messages = output tokens
       let estimatedInputTokens = 0;
       let estimatedOutputTokens = 0;
@@ -947,7 +947,7 @@ class CallSession {
       // Add system prompt tokens (~500 tokens estimated)
       estimatedInputTokens += 500;
 
-      // 🤖 Generate AI summary of the call (returns {summary, tokens})
+      // Generate AI summary of the call (returns {summary, tokens})
       const summaryResult = await generateCallSummary(this.fullTranscript, this.customerContext);
       let callSummary = null;
       let summaryInputTokens = 0;
@@ -957,7 +957,7 @@ class CallSession {
         callSummary = summaryResult.summary;
         summaryInputTokens = summaryResult.tokens?.input || 0;
         summaryOutputTokens = summaryResult.tokens?.output || 0;
-        console.log(`📝 [${this.uuid}] Call summary generated (${summaryInputTokens}+${summaryOutputTokens} tokens)`);
+        console.log(`[${this.uuid}] Call summary generated (${summaryInputTokens}+${summaryOutputTokens} tokens)`);
       }
 
       // Add summary tokens to total LLM usage
@@ -969,17 +969,17 @@ class CallSession {
       const llmCostUSD = Call.calculateLLMCost(totalInputTokens, totalOutputTokens);
       const totalCost = Call.calculateTotalCost(duration, totalInputTokens, totalOutputTokens);
 
-      // 🎙️ Upload recording to Cloudinary
+      // Upload recording to Cloudinary
       let recordingUrl = null;
       if (this.recording) {
         const recordingResult = await recordingService.stopAndUpload(this.uuid);
         if (recordingResult) {
           recordingUrl = recordingResult.url;
-          console.log(`☁️ [${this.uuid}] Recording uploaded: ${recordingUrl}`);
+          console.log(`[${this.uuid}] Recording uploaded: ${recordingUrl}`);
         }
       }
 
-      // 📦 Build comprehensive rawData JSON for detailed analytics
+      // Build comprehensive rawData JSON for detailed analytics
       const formattedTranscript = this.fullTranscript
         .map(entry => `${entry.role}: ${entry.content}`)
         .join('\n');
@@ -1117,7 +1117,7 @@ class CallSession {
         rawData: rawData,
         recordingUrl: recordingUrl,
       }).then(() => {
-        console.log(`📊 [${this.uuid}] Call record finalized: duration=${duration}s, telephony=₹${telephonyCost.toFixed(2)}, LLM=$${llmCostUSD.toFixed(4)} (${totalInputTokens}+${totalOutputTokens} tokens), total=₹${totalCost.toFixed(2)}`);
+        console.log(`[${this.uuid}] Call record finalized: duration=${duration}s, telephony=₹${telephonyCost.toFixed(2)}, LLM=$${llmCostUSD.toFixed(4)} (${totalInputTokens}+${totalOutputTokens} tokens), total=₹${totalCost.toFixed(2)}`);
       }).catch((e) => console.error(`Failed to finalize call record:`, e));
     }
   }
@@ -1139,7 +1139,7 @@ class AudioSocketServer {
    */
   registerPendingCall(uuid, did) {
     this.pendingCalls.set(uuid, did);
-    console.log(`📋 Pending call registered: ${uuid} → ${did}`);
+    console.log(`Pending call registered: ${uuid} → ${did}`);
 
     // Clean up after 30 seconds if not used
     setTimeout(() => {
@@ -1159,13 +1159,13 @@ class AudioSocketServer {
     });
 
     this.server.on("error", (error) => {
-      console.error("❌ AudioSocket server error:", error);
+      console.error("AudioSocket server error:", error);
     });
 
     this.server.listen(AUDIOSOCKET_PORT, AUDIOSOCKET_HOST, () => {
       console.log("═".repeat(50));
       console.log(
-        `📞 AudioSocket Server listening on ${AUDIOSOCKET_HOST}:${AUDIOSOCKET_PORT}`,
+        `AudioSocket Server listening on ${AUDIOSOCKET_HOST}:${AUDIOSOCKET_PORT}`,
       );
       console.log("═".repeat(50));
     });
@@ -1178,7 +1178,7 @@ class AudioSocketServer {
    */
   handleConnection(socket) {
     console.log(
-      `🔗 New connection from ${socket.remoteAddress}:${socket.remotePort}`,
+      `New connection from ${socket.remoteAddress}:${socket.remotePort}`,
     );
 
     let session = null;
@@ -1208,7 +1208,7 @@ class AudioSocketServer {
               uuid = frame.data.toString("utf8").trim();
             }
 
-            console.log(`🔑 Parsed UUID: ${uuid} (${frame.data.length} bytes)`);
+            console.log(`Parsed UUID: ${uuid} (${frame.data.length} bytes)`);
 
             // Look up DID from pending calls (registered via /api/asterisk/register-call)
             const calledNumber = this.pendingCalls.get(uuid) || null;
@@ -1230,14 +1230,14 @@ class AudioSocketServer {
             try {
               await session.initializeAgent();
 
-              // 📊 Create call record in database
+              // Create call record in database
               await session.createCallRecord();
 
               // Initialize STT and play welcome
               await session.initDeepgram();
               await session.playWelcome();
             } catch (error) {
-              console.error(`❌ Failed to initialize call: ${error.message}`);
+              console.error(`Failed to initialize call: ${error.message}`);
               // Send error message and hang up
               socket.end();
               this.sessions.delete(uuid);
@@ -1253,13 +1253,13 @@ class AudioSocketServer {
 
           case MESSAGE_TYPES.ERROR:
             console.error(
-              `❌ AudioSocket error from Asterisk:`,
+              `AudioSocket error from Asterisk:`,
               frame.data.toString(),
             );
             break;
 
           default:
-            console.warn(`⚠️ Unknown frame type: ${frame.type}`);
+            console.warn(`Unknown frame type: ${frame.type}`);
         }
       }
     });
@@ -1273,7 +1273,7 @@ class AudioSocketServer {
     });
 
     socket.on("error", (error) => {
-      console.error(`❌ Socket error:`, error.message);
+      console.error(`Socket error:`, error.message);
       if (session) {
         session.cleanup();
         this.sessions.delete(session.uuid);
@@ -1287,7 +1287,7 @@ class AudioSocketServer {
   stop() {
     if (this.server) {
       this.server.close();
-      console.log("📞 AudioSocket server stopped");
+      console.log("AudioSocket server stopped");
     }
   }
 

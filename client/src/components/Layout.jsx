@@ -12,6 +12,9 @@ import { FaBullseye } from 'react-icons/fa';
 import { CgDialpad } from "react-icons/cg";
 import { BsStars } from "react-icons/bs";
 import { HiMenuAlt3, HiX } from 'react-icons/hi';
+import { TbDatabaseCog } from "react-icons/tb";
+import { FaUserGear } from "react-icons/fa6";
+
 //import Footer from './Footer';
 
 
@@ -21,20 +24,21 @@ function Layout({ children }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', path: '/', icon: MdDashboard },
-    { id: 'analytics', label: 'Analytics', path: '/analytics', icon: IoAnalyticsSharp },
+   // { id: 'dashboard', label: 'Dashboard', path: '/', icon: MdDashboard },
+    // { id: 'analytics', label: 'Analytics', path: '/analytics', icon: IoAnalyticsSharp },
     { id: 'voice-agent', label: 'AI Voice Agent', path: '/voice', icon: HiMicrophone },
     { id: 'callHistory', label: 'Call History', path: '/callHistory', icon: SlCallIn},
     { id: 'phone', label: 'Phone Numbers', path: '/phones', icon: MdCall },
+    { id: 'knowledgeBase', label: 'Knowledge Base', path: '/knowledgeBase', icon: TbDatabaseCog },
     { id: 'workflow', label: 'Workflows', path: '/workflows', icon: IoIosGitNetwork },
-    { id: 'salesdialer', label: 'Sales Dialer', path: '/salesdialer', icon: CgDialpad },
-    { id: 'crmai', label: 'CRM AI', path: '/crmai', icon: BsStars },
-    { id: 'email', label: 'Email Inbox', path: '/email', icon: HiOutlineMail },
-    { id: 'teams', label: 'Teams', path: '/teams', icon: IoPeopleSharp },
-    { id: 'contacts', label: 'Contacts', path: '/contacts', icon: MdContacts },
-    { id: 'call', label: 'Call Logs', path: '/logs', icon: MdPhoneCallback },
-    { id: 'leads', label: 'Leads', path: '/leads', icon: FaBullseye },
-    { id: 'reports', label: 'Reports', path: '/reports', icon: MdBarChart },
+    { id: 'workplace', label: 'Workplace', path: '/workplace', icon: FaUserGear },
+    //{ id: 'crmai', label: 'CRM AI', path: '/crmai', icon: BsStars },
+    //{ id: 'email', label: 'Email Inbox', path: '/email', icon: HiOutlineMail },
+    //{ id: 'teams', label: 'Teams', path: '/teams', icon: IoPeopleSharp },
+    //{ id: 'contacts', label: 'Contacts', path: '/contacts', icon: MdContacts },
+    //{ id: 'call', label: 'Call Logs', path: '/logs', icon: MdPhoneCallback },
+   // { id: 'leads', label: 'Leads', path: '/leads', icon: FaBullseye },
+    //{ id: 'reports', label: 'Reports', path: '/reports', icon: MdBarChart },
     { id: 'settings', label: 'Settings', path: '/settings', icon: MdSettings },
   ];
 

@@ -2,12 +2,21 @@ import PhoneNumber from "../models/PhoneNumber.js";
 import Agent from "../models/Agent.js";
 
 /**
- * Get all phone numbers with their link status
+ * Get all phone numbers for the current user
+ * Returns: user's owned/linked numbers + available numbers for purchase
  */
 export const getAllPhoneNumbers = async (req, res) => {
   try {
-    const phoneNumbers = await PhoneNumber.find()
-      .sort({ displayNumber: 1 })
+    const userId = req.user.id;
+
+    // Get numbers owned by this user OR available for purchase
+    const phoneNumbers = await PhoneNumber.find({
+      $or: [
+        { ownerId: userId },  // User's owned numbers
+        { status: "available" }  // Available for purchase
+      ]
+    })
+      .sort({ status: 1, displayNumber: 1 })  // Sort: available first, then by number
       .lean();
 
     res.json({
@@ -81,10 +90,23 @@ export const getUserOwnedNumbers = async (req, res) => {
 
 /**
  * Get phone number linked to a specific agent
+ * Only returns if agent belongs to current user
  */
 export const getAgentPhoneNumber = async (req, res) => {
   try {
     const { agentId } = req.params;
+    const userId = req.user.id;
+
+    // First verify the agent belongs to the current user
+    const agent = await Agent.findOne({ _id: agentId, userId }).select("_id");
+
+    if (!agent) {
+      // Agent doesn't exist or doesn't belong to user - return null (not error)
+      return res.json({
+        success: true,
+        phoneNumber: null,
+      });
+    }
 
     const phoneNumber = await PhoneNumber.findOne({
       linkedAgentId: agentId,

@@ -804,7 +804,7 @@ export default function AgentSetupSingle() {
             <MdAdd className="text-lg" />
             Add funds
           </button>
-          <button className="px-2 sm:px-3 py-1 rounded-md bg-white border text-xs sm:text-sm">
+          <button className="flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs sm:text-sm whitespace-nowrap transition-colors">
             Help
           </button>
         </div>

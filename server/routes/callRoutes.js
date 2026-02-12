@@ -19,8 +19,10 @@ const router = express.Router();
 router.get("/history", async (req, res) => {
     try {
         const { agentId, startDate, endDate, status, callType, provider, limit, skip } = req.query;
+        const userId = req.user.id; // Get authenticated user ID
 
         const filters = {
+            userId: userId, // CRITICAL: Filter by user for data isolation
             agentId: agentId || undefined,
             startDate: startDate || undefined,
             endDate: endDate || undefined,
@@ -34,6 +36,7 @@ router.get("/history", async (req, res) => {
 
         // Get stats for the same filters
         const stats = await Call.getStats({
+            userId: userId, // CRITICAL: Filter by user for data isolation
             agentId: agentId || undefined,
             startDate: startDate || undefined,
             endDate: endDate || undefined,

@@ -243,6 +243,11 @@ callSchema.statics.calculateCost = function (durationSeconds) {
 callSchema.statics.findWithFilters = async function (filters = {}) {
     const query = {};
 
+    // CRITICAL: Filter by userId for multi-tenant isolation
+    if (filters.userId) {
+        query.userId = filters.userId;
+    }
+
     if (filters.agentId) {
         query.agentId = filters.agentId;
     }
@@ -283,6 +288,11 @@ callSchema.statics.findWithFilters = async function (filters = {}) {
  */
 callSchema.statics.getStats = async function (filters = {}) {
     const matchStage = {};
+
+    // CRITICAL: Filter by userId for multi-tenant isolation
+    if (filters.userId) {
+        matchStage.userId = new mongoose.Types.ObjectId(filters.userId);
+    }
 
     if (filters.agentId) {
         matchStage.agentId = new mongoose.Types.ObjectId(filters.agentId);

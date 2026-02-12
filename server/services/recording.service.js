@@ -48,7 +48,7 @@ class CallRecording {
     start() {
         this.isRecording = true;
         this.startTime = Date.now();
-        console.log(`🎙️ [${this.callId}] Recording started`);
+        console.log(`[${this.callId}] Recording started`);
     }
 
     /**
