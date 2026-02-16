@@ -14,6 +14,7 @@ import { BsStars } from "react-icons/bs";
 import { HiMenuAlt3, HiX } from 'react-icons/hi';
 import { TbDatabaseCog } from "react-icons/tb";
 import { FaUserGear } from "react-icons/fa6";
+import { CiBoxes } from "react-icons/ci";
 
 //import Footer from './Footer';
 
@@ -31,6 +32,7 @@ function Layout({ children }) {
     { id: 'phone', label: 'Phone Numbers', path: '/phones', icon: MdCall },
     { id: 'knowledgeBase', label: 'Knowledge Base', path: '/knowledgeBase', icon: TbDatabaseCog },
     { id: 'workflow', label: 'Workflows', path: '/workflows', icon: IoIosGitNetwork },
+    { id: 'providers', label: 'Providers', path: '/providers', icon: CiBoxes },
     { id: 'workplace', label: 'Workplace', path: '/workplace', icon: FaUserGear },
     //{ id: 'crmai', label: 'CRM AI', path: '/crmai', icon: BsStars },
     //{ id: 'email', label: 'Email Inbox', path: '/email', icon: HiOutlineMail },

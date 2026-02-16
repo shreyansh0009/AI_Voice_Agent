@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import ExchangeRate from "./ExchangeRate.js";
 
 /**
  * Call Model
@@ -6,16 +7,15 @@ import mongoose from "mongoose";
  * Stores telephony call records from Asterisk/SIP integration.
  * Used by Call History dashboard to display call analytics.
  * 
- * Cost calculation:
- * - Telephony: ₹0.05 per minute
+ * All costs are stored in USD.
+ * - Telephony: ₹0.05/min converted to USD using daily exchange rate
  * - LLM (GPT-4o-mini): $0.15/1M input tokens, $0.60/1M output tokens
  */
 
 // Cost configuration
-const TELEPHONY_COST_PER_MINUTE = 0.05; // INR per minute
+const TELEPHONY_COST_PER_MINUTE_INR = 0.05; // INR per minute (base cost)
 const LLM_INPUT_COST_PER_TOKEN = 0.000000075; // $0.075 per 1M tokens (gpt-4o-mini)
 const LLM_OUTPUT_COST_PER_TOKEN = 0.0000003;  // $0.30 per 1M tokens (gpt-4o-mini)
-const USD_TO_INR = 83; // Conversion rate
 
 const callSchema = new mongoose.Schema(
     {
@@ -199,12 +199,14 @@ callSchema.index({ callerNumber: 1, startedAt: -1 });
 // ============================================
 
 /**
- * Calculate telephony cost based on duration
- * Rate: ₹0.5 per minute (rounded up)
+ * Calculate telephony cost based on duration (returns USD)
+ * Base rate: ₹0.05/min, converted to USD using dynamic exchange rate
  */
-callSchema.statics.calculateTelephonyCost = function (durationSeconds) {
+callSchema.statics.calculateTelephonyCost = async function (durationSeconds) {
     const minutes = Math.ceil(durationSeconds / 60);
-    return parseFloat((minutes * TELEPHONY_COST_PER_MINUTE).toFixed(3));
+    const costINR = minutes * TELEPHONY_COST_PER_MINUTE_INR;
+    const rate = await ExchangeRate.getINRRate();
+    return parseFloat((costINR / rate).toFixed(6));
 };
 
 /**
@@ -220,20 +222,19 @@ callSchema.statics.calculateLLMCost = function (inputTokens, outputTokens) {
 
 /**
  * Calculate total cost (telephony + LLM)
- * All costs returned in INR
+ * All costs returned in USD
  */
-callSchema.statics.calculateTotalCost = function (durationSeconds, inputTokens = 0, outputTokens = 0) {
-    const telephonyCost = this.calculateTelephonyCost(durationSeconds);
-    const llmCostUSD = this.calculateLLMCost(inputTokens, outputTokens);
-    const llmCostINR = llmCostUSD * USD_TO_INR;
-    return parseFloat((telephonyCost + llmCostINR).toFixed(3));
+callSchema.statics.calculateTotalCost = async function (durationSeconds, inputTokens = 0, outputTokens = 0) {
+    const telephonyCost = await this.calculateTelephonyCost(durationSeconds);
+    const llmCost = this.calculateLLMCost(inputTokens, outputTokens);
+    return parseFloat((telephonyCost + llmCost).toFixed(6));
 };
 
 /**
- * Backwards compatible - returns telephony cost only
+ * Backwards compatible - returns telephony cost only (USD)
  * @deprecated Use calculateTelephonyCost or calculateTotalCost
  */
-callSchema.statics.calculateCost = function (durationSeconds) {
+callSchema.statics.calculateCost = async function (durationSeconds) {
     return this.calculateTelephonyCost(durationSeconds);
 };
 
@@ -360,19 +361,19 @@ callSchema.statics.getStats = async function (filters = {}) {
  * @param {number} inputTokens - LLM input tokens used
  * @param {number} outputTokens - LLM output tokens used
  */
-callSchema.methods.endCall = function (status = "completed", hangupBy = "user", inputTokens = 0, outputTokens = 0) {
+callSchema.methods.endCall = async function (status = "completed", hangupBy = "user", inputTokens = 0, outputTokens = 0) {
     this.endedAt = new Date();
     this.status = status;
     this.hangupBy = hangupBy;
     this.duration = Math.floor((this.endedAt - this.startedAt) / 1000);
 
-    // Calculate individual costs
-    this.telephonyCost = this.constructor.calculateTelephonyCost(this.duration);
+    // Calculate individual costs (all in USD)
+    this.telephonyCost = await this.constructor.calculateTelephonyCost(this.duration);
     this.llmTokens = { input: inputTokens, output: outputTokens };
     this.llmCostUSD = this.constructor.calculateLLMCost(inputTokens, outputTokens);
 
-    // Calculate total cost in INR
-    this.cost = this.constructor.calculateTotalCost(this.duration, inputTokens, outputTokens);
+    // Calculate total cost in USD
+    this.cost = await this.constructor.calculateTotalCost(this.duration, inputTokens, outputTokens);
 
     this.transcriptCount = this.transcript?.length || 0;
 };

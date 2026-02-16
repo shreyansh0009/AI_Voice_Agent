@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import LLM from "../components/LLM.jsx";
 import Audio from "../components/Audio.jsx";
 import VoiceChat from "../components/VoiceChat.jsx";
@@ -13,6 +13,7 @@ import { MdClose, MdAdd } from "react-icons/md";
 import { toast } from "react-toastify";
 import api from "../utils/api";
 import axios from "axios";
+import { calculateCostPerMinute } from "../utils/pricing.js";
 import {
   getDomainTemplate,
   getDomainOptions,
@@ -94,6 +95,69 @@ export default function AgentSetupSingle() {
   // Wallet state
   const [walletBalance, setWalletBalance] = useState(0);
   const [showAddFundsModal, setShowAddFundsModal] = useState(false);
+
+  // Exchange rate state
+  const [exchangeRate, setExchangeRate] = useState(85);
+
+  // Engine configuration state
+  const [engineConfig, setEngineConfig] = useState({
+    generatePrecise: false,
+    wordsToWait: 2,
+    responseRate: "Rapid",
+    endpointing: 200,
+    linearDelay: 300
+  });
+
+  // Call configuration state
+  const [callConfig, setCallConfig] = useState({
+    provider: "Custom",
+    dtmfEnabled: false,
+    noiseCancellation: false,
+    noiseCancellationLevel: 50,
+    voicemailDetection: false,
+    voicemailTime: 2.5,
+    hangupOnSilence: true,
+    hangupSilenceTime: 15,
+    hangupByPrompt: true,
+    hangupPrompt: "You are an AI assistant that determines whether a conversation is complete based on the transcript. A conversation is considered complete if any of the following conditions are met:",
+    hangupMessage: "Call will now disconnect",
+    terminationTime: 400,
+  });
+
+  // Analytics configuration state
+  const [analyticsConfig, setAnalyticsConfig] = useState({
+    summarization: false,
+    extraction: false,
+    extractionPrompt: "user_name : Yield the name of the user.\n    payment_mode : If user is paying by cash, yield cash. If they are paying by card yield...",
+    webhookUrl: "",
+  });
+
+  // Fetch exchange rate on mount
+  useEffect(() => {
+    const fetchExchangeRate = async () => {
+      try {
+        const res = await api.get("/exchange-rate");
+        if (res.data?.success && res.data?.rates?.INR) {
+          setExchangeRate(res.data.rates.INR);
+        }
+      } catch (err) {
+        console.warn("Could not fetch exchange rate, using fallback");
+      }
+    };
+    fetchExchangeRate();
+  }, []);
+
+  // Calculate cost breakdown dynamically
+  const costBreakdown = useMemo(() => {
+    return calculateCostPerMinute({
+      llmProvider,
+      llmModel,
+      transcriberProvider,
+      transcriberModel,
+      voiceProvider,
+      voiceModel,
+    }, exchangeRate);
+  }, [llmProvider, llmModel, transcriberProvider, transcriberModel, voiceProvider, voiceModel, exchangeRate]);
 
   // Fetch agents from backend
   useEffect(() => {
@@ -434,6 +498,12 @@ export default function AgentSetupSingle() {
       voice: voice,
       bufferSize: bufferSize,
       speedRate: speedRate,
+      // Engine Configuration
+      engineConfig: engineConfig,
+      // Call Configuration
+      callConfig: callConfig,
+      // Analytics Configuration
+      analyticsConfig: analyticsConfig,
     };
 
     try {
@@ -490,6 +560,18 @@ export default function AgentSetupSingle() {
     setVoice(agent.voice || "manisha");
     setBufferSize(agent.bufferSize || 153);
     setSpeedRate(agent.speedRate || 1);
+    // Load Engine Configuration
+    if (agent.engineConfig) {
+      setEngineConfig(agent.engineConfig);
+    }
+    // Load Call Configuration
+    if (agent.callConfig) {
+      setCallConfig(agent.callConfig);
+    }
+    // Load Analytics Configuration
+    if (agent.analyticsConfig) {
+      setAnalyticsConfig(agent.analyticsConfig);
+    }
     setIsNewAgent(false);
     // Save to localStorage so it persists across page reloads
     localStorage.setItem("lastSelectedAgentId", agent._id);
@@ -1045,7 +1127,9 @@ export default function AgentSetupSingle() {
                 </svg>
                 <span>
                   Cost per min:{" "}
-                  <span className="font-medium text-slate-700">~ $0.056</span>
+                  <span className="font-medium text-slate-700">
+                    ${costBreakdown.total.toFixed(3)}
+                  </span>
                 </span>
               </div>
             </div>
@@ -1053,20 +1137,36 @@ export default function AgentSetupSingle() {
             {/* Progress Bar */}
             <div className="w-full max-w-md mb-2">
               <div className="h-2 bg-slate-200 rounded-full overflow-hidden flex">
-                <div className="h-2 bg-teal-500" style={{ width: "15%" }}></div>
                 <div
-                  className="h-2 bg-orange-500"
-                  style={{ width: "10%" }}
+                  className="h-2 bg-teal-500 transition-all duration-300"
+                  style={{ width: `${Math.max(costBreakdown.percentages.stt, 3)}%` }}
+                  title={`STT: $${costBreakdown.stt.toFixed(4)}/min`}
                 ></div>
                 <div
-                  className="h-2 bg-slate-700"
-                  style={{ width: "15%" }}
+                  className="h-2 bg-orange-500 transition-all duration-300"
+                  style={{ width: `${Math.max(costBreakdown.percentages.llm, 3)}%` }}
+                  title={`LLM: $${costBreakdown.llm.toFixed(4)}/min`}
                 ></div>
                 <div
-                  className="h-2 bg-orange-300"
-                  style={{ width: "10%" }}
+                  className="h-2 bg-slate-700 transition-all duration-300"
+                  style={{ width: `${Math.max(costBreakdown.percentages.tts, 3)}%` }}
+                  title={`TTS: $${costBreakdown.tts.toFixed(4)}/min`}
                 ></div>
-                <div className="h-2 bg-blue-500" style={{ width: "50%" }}></div>
+                <div
+                  className="h-2 bg-orange-300 transition-all duration-300"
+                  style={{ width: `${Math.max(costBreakdown.percentages.telephony, 3)}%` }}
+                  title={`Telephony: $${costBreakdown.telephony.toFixed(4)}/min`}
+                ></div>
+                <div
+                  className="h-2 bg-blue-500 transition-all duration-300"
+                  style={{ width: `${Math.max(costBreakdown.percentages.platform, 3)}%` }}
+                  title={`Platform: $${costBreakdown.platform.toFixed(4)}/min`}
+                ></div>
+                <div
+                  className="h-2 bg-purple-400 transition-all duration-300"
+                  style={{ width: `${Math.max(costBreakdown.percentages.other, 3)}%` }}
+                  title={`Analytics: $${(costBreakdown.sentiment + costBreakdown.summary).toFixed(4)}/min`}
+                ></div>
               </div>
             </div>
 
@@ -1074,7 +1174,7 @@ export default function AgentSetupSingle() {
             <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
               <div className="flex items-center gap-1.5">
                 <div className="w-2 h-2 rounded-full bg-teal-500"></div>
-                <span>Transcriber</span>
+                <span>STT</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-2 h-2 rounded-full bg-orange-500"></div>
@@ -1082,7 +1182,7 @@ export default function AgentSetupSingle() {
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-2 h-2 rounded-full bg-slate-700"></div>
-                <span>Voice</span>
+                <span>TTS</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-2 h-2 rounded-full bg-orange-300"></div>
@@ -1091,6 +1191,10 @@ export default function AgentSetupSingle() {
               <div className="flex items-center gap-1.5">
                 <div className="w-2 h-2 rounded-full bg-blue-500"></div>
                 <span>Platform</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-purple-400"></div>
+                <span>Analytics</span>
               </div>
             </div>
           </div>
@@ -1734,12 +1838,18 @@ export default function AgentSetupSingle() {
             </section>
             {activeTab === "Engine" && (
               <section>
-                <Engine />
+                <Engine
+                  engineConfig={engineConfig}
+                  onChange={(config) => setEngineConfig(config)}
+                />
               </section>
             )}
             {activeTab === "Call" && (
               <section>
-                <Call />
+                <Call
+                  callConfig={callConfig}
+                  onChange={(config) => setCallConfig(config)}
+                />
               </section>
             )}
             {activeTab === "Tools" && (
@@ -1749,7 +1859,10 @@ export default function AgentSetupSingle() {
             )}
             {activeTab === "Analytics" && (
               <section>
-                <Analytics />
+                <Analytics
+                  analyticsConfig={analyticsConfig}
+                  onChange={(config) => setAnalyticsConfig(config)}
+                />
               </section>
             )}
             {/* Other tabs (placeholders) */}

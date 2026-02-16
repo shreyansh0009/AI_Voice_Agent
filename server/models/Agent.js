@@ -138,6 +138,51 @@ const agentSchema = new mongoose.Schema(
       type: Number,
       default: 1,
     },
+
+    // ============================================
+    // Engine Configuration
+    // ============================================
+    engineConfig: {
+      generatePrecise: { type: Boolean, default: false },
+      wordsToWait: { type: Number, default: 2 },
+      responseRate: { type: String, default: "Rapid" },
+      endpointing: { type: Number, default: 200 },
+      linearDelay: { type: Number, default: 300 },
+    },
+
+    // ============================================
+    // Call Configuration
+    // ============================================
+    callConfig: {
+      provider: { type: String, default: "Custom" },
+      dtmfEnabled: { type: Boolean, default: false },
+      noiseCancellation: { type: Boolean, default: false },
+      noiseCancellationLevel: { type: Number, default: 50 },
+      voicemailDetection: { type: Boolean, default: false },
+      voicemailTime: { type: Number, default: 2.5 },
+      hangupOnSilence: { type: Boolean, default: true },
+      hangupSilenceTime: { type: Number, default: 15 },
+      hangupByPrompt: { type: Boolean, default: true },
+      hangupPrompt: {
+        type: String,
+        default: "You are an AI assistant that determines whether a conversation is complete based on the transcript. A conversation is considered complete if any of the following conditions are met:",
+      },
+      hangupMessage: { type: String, default: "Call will now disconnect" },
+      terminationTime: { type: Number, default: 400 },
+    },
+
+    // ============================================
+    // Analytics Configuration
+    // ============================================
+    analyticsConfig: {
+      summarization: { type: Boolean, default: false },
+      extraction: { type: Boolean, default: false },
+      extractionPrompt: {
+        type: String,
+        default: "user_name : Yield the name of the user.\n    payment_mode : If user is paying by cash, yield cash. If they are paying by card yield...",
+      },
+      webhookUrl: { type: String, default: "" },
+    },
   },
   { timestamps: true }
 );

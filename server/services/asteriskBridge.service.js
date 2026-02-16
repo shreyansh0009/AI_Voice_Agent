@@ -246,6 +246,7 @@ class CallSession {
       this.startStepId = flow.startStep;
       this.flow = flow; // Store flow for processTurn
       this.agentConfig = agent.agentConfig || {};
+      this.analyticsConfig = agent.analyticsConfig || { summarization: false, extraction: false };
       this.welcomeMessage =
         agent.welcome ||
         flow.steps?.greeting?.text?.en ||
@@ -947,17 +948,21 @@ class CallSession {
       // Add system prompt tokens (~500 tokens estimated)
       estimatedInputTokens += 500;
 
-      // Generate AI summary of the call (returns {summary, tokens})
-      const summaryResult = await generateCallSummary(this.fullTranscript, this.customerContext);
+      // Generate AI summary of the call ONLY if summarization is enabled
       let callSummary = null;
       let summaryInputTokens = 0;
       let summaryOutputTokens = 0;
 
-      if (summaryResult) {
-        callSummary = summaryResult.summary;
-        summaryInputTokens = summaryResult.tokens?.input || 0;
-        summaryOutputTokens = summaryResult.tokens?.output || 0;
-        console.log(`[${this.uuid}] Call summary generated (${summaryInputTokens}+${summaryOutputTokens} tokens)`);
+      if (this.analyticsConfig?.summarization) {
+        const summaryResult = await generateCallSummary(this.fullTranscript, this.customerContext);
+        if (summaryResult) {
+          callSummary = summaryResult.summary;
+          summaryInputTokens = summaryResult.tokens?.input || 0;
+          summaryOutputTokens = summaryResult.tokens?.output || 0;
+          console.log(`[${this.uuid}] Call summary generated (${summaryInputTokens}+${summaryOutputTokens} tokens)`);
+        }
+      } else {
+        console.log(`[${this.uuid}] Summarization disabled, skipping summary generation`);
       }
 
       // Add summary tokens to total LLM usage
@@ -965,9 +970,9 @@ class CallSession {
       const totalOutputTokens = estimatedOutputTokens + summaryOutputTokens;
 
       // Calculate all costs (now includes conversation + summary tokens)
-      const telephonyCost = Call.calculateTelephonyCost(duration);
+      const telephonyCost = await Call.calculateTelephonyCost(duration);
       const llmCostUSD = Call.calculateLLMCost(totalInputTokens, totalOutputTokens);
-      const totalCost = Call.calculateTotalCost(duration, totalInputTokens, totalOutputTokens);
+      const totalCost = await Call.calculateTotalCost(duration, totalInputTokens, totalOutputTokens);
 
       // Upload recording to Cloudinary
       let recordingUrl = null;
@@ -1037,8 +1042,8 @@ class CallSession {
             conversation: llmCostUSD * 83,
           },
         },
-        extracted_data: this.customerContext || {},
-        summary: callSummary, // AI-generated summary
+        extracted_data: this.analyticsConfig?.extraction ? (this.customerContext || {}) : {},
+        summary: callSummary, // AI-generated summary (null if disabled)
         error_message: null,
         status: "completed",
         user_number: this.callerNumber || this.calledNumber,

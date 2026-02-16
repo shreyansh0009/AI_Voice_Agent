@@ -15,12 +15,38 @@ import asteriskRoutes from "./asteriskRoutes.js";
 import phoneNumberRoutes from "./phoneNumberRoutes.js";
 import callRoutes from "./callRoutes.js";
 import paymentRoutes from "./paymentRoutes.js";
+import ExchangeRate from "../models/ExchangeRate.js";
 
 const router = express.Router();
 
 // Home route (login info)
 router.get("/", (req, res) => {
   res.json({ message: "Welcome! Please log in at /api/auth/login." });
+});
+
+// Exchange rate endpoint (no auth required - public)
+router.get("/exchange-rate", async (req, res) => {
+  try {
+    const doc = await ExchangeRate.findOne({ baseCurrency: "USD" });
+    if (!doc) {
+      return res.json({
+        success: true,
+        baseCurrency: "USD",
+        rates: { INR: 85 },
+        lastUpdated: null,
+        isFallback: true,
+      });
+    }
+    res.json({
+      success: true,
+      baseCurrency: doc.baseCurrency,
+      rates: doc.rates,
+      lastUpdated: doc.lastUpdated,
+      isFallback: false,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 // Health check

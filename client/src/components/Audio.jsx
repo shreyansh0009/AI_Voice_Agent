@@ -41,9 +41,8 @@ const SliderField = ({
       onChange={(e) => onChange(e.target.value)}
       className="w-full h-2 rounded-lg appearance-none cursor-pointer"
       style={{
-        background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${
-          ((value - min) / (max - min)) * 100
-        }%, #e2e8f0 ${((value - min) / (max - min)) * 100}%, #e2e8f0 100%)`,
+        background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${((value - min) / (max - min)) * 100
+          }%, #e2e8f0 ${((value - min) / (max - min)) * 100}%, #e2e8f0 100%)`,
       }}
     />
     {info && <p className="text-xs text-slate-500 mt-2">{info}</p>}
@@ -86,6 +85,7 @@ export default function Audio({
 
   const transcriberModelOptions = [
     { value: "nova-2", label: "nova-2" },
+    { value: "nova-3", label: "nova-3" },
     { value: "nova", label: "nova" },
     { value: "base", label: "base" },
   ];

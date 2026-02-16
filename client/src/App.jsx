@@ -13,6 +13,8 @@ import AgentSetup from "./pages/AgentSetup";
 import CallHistory from "./components/CallHistory";
 import MyNumbers from "./components/MyNumbers";
 import Workplace from "./components/Workplace";
+import KnowledgeBase from "./components/KnowledgeBase";
+import Provider from "./components/Provider";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import { ToastContainer } from "./components/Toast";
@@ -44,7 +46,7 @@ function DashboardWrapper() {
   if (role === "admin") {
     return <AdminDashboard />;
   }
-  return <Dashboard />;
+  return <AgentSetup />;
 }
 
 function App() {
@@ -66,6 +68,8 @@ function App() {
                       <Route path="/callHistory" element={<CallHistory />} />
                       <Route path="/phones" element={<MyNumbers />} />
                       <Route path="/workplace" element={<Workplace />} />
+                      <Route path="/knowledgeBase" element={<KnowledgeBase />} />
+                      <Route path="/providers" element={<Provider />} />
                     </Routes>
                   </Layout>
                 </PrivateRoute>

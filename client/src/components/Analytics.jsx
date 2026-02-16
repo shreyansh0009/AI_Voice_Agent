@@ -1,12 +1,39 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
-export default function Analytics() {
-  const [summarization, setSummarization] = useState(false);
-  const [extraction, setExtraction] = useState(false);
+export default function Analytics({
+  analyticsConfig = {},
+  onChange = () => { }
+}) {
+  const [summarization, setSummarization] = useState(analyticsConfig.summarization || false);
+  const [extraction, setExtraction] = useState(analyticsConfig.extraction || false);
   const [extractionPrompt, setExtractionPrompt] = useState(
+    analyticsConfig.extractionPrompt ||
     `user_name : Yield the name of the user.\n    payment_mode : If user is paying by cash, yield cash. If they are paying by card yield...`
   );
-  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookUrl, setWebhookUrl] = useState(analyticsConfig.webhookUrl || "");
+
+  // Sync from parent when loading a saved agent
+  useEffect(() => {
+    if (analyticsConfig && Object.keys(analyticsConfig).length > 0) {
+      setSummarization(analyticsConfig.summarization || false);
+      setExtraction(analyticsConfig.extraction || false);
+      setExtractionPrompt(
+        analyticsConfig.extractionPrompt ||
+        `user_name : Yield the name of the user.\n    payment_mode : If user is paying by cash, yield cash. If they are paying by card yield...`
+      );
+      setWebhookUrl(analyticsConfig.webhookUrl || "");
+    }
+  }, [analyticsConfig]);
+
+  // Notify parent of any changes
+  useEffect(() => {
+    onChange({
+      summarization,
+      extraction,
+      extractionPrompt,
+      webhookUrl,
+    });
+  }, [summarization, extraction, extractionPrompt, webhookUrl]);
 
   return (
     <div className="space-y-6">
@@ -28,14 +55,12 @@ export default function Analytics() {
         </div>
         <button
           onClick={() => setSummarization(!summarization)}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-            summarization ? "bg-blue-600" : "bg-gray-200"
-          }`}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${summarization ? "bg-blue-600" : "bg-gray-200"
+            }`}
         >
           <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-              summarization ? "translate-x-6" : "translate-x-1"
-            }`}
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${summarization ? "translate-x-6" : "translate-x-1"
+              }`}
           />
         </button>
       </div>
@@ -51,21 +76,21 @@ export default function Analytics() {
           </div>
           <button
             onClick={() => setExtraction(!extraction)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-              extraction ? "bg-blue-600" : "bg-gray-200"
-            }`}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${extraction ? "bg-blue-600" : "bg-gray-200"
+              }`}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                extraction ? "translate-x-6" : "translate-x-1"
-              }`}
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${extraction ? "translate-x-6" : "translate-x-1"
+                }`}
             />
           </button>
         </div>
         <textarea
           value={extractionPrompt}
           onChange={(e) => setExtractionPrompt(e.target.value)}
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+          disabled={!extraction}
+          className={`w-full rounded-md border border-gray-300 px-3 py-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none ${!extraction ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : 'bg-white'
+            }`}
           rows={4}
           placeholder="Enter extraction prompt..."
         />

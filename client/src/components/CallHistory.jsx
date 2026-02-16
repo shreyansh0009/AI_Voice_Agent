@@ -155,7 +155,7 @@ export default function CallHistory() {
   };
 
   const formatCost = (cost) => {
-    return `₹${(cost || 0).toFixed(2)}`;
+    return `$${(cost || 0).toFixed(4)}`;
   };
 
   const formatTimestamp = (timestamp) => {

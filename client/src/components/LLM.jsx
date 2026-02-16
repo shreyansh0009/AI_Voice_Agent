@@ -48,29 +48,27 @@ const SliderField = ({ label, value, onChange, min = 0, max = 2, step = 0.1, inf
   </div>
 );
 
-export default function LLM({ 
-  provider, 
-  onProviderChange, 
-  model, 
-  onModelChange, 
-  maxTokens, 
-  onMaxTokensChange, 
-  temperature, 
-  onTemperatureChange 
+export default function LLM({
+  provider,
+  onProviderChange,
+  model,
+  onModelChange,
+  maxTokens,
+  onMaxTokensChange,
+  temperature,
+  onTemperatureChange
 }) {
   const providerOptions = [
     { value: "Openai", label: "OpenAI" },
     { value: "Agentforce", label: "Agentforce" },
   ];
-  
+
   // Provider-specific model configurations
   const providerConfigs = {
     Openai: {
       models: [
-        { value: "gpt-4o", label: "gpt-4o" },
         { value: "gpt-4o-mini", label: "gpt-4o-mini" },
-        { value: "gpt-4-turbo", label: "gpt-4-turbo" },
-        { value: "gpt-4", label: "gpt-4" },
+        { value: "gpt-4.1-mini", label: "gpt-4.1-mini" },
         { value: "gpt-3.5-turbo", label: "gpt-3.5-turbo" },
       ],
       showModelSelector: true
@@ -98,20 +96,20 @@ export default function LLM({
   return (
     <div className="max-w-4xl">
       <h2 className="text-lg font-semibold mb-6">Choose LLM model</h2>
-      
+
       <div className={`grid ${currentConfig.showModelSelector ? 'grid-cols-2' : 'grid-cols-1'} gap-6 mb-6`}>
-        <SelectField 
-          label="Provider" 
-          value={provider} 
-          onChange={handleProviderChange} 
-          options={providerOptions} 
+        <SelectField
+          label="Provider"
+          value={provider}
+          onChange={handleProviderChange}
+          options={providerOptions}
         />
         {currentConfig.showModelSelector && (
-          <SelectField 
-            label="Model" 
-            value={model} 
-            onChange={onModelChange} 
-            options={currentConfig.models} 
+          <SelectField
+            label="Model"
+            value={model}
+            onChange={onModelChange}
+            options={currentConfig.models}
           />
         )}
       </div>
@@ -126,7 +124,7 @@ export default function LLM({
           step={1}
           info="Increasing tokens enables longer responses to be queued for speech generation but increases latency"
         />
-        
+
         <SliderField
           label="Temperature"
           value={temperature}

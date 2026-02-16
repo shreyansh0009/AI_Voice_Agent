@@ -20,6 +20,7 @@ import { connectDB } from "./config/database.js";
 import freeswitchRoutes from "./routes/freeswitchRoutes.js";
 import audioSocketServer from "./services/asteriskBridge.service.js";
 import { startSubscriptionCron } from "./cron/subscriptionCron.js";
+import { startExchangeRateCron } from "./cron/exchangeRateCron.js";
 
 const app = express();
 
@@ -147,6 +148,9 @@ if (config.env !== "production") {
 
     // Start subscription expiry cron job
     startSubscriptionCron();
+
+    // Start exchange rate cron job
+    startExchangeRateCron();
   });
 
   // Start AudioSocket server for Asterisk telephony (only in non-serverless)

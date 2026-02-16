@@ -85,9 +85,8 @@ export const uploadKnowledgeFiles = asyncHandler(async (req, res) => {
 
     // Step 2: Upload to Cloudinary
     console.log("☁️  Uploading to Cloudinary...");
-    const uniquePublicId = `${Date.now()}-${Math.round(Math.random() * 1e9)}-${
-      file.originalname
-    }`;
+    const uniquePublicId = `${Date.now()}-${Math.round(Math.random() * 1e9)}-${file.originalname
+      }`;
     cloudinaryResult = await cloudinary.uploader.upload(file.path, {
       folder: "ai-voice-crm/knowledge-base",
       resource_type: "raw",
@@ -123,6 +122,7 @@ export const uploadKnowledgeFiles = asyncHandler(async (req, res) => {
       userId,
       tags: parsedTags,
       processedForRAG: !!textContent,
+      status: "processed",
     });
 
     await fileDoc.save();
@@ -137,6 +137,27 @@ export const uploadKnowledgeFiles = asyncHandler(async (req, res) => {
     console.error("❌ Error processing file:", error);
     fileInfo.error = error.message;
     fileInfo.status = "failed";
+
+    // Save the file record with error status so it shows in the list
+    try {
+      const fileDoc = new File({
+        fileName: fileInfo.fileName,
+        originalName: fileInfo.originalName,
+        cloudinaryUrl: fileInfo.cloudinaryUrl || "N/A",
+        cloudinaryPublicId: fileInfo.cloudinaryPublicId || "N/A",
+        size: fileInfo.size,
+        mimeType: fileInfo.mimeType,
+        agentId,
+        userId,
+        tags: parsedTags,
+        processedForRAG: false,
+        status: "error",
+      });
+      await fileDoc.save();
+      fileInfo._id = fileDoc._id;
+    } catch (saveError) {
+      console.error("Error saving failed file record:", saveError);
+    }
 
     // Clean up temp file on error
     try {

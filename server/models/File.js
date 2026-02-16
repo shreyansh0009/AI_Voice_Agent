@@ -60,6 +60,11 @@ const fileSchema = new mongoose.Schema({
     type: [String],
     default: [],
   },
+  status: {
+    type: String,
+    enum: ["processing", "processed", "error"],
+    default: "processing",
+  },
 });
 
 // Compound index for domain + agent queries

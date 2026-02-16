@@ -3,6 +3,7 @@ import axios from 'axios';
 import { toast } from 'react-toastify';
 import { FiExternalLink } from 'react-icons/fi';
 import { MdAdd, MdHelpOutline, MdClose } from 'react-icons/md';
+import DateRangePicker from './DateRangePicker';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -390,15 +391,347 @@ const ComplianceSettings = () => {
 
 // Invoices Tab Component
 const Invoices = () => {
-    return (
-        <div className="text-center py-12">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
+    const [transactions, setTransactions] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [filters, setFilters] = useState({
+        invoiceId: '',
+        status: 'all',
+        itemType: 'all',
+        dateFrom: '',
+        dateTo: ''
+    });
+    const [pagination, setPagination] = useState({
+        page: 1,
+        limit: 20,
+        total: 0,
+        pages: 0
+    });
+
+    useEffect(() => {
+        fetchTransactions();
+    }, [pagination.page]);
+
+    const fetchTransactions = async () => {
+        try {
+            setLoading(true);
+            const token = localStorage.getItem('token');
+            const res = await axios.get(
+                `${API_URL}/api/payments/transactions?page=${pagination.page}&limit=${pagination.limit}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            if (res.data.success) {
+                setTransactions(res.data.transactions);
+                setPagination(prev => ({
+                    ...prev,
+                    ...res.data.pagination
+                }));
+            }
+        } catch (error) {
+            console.error('Error fetching transactions:', error);
+            toast.error('Failed to load transactions');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Filter transactions based on filters
+    const filteredTransactions = transactions.filter(txn => {
+        if (filters.invoiceId && !txn._id.includes(filters.invoiceId)) {
+            return false;
+        }
+
+        // Status filter with display status matching
+        if (filters.status !== 'all') {
+            const isPhonePurchase = txn.description && txn.description.toLowerCase().includes('phone');
+
+            if (filters.status === 'subscription_active') {
+                // Only completed phone purchases
+                if (!(txn.status === 'completed' && isPhonePurchase)) {
+                    return false;
+                }
+            } else if (filters.status === 'fulfilled') {
+                // Only completed non-phone transactions (wallet top-ups, etc.)
+                if (!(txn.status === 'completed' && !isPhonePurchase)) {
+                    return false;
+                }
+            } else if (filters.status === 'subscription_fulfilled') {
+                // Fulfilled subscriptions (if you have this status in backend)
+                if (txn.status !== 'subscription_fulfilled') {
+                    return false;
+                }
+            } else if (filters.status === 'subscription_due') {
+                // Due subscriptions
+                if (txn.status !== 'subscription_due') {
+                    return false;
+                }
+            } else if (filters.status === 'subscription_canceled') {
+                // Canceled subscriptions
+                if (txn.status !== 'canceled') {
+                    return false;
+                }
+            } else if (filters.status === 'due_invoices') {
+                // Due invoices (pending status)
+                if (txn.status !== 'pending') {
+                    return false;
+                }
+            }
+        }
+
+
+        // Item type filter - show all transactions of that type regardless of status
+        if (filters.itemType !== 'all') {
+            if (filters.itemType === 'phone') {
+                // Show all phone number related transactions
+                if (!txn.description.toLowerCase().includes('phone')) {
+                    return false;
+                }
+            } else if (filters.itemType === 'credits') {
+                // Show all wallet top-up/credit related transactions (non-phone)
+                if (txn.description.toLowerCase().includes('phone')) {
+                    return false; // Exclude phone transactions
+                }
+                // Include if it's a credit/wallet related transaction
+                if (!txn.description.toLowerCase().includes('credit') &&
+                    !txn.description.toLowerCase().includes('wallet') &&
+                    !txn.description.toLowerCase().includes('top-up') &&
+                    !txn.description.toLowerCase().includes('topup')) {
+                    return false;
+                }
+            } else if (filters.itemType === 'subscription') {
+                // Show subscription related transactions
+                if (!txn.description.toLowerCase().includes('subscription')) {
+                    return false;
+                }
+            }
+        }
+        // Date range filter
+        if (filters.dateFrom || filters.dateTo) {
+            const txnDate = new Date(txn.createdAt).toISOString().split('T')[0];
+            if (filters.dateFrom && txnDate < filters.dateFrom) {
+                return false;
+            }
+            if (filters.dateTo && txnDate > filters.dateTo) {
+                return false;
+            }
+        }
+        return true;
+    });
+
+    // Format date
+    const formatDate = (dateStr) => {
+        const date = new Date(dateStr);
+        const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const day = date.getDate();
+        const suffix = day === 1 || day === 21 || day === 31 ? 'st' : day === 2 || day === 22 ? 'nd' : day === 3 || day === 23 ? 'rd' : 'th';
+
+        return `${months[date.getMonth()]} ${day}${suffix}, ${date.getFullYear()} at ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })} GMT+5:30`;
+    };
+
+    // Get status badge
+    const StatusBadge = ({ status, description }) => {
+        // Check if it's a phone number purchase
+        const isPhonePurchase = description && description.toLowerCase().includes('phone');
+
+        // Determine the actual display status
+        let displayStatus = status;
+        let displayLabel = '';
+        let displayStyle = '';
+
+        if (status === 'completed') {
+            if (isPhonePurchase) {
+                // Phone purchase completed = subscription active
+                displayLabel = 'Subscription active';
+                displayStyle = 'bg-sky-50 text-blue-600 border-blue-200';
+            } else {
+                // Wallet top-up or other = fulfilled
+                displayLabel = 'Fulfilled';
+                displayStyle = 'bg-green-50 text-green-700 border-green-200';
+            }
+        } else if (status === 'pending') {
+            displayLabel = 'Pending';
+            displayStyle = 'bg-yellow-50 text-yellow-700 border-yellow-200';
+        } else if (status === 'failed') {
+            displayLabel = 'Failed';
+            displayStyle = 'bg-red-50 text-red-700 border-red-200';
+        } else if (status === 'expired') {
+            // Subscription expired
+            displayLabel = 'Subscription expired';
+            displayStyle = 'bg-red-50 text-red-700 border-red-200';
+        } else {
+            // Default fallback
+            displayLabel = status;
+            displayStyle = 'bg-gray-50 text-gray-700 border-gray-200';
+        }
+
+        return (
+            <span className={`px-3 py-1 rounded-full text-xs font-medium border ${displayStyle}`}>
+                {displayLabel}
+            </span>
+        );
+    };
+
+    // Download invoice (placeholder)
+    const handleDownload = (txn) => {
+        toast.info('Invoice download feature coming soon');
+    };
+
+    if (loading && transactions.length === 0) {
+        return (
+            <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-gray-500 mt-4">Loading transactions...</p>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No invoices yet</h3>
-            <p className="text-gray-500">Your invoices will appear here after your first payment</p>
+        );
+    }
+
+    if (!loading && transactions.length === 0) {
+        return (
+            <div className="text-center py-12">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No invoices yet</h3>
+                <p className="text-gray-500">Your invoices will appear here after your first payment</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6">
+            {/* Filters */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <input
+                    type="text"
+                    placeholder="Filter by Invoice ID..."
+                    value={filters.invoiceId}
+                    onChange={(e) => setFilters({ ...filters, invoiceId: e.target.value })}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+
+                <select
+                    value={filters.status}
+                    onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                    <option value="all">All Statuses</option>
+                    <option value="subscription_active">Subscription Active</option>
+                    <option value="fulfilled">Fulfilled</option>
+                    <option value="subscription_fulfilled">Subscription Fulfilled</option>
+                    <option value="subscription_due">Subscription Due</option>
+                    <option value="subscription_canceled">Subscription Canceled</option>
+                    <option value="due_invoices">Due Invoices</option>
+                </select>
+
+                <select
+                    value={filters.itemType}
+                    onChange={(e) => setFilters({ ...filters, itemType: e.target.value })}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                    <option value="all">All Item Types</option>
+                    <option value="phone">Phone number</option>
+                    <option value="credits">Credits</option>
+                </select>
+
+                <DateRangePicker
+                    dateFrom={filters.dateFrom}
+                    dateTo={filters.dateTo}
+                    onChange={(dates) => setFilters({ ...filters, ...dates })}
+                />
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                <table className="w-full text-xs">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                            <th className="px-2 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Invoice ID</th>
+                            <th className="px-2 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Item value</th>
+                            <th className="px-2 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Item type</th>
+                            <th className="px-2 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                            <th className="px-2 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Download</th>
+                            <th className="px-2 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th className="px-2 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                            <th className="px-2 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Created on</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-100">
+                        {filteredTransactions.map((txn) => (
+                            <tr key={txn._id} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-2 py-3 text-[11px] text-gray-900 font-mono max-w-[120px] truncate" title={txn._id}>{txn._id}</td>
+                                <td className="px-2 py-3 text-[11px] text-gray-900">
+                                    {txn.metadata?.phoneNumber || txn.amount || '-'}
+                                </td>
+                                <td className="px-2 py-3 text-[11px] text-gray-700">
+                                    {txn.description.includes('phone') ? '1 IN phone number' :
+                                        txn.description.includes('credit') ? 'credits' :
+                                            txn.description}
+                                </td>
+                                <td className="px-2 py-3 text-[11px] text-gray-900 font-medium">
+                                    $ {txn.amount.toFixed(1)}
+                                </td>
+                                <td className="px-2 py-3">
+                                    <button
+                                        onClick={() => handleDownload(txn)}
+                                        className="text-gray-400 hover:text-gray-600 transition-colors"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                        </svg>
+                                    </button>
+                                </td>
+                                <td className="px-2 py-3">
+                                    <StatusBadge status={txn.status} description={txn.description} />
+                                </td>
+                                <td className="px-2 py-3 text-[11px] text-gray-500">-</td>
+                                <td className="px-2 py-3 text-[11px] text-gray-700 whitespace-nowrap">
+                                    {formatDate(txn.createdAt)}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Empty state for filtered results */}
+            {filteredTransactions.length === 0 && transactions.length > 0 && (
+                <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">No data found</h3>
+                    <p className="text-gray-500 text-sm">Try adjusting your filters to see more results</p>
+                </div>
+            )}
+
+            {/* Pagination */}
+            {pagination.pages > 1 && (
+                <div className="flex items-center justify-between pt-4">
+                    <p className="text-sm text-gray-500">
+                        Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} transactions
+                    </p>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
+                            disabled={pagination.page === 1}
+                            className="px-3 py-1 border border-gray-200 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                        >
+                            Previous
+                        </button>
+                        <button
+                            onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
+                            disabled={pagination.page === pagination.pages}
+                            className="px-3 py-1 border border-gray-200 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                        >
+                            Next
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
