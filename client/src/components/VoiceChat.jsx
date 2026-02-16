@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { BiMicrophone, BiStop, BiVolumeFull, BiTrash } from "react-icons/bi";
-import { createClient } from "@deepgram/sdk";
+//import { createClient } from "@deepgram/sdk";
 import axios from "axios";
 
 const VoiceChat = ({
