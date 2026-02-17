@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { loadRazorpay } from '../utils/razorpayLoader';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { FiExternalLink } from 'react-icons/fi';
@@ -69,6 +70,7 @@ const AddFundsModal = ({ isOpen, onClose, onSuccess }) => {
                 }
             };
 
+            await loadRazorpay();
             const razorpay = new window.Razorpay(options);
             razorpay.open();
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { loadRazorpay } from "../utils/razorpayLoader";
 import axios from "axios";
 import api from "../utils/api";
 import { MdAdd, MdClose } from "react-icons/md";
@@ -381,6 +382,7 @@ function AddFundsContent({ onSuccess, onClose }) {
                 theme: { color: "#3B82F6" },
             };
 
+            await loadRazorpay();
             const rzp = new window.Razorpay(options);
             rzp.open();
         } catch (err) {
@@ -399,8 +401,8 @@ function AddFundsContent({ onSuccess, onClose }) {
                         key={preset}
                         onClick={() => setAmount(preset)}
                         className={`px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${amount === preset
-                                ? "bg-blue-600 text-white border-blue-600"
-                                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                             }`}
                     >
                         ${preset}

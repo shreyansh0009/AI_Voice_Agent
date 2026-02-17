@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -7,29 +7,39 @@ import {
   useLocation,
 } from "react-router-dom";
 import Layout from "./components/Layout";
-import AdminDashboard from "./pages/AdminDashboard";
-import AgentSetup from "./pages/AgentSetup";
-import CallHistory from "./components/CallHistory";
-import MyNumbers from "./components/MyNumbers";
-import Workplace from "./components/Workplace";
-import KnowledgeBase from "./components/KnowledgeBase";
-import Provider from "./components/Provider";
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
 import { ToastContainer } from "./components/Toast";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+
+// Lazy-loaded page components — each becomes its own chunk
+const AdminDashboard = React.lazy(() => import("./pages/AdminDashboard"));
+const AgentSetup = React.lazy(() => import("./pages/AgentSetup"));
+const CallHistory = React.lazy(() => import("./components/CallHistory"));
+const MyNumbers = React.lazy(() => import("./components/MyNumbers"));
+const Workplace = React.lazy(() => import("./components/Workplace"));
+const KnowledgeBase = React.lazy(() => import("./components/KnowledgeBase"));
+const Provider = React.lazy(() => import("./components/Provider"));
+const Login = React.lazy(() => import("./pages/Login"));
+const Signup = React.lazy(() => import("./pages/Signup"));
+
+// Minimal loading fallback
+function PageLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+        <span className="text-sm text-gray-500">Loading...</span>
+      </div>
+    </div>
+  );
+}
 
 function PrivateRoute({ children }) {
   const location = useLocation();
   const { loading, isAuthenticated } = useAuth();
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    );
+    return <PageLoader />;
   }
 
   if (!isAuthenticated) {
@@ -52,28 +62,32 @@ function App() {
     <ErrorBoundary>
       <AuthProvider>
         <Router>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
-            <Route
-              path="/*"
-              element={
-                <PrivateRoute>
-                  <Layout>
-                    <Routes>
-                      <Route path="/" element={<HomeRedirect />} />
-                      <Route path="/voice" element={<AgentSetup />} />
-                      <Route path="/callHistory" element={<CallHistory />} />
-                      <Route path="/phones" element={<MyNumbers />} />
-                      <Route path="/workplace" element={<Workplace />} />
-                      <Route path="/knowledgeBase" element={<KnowledgeBase />} />
-                      <Route path="/providers" element={<Provider />} />
-                    </Routes>
-                  </Layout>
-                </PrivateRoute>
-              }
-            />
-          </Routes>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
+              <Route
+                path="/*"
+                element={
+                  <PrivateRoute>
+                    <Layout>
+                      <Suspense fallback={<PageLoader />}>
+                        <Routes>
+                          <Route path="/" element={<HomeRedirect />} />
+                          <Route path="/voice" element={<AgentSetup />} />
+                          <Route path="/callHistory" element={<CallHistory />} />
+                          <Route path="/phones" element={<MyNumbers />} />
+                          <Route path="/workplace" element={<Workplace />} />
+                          <Route path="/knowledgeBase" element={<KnowledgeBase />} />
+                          <Route path="/providers" element={<Provider />} />
+                        </Routes>
+                      </Suspense>
+                    </Layout>
+                  </PrivateRoute>
+                }
+              />
+            </Routes>
+          </Suspense>
           <ToastContainer />
         </Router>
       </AuthProvider>

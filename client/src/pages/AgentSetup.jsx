@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { loadRazorpay } from "../utils/razorpayLoader";
 import LLM from "../components/LLM.jsx";
 import Audio from "../components/Audio.jsx";
 import Engine from "../components/Engine.jsx";
@@ -2103,6 +2104,7 @@ function AddFundsContent({ onSuccess, onClose }) {
         }
       };
 
+      await loadRazorpay();
       const razorpay = new window.Razorpay(options);
       razorpay.open();
 

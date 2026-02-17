@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { loadRazorpay } from "../utils/razorpayLoader";
 import axios from "axios";
 import { MdAdd, MdClose } from "react-icons/md";
 import { FiHelpCircle, FiSettings, FiLink } from "react-icons/fi";
@@ -346,6 +347,7 @@ function AddFundsContent({ onSuccess, onClose }) {
                 theme: { color: "#3B82F6" },
             };
 
+            await loadRazorpay();
             const rzp = new window.Razorpay(options);
             rzp.open();
         } catch (err) {
