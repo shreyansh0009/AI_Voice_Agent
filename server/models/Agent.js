@@ -104,6 +104,14 @@ const agentSchema = new mongoose.Schema(
     },
 
     // ============================================
+    // Knowledge Base Configuration
+    // ============================================
+    knowledgeBaseFiles: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'File'
+    }],
+
+    // ============================================
     // Audio Configuration
     // ============================================
     language: {

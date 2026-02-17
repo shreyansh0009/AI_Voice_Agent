@@ -6,6 +6,8 @@ import {
   updateAgent,
   deleteAgent,
   generateAgentConfig,
+  linkKnowledgeFiles,
+  unlinkKnowledgeFile,
 } from "../controllers/agentController.js";
 import { authenticate } from "../middleware/authMiddleware.js";
 
@@ -20,5 +22,9 @@ router.get("/", getAgents);
 router.get("/:id", getAgentById);
 router.put("/:id", updateAgent);
 router.delete("/:id", deleteAgent);
+
+// Knowledge base linking
+router.put("/:id/knowledge", linkKnowledgeFiles);
+router.delete("/:id/knowledge/:fileId", unlinkKnowledgeFile);
 
 export default router;

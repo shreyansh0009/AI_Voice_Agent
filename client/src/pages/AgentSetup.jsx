@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import LLM from "../components/LLM.jsx";
 import Audio from "../components/Audio.jsx";
-import VoiceChat from "../components/VoiceChat.jsx";
 import Engine from "../components/Engine.jsx";
 import Call from "../components/Call.jsx";
 import Tool from "../components/Tool.jsx";
@@ -23,7 +22,6 @@ const TABS = [
   "Agent",
   "LLM",
   "Audio",
-  "Voice",
   "Engine",
   "Call",
   "Tools",
@@ -56,6 +54,9 @@ export default function AgentSetupSingle() {
   const [voice, setVoice] = useState("manisha");
   const [bufferSize, setBufferSize] = useState(153);
   const [speedRate, setSpeedRate] = useState(1);
+
+  // Knowledge Base
+  const [knowledgeBaseFiles, setKnowledgeBaseFiles] = useState([]);
 
   // State to store all created agents
   const [savedAgents, setSavedAgents] = useState([]);
@@ -551,6 +552,8 @@ export default function AgentSetupSingle() {
     setLlmModel(agent.llmModel || "gpt-4o-mini");
     setMaxTokens(agent.maxTokens || 1007);
     setTemperature(agent.temperature || 0.7);
+    // Load Knowledge Base
+    setKnowledgeBaseFiles(agent.knowledgeBaseFiles || []);
     // Load Audio Configuration
     setLanguage(agent.language || "English (India)");
     setTranscriberProvider(agent.transcriberProvider || "Deepgram");
@@ -1471,6 +1474,9 @@ export default function AgentSetupSingle() {
                   onMaxTokensChange={setMaxTokens}
                   temperature={temperature}
                   onTemperatureChange={setTemperature}
+                  agentId={selectedAgentId}
+                  knowledgeBaseFiles={knowledgeBaseFiles}
+                  onKnowledgeBaseChange={setKnowledgeBaseFiles}
                 />
               </section>
             )}
@@ -1813,29 +1819,7 @@ export default function AgentSetupSingle() {
                 )}
               </div>
             </section>
-            <section
-              style={{ display: activeTab === "Voice" ? "block" : "none" }}
-            >
-              <VoiceChat
-                systemPrompt={prompt}
-                agentName={agentName}
-                agentId={selectedAgentId}
-                welcomeMessage={welcome}
-                useRAG={uploadedFiles.length > 0}
-                llmProvider={llmProvider}
-                llmModel={llmModel}
-                maxTokens={maxTokens}
-                temperature={temperature}
-                language={language}
-                transcriberProvider={transcriberProvider}
-                transcriberModel={transcriberModel}
-                voiceProvider={voiceProvider}
-                voiceModel={voiceModel}
-                voice={voice}
-                bufferSize={bufferSize}
-                speedRate={speedRate}
-              />
-            </section>
+
             {activeTab === "Engine" && (
               <section>
                 <Engine

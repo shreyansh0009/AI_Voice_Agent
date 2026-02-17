@@ -1,4 +1,5 @@
 import Agent from "../models/Agent.js";
+import File from "../models/File.js";
 import { config } from "../config/index.js";
 import OpenAI from "openai";
 
@@ -279,5 +280,75 @@ export const deleteAgent = async (req, res) => {
     res
       .status(500)
       .json({ message: "Failed to delete agent", error: error.message });
+  }
+};
+
+// Link knowledge base files to an agent
+export const linkKnowledgeFiles = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fileIds } = req.body;
+    const userId = req.user.id;
+
+    if (!Array.isArray(fileIds)) {
+      return res.status(400).json({ message: "fileIds must be an array" });
+    }
+
+    // Verify agent belongs to user
+    const agent = await Agent.findOne({ _id: id, userId });
+    if (!agent) {
+      return res.status(404).json({ message: "Agent not found" });
+    }
+
+    // Verify all files exist, belong to user, and are processed
+    const validFiles = await File.find({
+      _id: { $in: fileIds },
+      userId,
+      status: "processed",
+    });
+
+    const validFileIds = validFiles.map(f => f._id);
+
+    agent.knowledgeBaseFiles = validFileIds;
+    await agent.save();
+
+    // Populate file details for the response
+    await agent.populate('knowledgeBaseFiles');
+
+    res.status(200).json({
+      message: "Knowledge base files linked successfully",
+      knowledgeBaseFiles: agent.knowledgeBaseFiles,
+    });
+  } catch (error) {
+    console.error("Error linking knowledge files:", error);
+    res.status(500).json({ message: "Failed to link knowledge files", error: error.message });
+  }
+};
+
+// Unlink a knowledge base file from an agent
+export const unlinkKnowledgeFile = async (req, res) => {
+  try {
+    const { id, fileId } = req.params;
+    const userId = req.user.id;
+
+    const agent = await Agent.findOne({ _id: id, userId });
+    if (!agent) {
+      return res.status(404).json({ message: "Agent not found" });
+    }
+
+    agent.knowledgeBaseFiles = agent.knowledgeBaseFiles.filter(
+      (fId) => fId.toString() !== fileId
+    );
+    await agent.save();
+
+    await agent.populate('knowledgeBaseFiles');
+
+    res.status(200).json({
+      message: "Knowledge base file unlinked successfully",
+      knowledgeBaseFiles: agent.knowledgeBaseFiles,
+    });
+  } catch (error) {
+    console.error("Error unlinking knowledge file:", error);
+    res.status(500).json({ message: "Failed to unlink knowledge file", error: error.message });
   }
 };

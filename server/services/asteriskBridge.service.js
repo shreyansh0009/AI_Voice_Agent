@@ -246,6 +246,7 @@ class CallSession {
       this.startStepId = flow.startStep;
       this.flow = flow; // Store flow for processTurn
       this.agentConfig = agent.agentConfig || {};
+      this.knowledgeBaseFiles = agent.knowledgeBaseFiles || [];
       this.analyticsConfig = agent.analyticsConfig || { summarization: false, extraction: false };
       this.welcomeMessage =
         agent.welcome ||
@@ -552,6 +553,8 @@ class CallSession {
           // Pass same options as web chat
           language: this.language,
           systemPrompt: this.systemPrompt, // Full script (same as web)
+          useRAG: this.knowledgeBaseFiles.length > 0, // Enable RAG only if agent has linked knowledge base files
+          agentId: this.agentId,
         },
       );
 
