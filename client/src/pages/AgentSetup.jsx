@@ -197,7 +197,7 @@ export default function AgentSetupSingle() {
   };
 
   // Fetch wallet balance
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+  const API_URL = import.meta.env.VITE_API_URL || "";
 
   const fetchWalletBalance = async () => {
     try {
@@ -2050,7 +2050,7 @@ function AddFundsContent({ onSuccess, onClose }) {
   const [amount, setAmount] = useState(10);
   const [loading, setLoading] = useState(false);
   const presetAmounts = [5, 10, 25, 50, 100];
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+  const API_URL = import.meta.env.VITE_API_URL || "";
 
   const handlePayment = async () => {
     setLoading(true);

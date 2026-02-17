@@ -5,7 +5,7 @@ import api from "../utils/api";
 import { MdAdd, MdClose } from "react-icons/md";
 import { FiTrash2, FiHelpCircle, FiSettings } from "react-icons/fi";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 export default function KnowledgeBase() {
     const [files, setFiles] = useState([]);
