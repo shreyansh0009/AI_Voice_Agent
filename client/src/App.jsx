@@ -7,7 +7,6 @@ import {
   useLocation,
 } from "react-router-dom";
 import Layout from "./components/Layout";
-import Dashboard from "./pages/dashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import AgentSetup from "./pages/AgentSetup";
 import CallHistory from "./components/CallHistory";
@@ -40,13 +39,12 @@ function PrivateRoute({ children }) {
   return children;
 }
 
-function DashboardWrapper() {
+function HomeRedirect() {
   const { role } = useAuth();
-  // Role can be 'user' or 'admin'
   if (role === "admin") {
     return <AdminDashboard />;
   }
-  return <AgentSetup />;
+  return <Navigate to="/voice" replace />;
 }
 
 function App() {
@@ -63,7 +61,7 @@ function App() {
                 <PrivateRoute>
                   <Layout>
                     <Routes>
-                      <Route path="/" element={<DashboardWrapper />} />
+                      <Route path="/" element={<HomeRedirect />} />
                       <Route path="/voice" element={<AgentSetup />} />
                       <Route path="/callHistory" element={<CallHistory />} />
                       <Route path="/phones" element={<MyNumbers />} />
