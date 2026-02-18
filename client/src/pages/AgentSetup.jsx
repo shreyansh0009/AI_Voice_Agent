@@ -91,27 +91,6 @@ export default function AgentSetupSingle() {
   // Loading state for pre-built agent generation
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // Snapshot of saved agent fields for dirty-state detection
-  const savedSnapshot = useRef(null);
-
-  // Helper to build a snapshot object from current state
-  const buildSnapshot = (fields) => JSON.stringify(fields);
-
-  // Compute current snapshot from live state
-  const currentSnapshot = useMemo(() => buildSnapshot({
-    agentName, agentDomain, welcome, prompt,
-    llmProvider, llmModel, maxTokens, temperature,
-    language, transcriberProvider, transcriberModel,
-    voiceProvider, voiceModel, voice, bufferSize, speedRate,
-    engineConfig, callConfig, analyticsConfig,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [agentName, agentDomain, welcome, prompt, llmProvider, llmModel, maxTokens, temperature,
-    language, transcriberProvider, transcriberModel, voiceProvider, voiceModel, voice,
-    bufferSize, speedRate, engineConfig, callConfig, analyticsConfig]);
-
-  // isDirty: true when current values differ from last saved snapshot
-  const isDirty = isNewAgent || savedSnapshot.current === null || currentSnapshot !== savedSnapshot.current;
-
   // Phone Number Linking state
   const [linkedPhoneNumber, setLinkedPhoneNumber] = useState(null);
   const [availablePhoneNumbers, setAvailablePhoneNumbers] = useState([]);
@@ -157,6 +136,27 @@ export default function AgentSetupSingle() {
     extractionPrompt: "user_name : Yield the name of the user.\n    payment_mode : If user is paying by cash, yield cash. If they are paying by card yield...",
     webhookUrl: "",
   });
+
+  // Snapshot of saved agent fields for dirty-state detection
+  const savedSnapshot = useRef(null);
+
+  // Helper to build a snapshot object from current state
+  const buildSnapshot = (fields) => JSON.stringify(fields);
+
+  // Compute current snapshot from live state (must be after all state declarations)
+  const currentSnapshot = useMemo(() => buildSnapshot({
+    agentName, agentDomain, welcome, prompt,
+    llmProvider, llmModel, maxTokens, temperature,
+    language, transcriberProvider, transcriberModel,
+    voiceProvider, voiceModel, voice, bufferSize, speedRate,
+    engineConfig, callConfig, analyticsConfig,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [agentName, agentDomain, welcome, prompt, llmProvider, llmModel, maxTokens, temperature,
+    language, transcriberProvider, transcriberModel, voiceProvider, voiceModel, voice,
+    bufferSize, speedRate, engineConfig, callConfig, analyticsConfig]);
+
+  // isDirty: true when current values differ from last saved snapshot
+  const isDirty = isNewAgent || savedSnapshot.current === null || currentSnapshot !== savedSnapshot.current;
 
   // Fetch exchange rate on mount
   useEffect(() => {
