@@ -43,14 +43,13 @@ const AddFundsModal = ({ isOpen, onClose, onSuccess }) => {
                 handler: async function (response) {
                     try {
                         // Verify payment
-                        const verifyRes = await axios.post(
-                            `${API_URL}/api/payments/verify`,
+                        const verifyRes = await api.post(
+                            "/api/payments/verify-payment",
                             {
                                 razorpay_order_id: response.razorpay_order_id,
                                 razorpay_payment_id: response.razorpay_payment_id,
                                 razorpay_signature: response.razorpay_signature
-                            },
-                            { headers: { Authorization: `Bearer ${token}` } }
+                            }
                         );
 
                         if (verifyRes.data.success) {

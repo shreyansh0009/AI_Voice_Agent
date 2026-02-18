@@ -2057,20 +2057,19 @@ function AddFundsContent({ onSuccess, onClose }) {
     try {
       const token = localStorage.getItem("token");
 
-      const orderRes = await axios.post(
-        `${API_URL}/api/payments/create-order`,
-        { amount },
-        { headers: { Authorization: `Bearer ${token}` } }
+      const orderRes = await api.post(
+        "/api/payments/create-order",
+        { amount }
       );
 
       if (!orderRes.data.success) {
         throw new Error(orderRes.data.error);
       }
 
-      const { order, key } = orderRes.data;
+      const { order } = orderRes.data;
 
       const options = {
-        key,
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID,
         amount: order.amount,
         currency: order.currency,
         name: "CRM Landing Software",
@@ -2078,14 +2077,13 @@ function AddFundsContent({ onSuccess, onClose }) {
         order_id: order.id,
         handler: async function (response) {
           try {
-            const verifyRes = await axios.post(
-              `${API_URL}/api/payments/verify`,
+            const verifyRes = await api.post(
+              "/api/payments/verify-payment",
               {
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature
-              },
-              { headers: { Authorization: `Bearer ${token}` } }
+              }
             );
 
             if (verifyRes.data.success) {

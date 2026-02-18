@@ -9,9 +9,8 @@ import {
     MdAdd
 } from "react-icons/md";
 import { toast } from "react-toastify";
-import axios from "axios";
-
-const API_URL = import.meta.env.VITE_API_URL || "";
+import api from "../utils/api";
+import { loadRazorpay } from "../utils/razorpayLoader";
 
 // Confirmation Modal Component
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", type = "danger" }) => {
@@ -60,24 +59,24 @@ const AddFundsModal = ({ isOpen, onClose, onSuccess }) => {
     const handlePayment = async () => {
         setLoading(true);
         try {
-            const token = localStorage.getItem("token");
-
             // Create order
-            const orderRes = await axios.post(
-                `${API_URL}/api/payments/create-order`,
-                { amount },
-                { headers: { Authorization: `Bearer ${token}` } }
+            const orderRes = await api.post(
+                "/api/payments/create-order",
+                { amount }
             );
 
             if (!orderRes.data.success) {
                 throw new Error(orderRes.data.error);
             }
 
-            const { order, key } = orderRes.data;
+            const { order } = orderRes.data;
+
+            // Ensure Razorpay SDK is loaded before instantiating
+            await loadRazorpay();
 
             // Open Razorpay checkout
             const options = {
-                key,
+                key: import.meta.env.VITE_RAZORPAY_KEY_ID,
                 amount: order.amount,
                 currency: order.currency,
                 name: "CRM Landing Software",
@@ -86,14 +85,13 @@ const AddFundsModal = ({ isOpen, onClose, onSuccess }) => {
                 handler: async function (response) {
                     try {
                         // Verify payment
-                        const verifyRes = await axios.post(
-                            `${API_URL}/api/payments/verify`,
+                        const verifyRes = await api.post(
+                            "/api/payments/verify-payment",
                             {
                                 razorpay_order_id: response.razorpay_order_id,
                                 razorpay_payment_id: response.razorpay_payment_id,
                                 razorpay_signature: response.razorpay_signature
-                            },
-                            { headers: { Authorization: `Bearer ${token}` } }
+                            }
                         );
 
                         if (verifyRes.data.success) {
