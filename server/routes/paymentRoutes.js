@@ -18,6 +18,7 @@ router.post('/create-order', createOrder);
 
 // Verify payment after Razorpay checkout
 router.post('/verify', verifyPayment);
+router.post('/verify-payment', verifyPayment); // alias used by client components
 
 // Get wallet balance
 router.get('/wallet', getWalletBalance);
