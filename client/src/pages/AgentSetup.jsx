@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { loadRazorpay } from "../utils/razorpayLoader";
 import LLM from "../components/LLM.jsx";
 import Audio from "../components/Audio.jsx";
@@ -87,6 +87,30 @@ export default function AgentSetupSingle() {
 
   // Save button state - prevent multiple clicks
   const [isSaving, setIsSaving] = useState(false);
+
+  // Loading state for pre-built agent generation
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // Snapshot of saved agent fields for dirty-state detection
+  const savedSnapshot = useRef(null);
+
+  // Helper to build a snapshot object from current state
+  const buildSnapshot = (fields) => JSON.stringify(fields);
+
+  // Compute current snapshot from live state
+  const currentSnapshot = useMemo(() => buildSnapshot({
+    agentName, agentDomain, welcome, prompt,
+    llmProvider, llmModel, maxTokens, temperature,
+    language, transcriberProvider, transcriberModel,
+    voiceProvider, voiceModel, voice, bufferSize, speedRate,
+    engineConfig, callConfig, analyticsConfig,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [agentName, agentDomain, welcome, prompt, llmProvider, llmModel, maxTokens, temperature,
+    language, transcriberProvider, transcriberModel, voiceProvider, voiceModel, voice,
+    bufferSize, speedRate, engineConfig, callConfig, analyticsConfig]);
+
+  // isDirty: true when current values differ from last saved snapshot
+  const isDirty = isNewAgent || savedSnapshot.current === null || currentSnapshot !== savedSnapshot.current;
 
   // Phone Number Linking state
   const [linkedPhoneNumber, setLinkedPhoneNumber] = useState(null);
@@ -254,7 +278,7 @@ export default function AgentSetupSingle() {
       setSelectedPhoneNumber("");
     } catch (err) {
       console.error("Failed to link phone number:", err);
-      alert(err.response?.data?.error || "Failed to link phone number");
+      toast.error(err.response?.data?.error || "Failed to link phone number");
     } finally {
       setIsLinkingPhone(false);
     }
@@ -272,7 +296,7 @@ export default function AgentSetupSingle() {
       await fetchAvailablePhoneNumbers();
     } catch (err) {
       console.error("Failed to unlink phone number:", err);
-      alert(err.response?.data?.error || "Failed to unlink phone number");
+      toast.error(err.response?.data?.error || "Failed to unlink phone number");
     } finally {
       setIsLinkingPhone(false);
     }
@@ -448,8 +472,8 @@ export default function AgentSetupSingle() {
     }
 
     console.log("Generating agent with payload:", payload);
-
-    // Optimistic UI update or loading state could go here
+    setIsGenerating(true);
+    setShowAgentModal(false);
 
     // Call backend to generate agent config
     api
@@ -463,13 +487,17 @@ export default function AgentSetupSingle() {
         setWelcome(welcome || "");
         setPrompt(prompt || "");
         setChatMessages([]);
-        setShowAgentModal(false);
+        savedSnapshot.current = null; // new agent — always dirty
         // Clear localStorage when creating new agent
         localStorage.removeItem("lastSelectedAgentId");
+        toast.success("Agent configuration generated! Review and save when ready.");
       })
       .catch((err) => {
         console.error("Failed to generate agent:", err);
-        alert("Failed to generate agent configuration. Please try again.");
+        toast.error("Failed to generate agent configuration. Please try again.");
+      })
+      .finally(() => {
+        setIsGenerating(false);
       });
   }
 
@@ -517,7 +545,9 @@ export default function AgentSetupSingle() {
         setIsNewAgent(false);
         // Save to localStorage so it persists across page reloads
         localStorage.setItem("lastSelectedAgentId", res.data._id);
-        alert(`Agent "${res.data.name}" created successfully!`);
+        // Update snapshot so button grays out immediately after save
+        savedSnapshot.current = currentSnapshot;
+        toast.success(`Agent "${res.data.name}" created successfully!`);
       } else if (selectedAgentId) {
         // Update existing agent via API
         const res = await api.put(`/api/agents/${selectedAgentId}`, agentData);
@@ -528,11 +558,13 @@ export default function AgentSetupSingle() {
         );
         // Ensure localStorage is updated
         localStorage.setItem("lastSelectedAgentId", res.data._id);
-        alert(`Agent "${res.data.name}" updated successfully!`);
+        // Update snapshot so button grays out immediately after save
+        savedSnapshot.current = currentSnapshot;
+        toast.success(`Agent "${res.data.name}" updated successfully!`);
       }
     } catch (err) {
       console.error("Error saving agent:", err);
-      alert("Failed to save agent.");
+      toast.error(err.response?.data?.error || "Failed to save agent. Please try again.");
     } finally {
       // Re-enable button after 2 seconds to prevent rapid clicking
       setTimeout(() => {
@@ -579,6 +611,28 @@ export default function AgentSetupSingle() {
     setIsNewAgent(false);
     // Save to localStorage so it persists across page reloads
     localStorage.setItem("lastSelectedAgentId", agent._id);
+    // Snapshot current state so dirty detection works correctly
+    savedSnapshot.current = buildSnapshot({
+      agentName: agent.name,
+      agentDomain: agent.domain || "general",
+      welcome: agent.welcome,
+      prompt: agent.prompt,
+      llmProvider: agent.llmProvider || "Openai",
+      llmModel: agent.llmModel || "gpt-4o-mini",
+      maxTokens: agent.maxTokens || 1007,
+      temperature: agent.temperature || 0.7,
+      language: agent.language || "English (India)",
+      transcriberProvider: agent.transcriberProvider || "Deepgram",
+      transcriberModel: agent.transcriberModel || "nova-2",
+      voiceProvider: agent.voiceProvider || "Sarvam",
+      voiceModel: agent.voiceModel || "bulbulv2",
+      voice: agent.voice || "manisha",
+      bufferSize: agent.bufferSize || 153,
+      speedRate: agent.speedRate || 1,
+      engineConfig: agent.engineConfig || engineConfig,
+      callConfig: agent.callConfig || callConfig,
+      analyticsConfig: agent.analyticsConfig || analyticsConfig,
+    });
   }
 
   // Function to create a new blank agent
@@ -607,13 +661,14 @@ export default function AgentSetupSingle() {
         // If deleted agent was selected, reset to new agent and clear localStorage
         if (selectedAgentId === agentId) {
           localStorage.removeItem("lastSelectedAgentId");
+          savedSnapshot.current = null;
           handleNewAgent();
         }
 
-        alert(`Agent "${agentName}" deleted successfully!`);
+        toast.success(`Agent "${agentName}" deleted successfully!`);
       } catch (err) {
         console.error("Error deleting agent:", err);
-        alert("Failed to delete agent.");
+        toast.error("Failed to delete agent. Please try again.");
       }
     }
   }
@@ -869,6 +924,18 @@ export default function AgentSetupSingle() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-2 sm:p-4 md:p-6">
+      {/* Full-screen loading overlay for pre-built agent generation */}
+      {isGenerating && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm w-full mx-4">
+            <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <div className="text-center">
+              <p className="text-lg font-semibold text-gray-800">Generating your agent...</p>
+              <p className="text-sm text-gray-500 mt-1">Crafting a custom prompt and configuration. This may take a few seconds.</p>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-5 gap-3">
         <div>
@@ -1882,8 +1949,13 @@ export default function AgentSetupSingle() {
           <div className="space-y-3">
             <button
               onClick={handleSaveAgent}
-              disabled={isSaving}
-              className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors text-sm disabled:bg-blue-400 disabled:cursor-not-allowed"
+              disabled={isSaving || (!isNewAgent && !isDirty)}
+              className={`w-full px-3 py-2 text-white rounded-md transition-colors text-sm ${isSaving
+                ? "bg-blue-400 cursor-not-allowed"
+                : !isNewAgent && !isDirty
+                  ? "bg-gray-300 cursor-not-allowed text-gray-500"
+                  : "bg-blue-600 hover:bg-blue-700"
+                }`}
             >
               {isSaving
                 ? "Saving..."
@@ -1894,7 +1966,9 @@ export default function AgentSetupSingle() {
             <div className="text-xs text-slate-400">
               {isNewAgent
                 ? "Save to create a new agent"
-                : "Last updated a few seconds ago"}
+                : isDirty
+                  ? "You have unsaved changes"
+                  : "All changes saved"}
             </div>
 
             {/* Chat Interface */}
