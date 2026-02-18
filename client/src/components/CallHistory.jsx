@@ -104,7 +104,12 @@ export default function CallHistory() {
       if (callTypeFilter) params.append('callType', callTypeFilter);
       if (providerFilter) params.append('provider', providerFilter);
 
-      const response = await api.get(`${API_URL}/call/history?${params.toString()}`);
+      // Add cache-busting timestamp so browser never serves a 304
+      params.append('_t', Date.now());
+
+      const response = await api.get(`${API_URL}/call/history?${params.toString()}`, {
+        headers: { 'Cache-Control': 'no-cache' }
+      });
 
       if (response.data.success) {
         const callsData = response.data.calls || [];

@@ -17,6 +17,9 @@ const router = express.Router();
  * Query params: agentId, startDate, endDate, status, limit, skip
  */
 router.get("/history", async (req, res) => {
+    // Prevent browser/proxy caching so new calls always appear
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
     try {
         const { agentId, startDate, endDate, status, callType, provider, limit, skip } = req.query;
         const userId = req.user.id; // Get authenticated user ID

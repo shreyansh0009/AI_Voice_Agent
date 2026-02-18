@@ -242,6 +242,7 @@ class CallSession {
 
       // 4. Store agent configuration and flow
       this.agentId = agentId;
+      this.userId = agent.userId;  // ← needed to associate call with the agent's owner
       this.flowId = agent.flowId;
       this.startStepId = flow.startStep;
       this.flow = flow; // Store flow for processTurn
@@ -287,6 +288,7 @@ class CallSession {
         callId: this.uuid,
         executionId: this.uuid.substring(0, 8),
         agentId: this.agentId,
+        userId: this.userId,          // ← associate call with agent owner
         calledNumber: this.calledNumber,
         callerNumber: this.callerNumber || this.calledNumber,
         userNumber: this.callerNumber || this.calledNumber,
