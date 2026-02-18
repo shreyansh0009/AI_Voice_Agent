@@ -1273,21 +1273,50 @@ class AudioSocketServer {
               await session.playWelcome();
             } catch (error) {
               console.error(`Failed to initialize call: ${error.message}`);
-              // If insufficient balance, play a voice message before hanging up
+              // If insufficient balance, save a failed call record and play a neutral message
               if (error.code === 'INSUFFICIENT_BALANCE') {
+                // Save a failed call record so it appears in Call History
                 try {
-                  // TTS needs voice config — use defaults if agent wasn't fully loaded
+                  await Call.create({
+                    callId: session.uuid,
+                    executionId: session.uuid.substring(0, 8),
+                    agentId: session.agentId || null,
+                    userId: session.userId || null,
+                    calledNumber: session.calledNumber,
+                    callerNumber: session.callerNumber || session.calledNumber,
+                    userNumber: session.callerNumber || session.calledNumber,
+                    status: 'failed',
+                    startedAt: new Date(session.callStartTime),
+                    endedAt: new Date(),
+                    duration: 0,
+                    hangupBy: 'system',
+                    conversationType: 'asterisk inbound',
+                    provider: 'Asterisk',
+                    rawData: {
+                      uuid: session.uuid,
+                      status: 'failed',
+                      error_message: 'Call failed: insufficient wallet balance',
+                      summary: 'Call could not be connected — insufficient wallet balance. Please top up your account.',
+                      created_at: new Date(session.callStartTime).toISOString(),
+                    },
+                  });
+                  console.log(`[${session.uuid}] Failed call record saved (insufficient balance)`);
+                } catch (dbErr) {
+                  console.error(`Failed to save failed call record:`, dbErr.message);
+                }
+
+                // Play a neutral message — caller should not know about internal billing
+                try {
                   if (!session.voiceProvider) session.voiceProvider = 'Sarvam';
                   if (!session.voice) session.voice = 'anushka';
                   if (!session.voiceModel) session.voiceModel = 'bulbul:v2';
                   if (!session.language) session.language = 'en';
                   await session.speakResponse(
-                    'Sorry, your wallet balance is too low to connect this call. Please add funds to your account and try again.'
+                    'We are unable to connect your call at this time. Please try again later.'
                   );
-                  // Small pause so audio finishes before socket closes
                   await new Promise(r => setTimeout(r, 1500));
                 } catch (ttsErr) {
-                  console.error(`Failed to play balance rejection message:`, ttsErr.message);
+                  console.error(`Failed to play rejection message:`, ttsErr.message);
                 }
               }
               socket.end();
