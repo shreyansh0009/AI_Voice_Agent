@@ -12,6 +12,7 @@ import OpenAI from "openai";
 import ttsService from "./tts.service.js";
 import recordingService from "./recording.service.js";
 import PhoneNumber from "../models/PhoneNumber.js";
+import { hasEnoughBalance, deductCallCost } from "./walletService.js";
 import {
   MESSAGE_TYPES,
   parseFrame,
@@ -267,6 +268,19 @@ class CallSession {
       console.log(
         `[${this.uuid}] Flow: ${this.flowId}, Start: ${this.startStepId}`,
       );
+
+      // 5. Pre-call wallet balance check
+      if (this.userId) {
+        const { allowed, balance, required } = await hasEnoughBalance(this.userId);
+        if (!allowed) {
+          console.warn(`[${this.uuid}] Insufficient wallet balance: $${balance.toFixed(4)} < $${required.toFixed(4)}`);
+          // Attach flag so the outer catch can play a TTS message
+          const err = new Error('Insufficient wallet balance to connect this call.');
+          err.code = 'INSUFFICIENT_BALANCE';
+          throw err;
+        }
+        console.log(`[${this.uuid}] Wallet balance OK: $${balance.toFixed(4)}`);
+      }
 
       return true;
     } catch (error) {
@@ -1126,8 +1140,19 @@ class CallSession {
         customerContext: this.customerContext,
         rawData: rawData,
         recordingUrl: recordingUrl,
-      }).then(() => {
+      }).then(async () => {
         console.log(`[${this.uuid}] Call record finalized: duration=${duration}s, telephony=₹${telephonyCost.toFixed(2)}, LLM=$${llmCostUSD.toFixed(4)} (${totalInputTokens}+${totalOutputTokens} tokens), total=₹${totalCost.toFixed(2)}`);
+
+        // 💰 Deduct call cost from user wallet
+        if (this.userId && totalCost > 0) {
+          const durationStr = `${duration}s`;
+          await deductCallCost(
+            this.userId,
+            totalCost,
+            this.uuid,
+            `Call ${this.uuid.substring(0, 8)} — ${durationStr}, ₹${totalCost.toFixed(2)}`
+          );
+        }
       }).catch((e) => console.error(`Failed to finalize call record:`, e));
     }
   }
@@ -1248,7 +1273,23 @@ class AudioSocketServer {
               await session.playWelcome();
             } catch (error) {
               console.error(`Failed to initialize call: ${error.message}`);
-              // Send error message and hang up
+              // If insufficient balance, play a voice message before hanging up
+              if (error.code === 'INSUFFICIENT_BALANCE') {
+                try {
+                  // TTS needs voice config — use defaults if agent wasn't fully loaded
+                  if (!session.voiceProvider) session.voiceProvider = 'Sarvam';
+                  if (!session.voice) session.voice = 'anushka';
+                  if (!session.voiceModel) session.voiceModel = 'bulbul:v2';
+                  if (!session.language) session.language = 'en';
+                  await session.speakResponse(
+                    'Sorry, your wallet balance is too low to connect this call. Please add funds to your account and try again.'
+                  );
+                  // Small pause so audio finishes before socket closes
+                  await new Promise(r => setTimeout(r, 1500));
+                } catch (ttsErr) {
+                  console.error(`Failed to play balance rejection message:`, ttsErr.message);
+                }
+              }
               socket.end();
               this.sessions.delete(uuid);
             }
