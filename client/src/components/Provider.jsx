@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { loadRazorpay } from "../utils/razorpayLoader";
 import axios from "axios";
+import api from "../utils/api";
 import { MdAdd, MdClose } from "react-icons/md";
 import { FiHelpCircle, FiSettings, FiLink } from "react-icons/fi";
 import { HiOutlineFilter } from "react-icons/hi";
@@ -73,10 +74,7 @@ export default function Provider() {
     useEffect(() => {
         const fetchWallet = async () => {
             try {
-                const token = localStorage.getItem("token");
-                const response = await axios.get(`${API_URL}/api/payments/wallet`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
+                const response = await api.get("/api/payments/wallet");
                 if (response.data.success) {
                     setWalletBalance(response.data.balance);
                 }
@@ -310,11 +308,9 @@ function AddFundsContent({ onSuccess, onClose }) {
     const handlePayment = async () => {
         setLoading(true);
         try {
-            const token = localStorage.getItem("token");
-            const orderRes = await axios.post(
-                `${API_URL}/api/payments/create-order`,
-                { amount },
-                { headers: { Authorization: `Bearer ${token}` } }
+            const orderRes = await api.post(
+                "/api/payments/create-order",
+                { amount }
             );
 
             const options = {
@@ -326,14 +322,13 @@ function AddFundsContent({ onSuccess, onClose }) {
                 order_id: orderRes.data.order.id,
                 handler: async (response) => {
                     try {
-                        const verifyRes = await axios.post(
-                            `${API_URL}/api/payments/verify-payment`,
+                        const verifyRes = await api.post(
+                            "/api/payments/verify-payment",
                             {
                                 razorpay_order_id: response.razorpay_order_id,
                                 razorpay_payment_id: response.razorpay_payment_id,
                                 razorpay_signature: response.razorpay_signature,
-                            },
-                            { headers: { Authorization: `Bearer ${token}` } }
+                            }
                         );
                         if (verifyRes.data.success) {
                             onSuccess(verifyRes.data.walletBalance);

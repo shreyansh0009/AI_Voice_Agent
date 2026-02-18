@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { loadRazorpay } from '../utils/razorpayLoader';
 import axios from 'axios';
+import api from '../utils/api';
 import { toast } from 'react-toastify';
 import { FiExternalLink } from 'react-icons/fi';
 import { MdAdd, MdHelpOutline, MdClose } from 'react-icons/md';
 import DateRangePicker from './DateRangePicker';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 // Add Funds Modal - Same as MyNumbers.jsx
 const AddFundsModal = ({ isOpen, onClose, onSuccess }) => {
@@ -179,10 +179,7 @@ const Workplace = () => {
 
     const fetchWalletBalance = async () => {
         try {
-            const token = localStorage.getItem('token');
-            const res = await axios.get(`${API_URL}/api/payments/wallet`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await api.get('/api/payments/wallet');
             setWalletBalance(res.data.walletBalance || 0);
         } catch (error) {
             console.error('Error fetching wallet balance:', error);
@@ -416,10 +413,8 @@ const Invoices = () => {
     const fetchTransactions = async () => {
         try {
             setLoading(true);
-            const token = localStorage.getItem('token');
-            const res = await axios.get(
-                `${API_URL}/api/payments/transactions?page=${pagination.page}&limit=${pagination.limit}`,
-                { headers: { Authorization: `Bearer ${token}` } }
+            const res = await api.get(
+                `/api/payments/transactions?page=${pagination.page}&limit=${pagination.limit}`
             );
 
             if (res.data.success) {
