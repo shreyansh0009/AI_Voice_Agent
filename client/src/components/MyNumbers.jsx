@@ -69,14 +69,14 @@ const AddFundsModal = ({ isOpen, onClose, onSuccess }) => {
                 throw new Error(orderRes.data.error);
             }
 
-            const { order } = orderRes.data;
+            const { order, key } = orderRes.data;
 
             // Ensure Razorpay SDK is loaded before instantiating
             await loadRazorpay();
 
             // Open Razorpay checkout
             const options = {
-                key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+                key,
                 amount: order.amount,
                 currency: order.currency,
                 name: "CRM Landing Software",
@@ -341,11 +341,7 @@ const MyNumbers = () => {
 
     const fetchPhoneNumbers = async () => {
         try {
-            const token = localStorage.getItem("token");
-            const response = await axios.get(
-                `${API_URL}/api/phone-numbers`,
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            const response = await api.get("/api/phone-numbers");
             if (response.data.success) {
                 setPhoneNumbers(response.data.phoneNumbers);
             }
@@ -359,11 +355,7 @@ const MyNumbers = () => {
 
     const fetchWalletBalance = async () => {
         try {
-            const token = localStorage.getItem("token");
-            const response = await axios.get(
-                `${API_URL}/api/payments/wallet`,
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            const response = await api.get("/api/payments/wallet");
             if (response.data.success) {
                 setWalletBalance(response.data.balance);
             }
@@ -375,12 +367,7 @@ const MyNumbers = () => {
     const handleUnlinkConfirm = async () => {
         const { number, agentName } = confirmModal.data;
         try {
-            const token = localStorage.getItem("token");
-            await axios.post(
-                `${API_URL}/api/phone-numbers/${number}/unlink`,
-                {},
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            await api.post(`/api/phone-numbers/${number}/unlink`, {});
             toast.success(`Agent ${agentName} unlinked successfully`);
             fetchPhoneNumbers();
         } catch (error) {
@@ -394,12 +381,7 @@ const MyNumbers = () => {
     const handleDeleteConfirm = async () => {
         const { number, displayNumber } = confirmModal.data;
         try {
-            const token = localStorage.getItem("token");
-            await axios.post(
-                `${API_URL}/api/phone-numbers/${number}/release`,
-                {},
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            await api.post(`/api/phone-numbers/${number}/release`, {});
             toast.success(`Phone number ${displayNumber} has been released`);
             fetchPhoneNumbers();
         } catch (error) {
@@ -412,13 +394,10 @@ const MyNumbers = () => {
 
     const handlePurchase = async (number, price) => {
         try {
-            const token = localStorage.getItem("token");
-
             // Step 1: Deduct from wallet
-            const deductRes = await axios.post(
-                `${API_URL}/api/payments/deduct`,
-                { amount: price, description: `Phone number purchase: ${number}` },
-                { headers: { Authorization: `Bearer ${token}` } }
+            const deductRes = await api.post(
+                "/api/payments/deduct",
+                { amount: price, description: `Phone number purchase: ${number}` }
             );
 
             if (!deductRes.data.success) {
@@ -426,11 +405,7 @@ const MyNumbers = () => {
             }
 
             // Step 2: Mark phone number as purchased (sets ownerId, purchasedAt, expiresAt)
-            const purchaseRes = await axios.post(
-                `${API_URL}/api/phone-numbers/${number}/purchase`,
-                {},
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            const purchaseRes = await api.post(`/api/phone-numbers/${number}/purchase`, {});
 
             if (purchaseRes.data.success) {
                 setWalletBalance(deductRes.data.walletBalance);

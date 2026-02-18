@@ -2066,10 +2066,10 @@ function AddFundsContent({ onSuccess, onClose }) {
         throw new Error(orderRes.data.error);
       }
 
-      const { order } = orderRes.data;
+      const { order, key } = orderRes.data;
 
       const options = {
-        key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+        key,
         amount: order.amount,
         currency: order.currency,
         name: "CRM Landing Software",
