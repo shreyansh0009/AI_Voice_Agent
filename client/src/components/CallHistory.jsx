@@ -81,7 +81,8 @@ export default function CallHistory() {
   const audioCtxRef = useRef(null);
   const nextPlayTimeRef = useRef(0);
   const [liveTimers, setLiveTimers] = useState({}); // callId -> elapsed seconds
-  const liveTimerIntervalRef = useRef(null);
+  const liveCallsRef = useRef([]); // ref mirror for timer (avoids re-render dep)
+  const prevCallIdsRef = useRef(''); // cached stringified ID set for diffing
 
   // Poll active calls every 3 seconds
   useEffect(() => {
@@ -89,20 +90,26 @@ export default function CallHistory() {
       try {
         const res = await api.get(`${API_URL}/spy/active-calls`);
         if (res.data?.success) {
+          const newCalls = res.data.calls;
+          const newIdKey = newCalls.map(c => c.callId).sort().join(',');
+
+          // Skip state update if no change in active call IDs
+          if (newIdKey === prevCallIdsRef.current) return;
+          prevCallIdsRef.current = newIdKey;
+
           setLiveCalls(prev => {
-            const newCalls = res.data.calls;
-            // Mark calls that disappeared as completed
             const newIds = new Set(newCalls.map(c => c.callId));
             const completed = prev
               .filter(c => !newIds.has(c.callId) && !c.completed)
               .map(c => ({ ...c, completed: true, completedAt: Date.now() }));
-            // Remove completed calls after 5 seconds
             const stillShowing = prev.filter(c => c.completed && Date.now() - c.completedAt < 5000);
-            return [
+            const result = [
               ...newCalls.map(nc => ({ ...nc, completed: false })),
               ...completed,
               ...stillShowing.filter(s => !completed.find(c => c.callId === s.callId)),
             ];
+            liveCallsRef.current = result;
+            return result;
           });
         }
       } catch (err) {
@@ -114,22 +121,27 @@ export default function CallHistory() {
     return () => clearInterval(interval);
   }, []);
 
-  // Live timer: increment elapsed seconds every second
+  // Live timer: increment elapsed seconds every second (uses ref, not state dep)
   useEffect(() => {
-    liveTimerIntervalRef.current = setInterval(() => {
-      setLiveTimers(() => {
-        const now = Date.now();
+    const timerInterval = setInterval(() => {
+      const calls = liveCallsRef.current;
+      if (calls.length === 0) return;
+      const now = Date.now();
+      setLiveTimers(prev => {
         const timers = {};
-        liveCalls.forEach(call => {
+        let changed = false;
+        calls.forEach(call => {
           if (!call.completed) {
-            timers[call.callId] = Math.floor((now - call.startTime) / 1000);
+            const elapsed = Math.floor((now - call.startTime) / 1000);
+            timers[call.callId] = elapsed;
+            if (prev[call.callId] !== elapsed) changed = true;
           }
         });
-        return timers;
+        return changed ? timers : prev; // skip re-render if same second
       });
     }, 1000);
-    return () => clearInterval(liveTimerIntervalRef.current);
-  }, [liveCalls]);
+    return () => clearInterval(timerInterval);
+  }, []);
 
   // Format elapsed seconds as MM:SS
   const formatElapsed = (seconds) => {
@@ -579,10 +591,10 @@ export default function CallHistory() {
                   <div
                     key={call.callId}
                     className={`relative overflow-hidden rounded-xl border-2 p-4 transition-all duration-500 ${call.completed
-                        ? 'border-gray-200 bg-gray-50 opacity-60'
-                        : listeningCallId === call.callId
-                          ? 'border-green-400 bg-green-50/50 shadow-lg shadow-green-100'
-                          : 'border-indigo-200 bg-white hover:border-indigo-400 hover:shadow-lg'
+                      ? 'border-gray-200 bg-gray-50 opacity-60'
+                      : listeningCallId === call.callId
+                        ? 'border-green-400 bg-green-50/50 shadow-lg shadow-green-100'
+                        : 'border-indigo-200 bg-white hover:border-indigo-400 hover:shadow-lg'
                       }`}
                   >
                     {/* Live pulse indicator */}
