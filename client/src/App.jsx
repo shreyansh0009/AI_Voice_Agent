@@ -49,12 +49,28 @@ function PrivateRoute({ children }) {
   return children;
 }
 
-function HomeRedirect() {
+function PrivateContent() {
   const { role } = useAuth();
+
   if (role === "admin") {
     return <AdminDashboard />;
   }
-  return <Navigate to="/voice" replace />;
+
+  return (
+    <Layout>
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          <Route path="/" element={<Navigate to="/voice" replace />} />
+          <Route path="/voice" element={<AgentSetup />} />
+          <Route path="/callHistory" element={<CallHistory />} />
+          <Route path="/phones" element={<MyNumbers />} />
+          <Route path="/workplace" element={<Workplace />} />
+          <Route path="/knowledgeBase" element={<KnowledgeBase />} />
+          <Route path="/providers" element={<Provider />} />
+        </Routes>
+      </Suspense>
+    </Layout>
+  );
 }
 
 function App() {
@@ -70,19 +86,7 @@ function App() {
                 path="/*"
                 element={
                   <PrivateRoute>
-                    <Layout>
-                      <Suspense fallback={<PageLoader />}>
-                        <Routes>
-                          <Route path="/" element={<HomeRedirect />} />
-                          <Route path="/voice" element={<AgentSetup />} />
-                          <Route path="/callHistory" element={<CallHistory />} />
-                          <Route path="/phones" element={<MyNumbers />} />
-                          <Route path="/workplace" element={<Workplace />} />
-                          <Route path="/knowledgeBase" element={<KnowledgeBase />} />
-                          <Route path="/providers" element={<Provider />} />
-                        </Routes>
-                      </Suspense>
-                    </Layout>
+                    <PrivateContent />
                   </PrivateRoute>
                 }
               />
