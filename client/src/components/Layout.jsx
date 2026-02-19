@@ -27,7 +27,7 @@ function Layout({ children }) {
     { id: 'workflow', label: 'Workflows', path: '/workflows', icon: IoIosGitNetwork },
     { id: 'providers', label: 'Providers', path: '/providers', icon: CiBoxes },
     { id: 'workplace', label: 'Workplace', path: '/workplace', icon: FaUserGear },
-    { id: 'settings', label: 'Settings', path: '/settings', icon: MdSettings },
+   // { id: 'settings', label: 'Settings', path: '/settings', icon: MdSettings },
   ];
 
   const isActive = (path) => location.pathname === path;

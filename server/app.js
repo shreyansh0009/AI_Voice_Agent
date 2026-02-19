@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { WebSocketServer } from "ws";
+import jwt from "jsonwebtoken";
 
 // Load environment variables FIRST
 dotenv.config();
@@ -143,7 +145,7 @@ app.use((err, req, res, next) => {
 // handle requests — so we export the app instead of always listening.
 if (config.env !== "production") {
   const PORT = config.port || 5000;
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
 
     // Start subscription expiry cron job
@@ -152,6 +154,69 @@ if (config.env !== "production") {
     // Start exchange rate cron job
     startExchangeRateCron();
   });
+
+  // 🔊 Attach WebSocket server for live call spy
+  const wss = new WebSocketServer({ server, path: '/ws/spy' });
+
+  wss.on('connection', (ws, req) => {
+    // Authenticate via query parameter: /ws/spy?token=JWT&callId=UUID
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const token = url.searchParams.get('token');
+    const callId = url.searchParams.get('callId');
+
+    if (!token || !callId) {
+      ws.close(4001, 'Missing token or callId');
+      return;
+    }
+
+    try {
+      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      const userId = payload.id;
+
+      // Look up the call session
+      const session = audioSocketServer.sessions.get(callId);
+      if (!session) {
+        ws.close(4004, 'Call not found or already ended');
+        return;
+      }
+
+      // Verify user owns this call's agent
+      if (session.userId && session.userId.toString() !== userId.toString()) {
+        ws.close(4003, 'Unauthorized: not your call');
+        return;
+      }
+
+      // Add to spy listeners
+      session.spyListeners.add(ws);
+      console.log(`🔊 Spy connected to call ${callId} (user: ${userId}, total spies: ${session.spyListeners.size})`);
+
+      // Send initial metadata
+      ws.send(JSON.stringify({
+        type: 'init',
+        sampleRate: 8000,
+        encoding: 'slin16',
+        callerNumber: session.callerNumber,
+        calledNumber: session.calledNumber,
+        agentName: session.agentName,
+        startTime: session.callStartTime,
+      }));
+
+      ws.on('close', () => {
+        session.spyListeners.delete(ws);
+        console.log(`🔊 Spy disconnected from call ${callId} (remaining: ${session.spyListeners.size})`);
+      });
+
+      ws.on('error', (err) => {
+        console.error(`Spy WS error:`, err.message);
+        session.spyListeners.delete(ws);
+      });
+
+    } catch (err) {
+      ws.close(4003, 'Invalid token');
+    }
+  });
+
+  console.log('🔊 WebSocket spy server attached on /ws/spy');
 
   // Start AudioSocket server for Asterisk telephony (only in non-serverless)
   if (process.env.AUDIOSOCKET_PORT) {

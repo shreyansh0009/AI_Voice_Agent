@@ -103,6 +103,10 @@ router.use("/agents", authenticate, agentRoutes);
 router.use("/phone-numbers", authenticate, phoneNumberRoutes);
 router.use("/payments", authenticate, paymentRoutes);
 
+// Spy / live-call monitoring routes
+import spyRoutes from "./spyRoutes.js";
+router.use("/spy", authenticate, spyRoutes);
+
 router.use("/", authenticate, knowledgeRoutes);
 router.use("/auth", authRoutes);
 

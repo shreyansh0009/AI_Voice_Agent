@@ -181,10 +181,34 @@ class CallSession {
     //Call recording
     this.recording = null;
 
+    // 🔊 Live spy listeners (WebSocket connections listening to this call)
+    this.spyListeners = new Set();
+    this.agentName = null; // populated in initializeAgent
+
     console.log(
       `[${uuid}] New call session created (DID: ${calledNumber || "unknown"
       })`,
     );
+  }
+
+  /**
+   * Broadcast raw PCM audio to all spy WebSocket listeners
+   * @param {Buffer} audioData - Raw slin16 PCM data
+   * @param {string} source - 'caller' or 'agent'
+   */
+  broadcastToSpies(audioData, source) {
+    if (this.spyListeners.size === 0) return;
+    // Prefix: 1 byte source marker (0x01=caller, 0x02=agent) + audio data
+    const marker = Buffer.alloc(1);
+    marker[0] = source === 'caller' ? 0x01 : 0x02;
+    const frame = Buffer.concat([marker, audioData]);
+    for (const ws of this.spyListeners) {
+      if (ws.readyState === 1) { // WebSocket.OPEN
+        ws.send(frame);
+      } else {
+        this.spyListeners.delete(ws);
+      }
+    }
   }
 
   /**
@@ -225,6 +249,7 @@ class CallSession {
         throw new Error(`Agent not found: ${agentId}`);
       }
 
+      this.agentName = agent.name;
       console.log(`[${this.uuid}] Loaded agent: ${agent.name} (${agentId})`);
 
       // 3. Load flow using fs.readFileSync (same as chatV5Controller)
@@ -853,6 +878,9 @@ class CallSession {
 
         this.socket.write(createAudioFrame(chunk));
 
+        // 🔊 Broadcast AI audio to spy listeners
+        this.broadcastToSpies(chunk, 'agent');
+
         // Capture AI audio with chunk index for timeline positioning
         if (this.recording) {
           this.recording.addAIAudio(chunk, i);
@@ -884,6 +912,9 @@ class CallSession {
     if (this.recording) {
       this.recording.addUserAudio(audioData);
     }
+
+    // 🔊 Broadcast caller audio to spy listeners
+    this.broadcastToSpies(audioData, 'caller');
 
     // Phase 4: Barge-in now handled by Deepgram VAD (in Results handler)
     // Removed raw audio barge-in trigger to prevent false positives from noise
@@ -923,6 +954,14 @@ class CallSession {
    */
   async cleanup() {
     console.log(`[${this.uuid}] Cleaning up session`);
+
+    // 🔊 Close all spy listeners
+    for (const ws of this.spyListeners) {
+      try {
+        ws.close(1000, 'Call ended');
+      } catch (e) { /* ignore */ }
+    }
+    this.spyListeners.clear();
 
     if (this.silenceTimer) {
       clearTimeout(this.silenceTimer);
@@ -1376,6 +1415,31 @@ class AudioSocketServer {
    */
   getActiveCallCount() {
     return this.sessions.size;
+  }
+
+  /**
+   * Get active calls for a specific user (for spy API)
+   * @param {string} userId - Filter by user ID (so users only see their own calls)
+   * @returns {Array} Active call info objects
+   */
+  getActiveCalls(userId) {
+    const calls = [];
+    for (const [uuid, session] of this.sessions) {
+      // Filter by userId so users only see their own agents' calls
+      if (userId && session.userId && session.userId.toString() !== userId.toString()) {
+        continue;
+      }
+      calls.push({
+        callId: uuid,
+        callerNumber: session.callerNumber || 'Unknown',
+        calledNumber: session.calledNumber || 'Unknown',
+        agentName: session.agentName || 'Unknown Agent',
+        agentId: session.agentId || null,
+        startTime: session.callStartTime,
+        spyCount: session.spyListeners.size,
+      });
+    }
+    return calls;
   }
 }
 
