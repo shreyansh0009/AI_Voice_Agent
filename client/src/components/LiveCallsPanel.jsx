@@ -98,36 +98,71 @@ export default function LiveCallsPanel() {
         spyWsRef.current = ws;
         setListeningCallId(callId);
 
-        const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 8000 });
+        // Use browser's native sample rate (usually 44100 or 48000).
+        // Requesting 8000 is silently ignored by most browsers, causing distortion.
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
         audioCtxRef.current = ctx;
         nextPlayTimeRef.current = ctx.currentTime;
+
+        const INCOMING_RATE = 8000; // Server sends slin16 at 8kHz
+        const nativeRate = ctx.sampleRate; // Browser's actual rate (e.g. 48000)
 
         ws.binaryType = 'arraybuffer';
 
         ws.onmessage = (event) => {
             if (typeof event.data === 'string') return;
+            if (ctx.state === 'closed') return;
+
             const data = new Uint8Array(event.data);
             if (data.length < 2) return;
 
+            // Strip 1-byte source marker, convert slin16 → float32
             const pcmData = data.slice(1);
             const int16 = new Int16Array(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength / 2);
-            const float32 = new Float32Array(int16.length);
-            for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
 
-            const audioBuffer = ctx.createBuffer(1, float32.length, 8000);
+            // Resample from 8kHz to the AudioContext's native rate
+            const ratio = nativeRate / INCOMING_RATE;
+            const resampledLen = Math.round(int16.length * ratio);
+            const float32 = new Float32Array(resampledLen);
+            for (let i = 0; i < resampledLen; i++) {
+                const srcIdx = i / ratio;
+                const lo = Math.floor(srcIdx);
+                const hi = Math.min(lo + 1, int16.length - 1);
+                const frac = srcIdx - lo;
+                // Linear interpolation + normalise to [-1, 1]
+                float32[i] = ((int16[lo] * (1 - frac)) + (int16[hi] * frac)) / 32768;
+            }
+
+            const audioBuffer = ctx.createBuffer(1, resampledLen, nativeRate);
             audioBuffer.getChannelData(0).set(float32);
             const source = ctx.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(ctx.destination);
 
             const now = ctx.currentTime;
-            if (nextPlayTimeRef.current < now) nextPlayTimeRef.current = now;
+            // If playback head has drifted >200ms ahead, skip to now (fixes latency buildup)
+            if (nextPlayTimeRef.current < now || nextPlayTimeRef.current - now > 0.2) {
+                nextPlayTimeRef.current = now;
+            }
             source.start(nextPlayTimeRef.current);
             nextPlayTimeRef.current += audioBuffer.duration;
         };
 
-        ws.onclose = () => setListeningCallId(null);
-        ws.onerror = () => setListeningCallId(null);
+        ws.onclose = () => {
+            // Close AudioContext immediately to stop any queued/scheduled audio
+            if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+                audioCtxRef.current.close().catch(() => { });
+                audioCtxRef.current = null;
+            }
+            setListeningCallId(null);
+        };
+        ws.onerror = () => {
+            if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+                audioCtxRef.current.close().catch(() => { });
+                audioCtxRef.current = null;
+            }
+            setListeningCallId(null);
+        };
     }, []);
 
     const stopListening = useCallback(() => {
