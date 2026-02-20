@@ -173,13 +173,20 @@ export const getTransactions = async (req, res) => {
     try {
         const { page = 1, limit = 20 } = req.query;
 
-        const transactions = await Transaction.find({ userId: req.user.id })
+        // Exclude call-cost deductions — invoices should only show purchases,
+        // subscriptions, and wallet top-ups (not per-call usage charges).
+        const baseFilter = {
+            userId: req.user.id,
+            'metadata.callId': { $exists: false },
+        };
+
+        const transactions = await Transaction.find(baseFilter)
             .sort({ createdAt: -1 })
             .skip((page - 1) * limit)
             .limit(parseInt(limit))
             .lean();
 
-        const total = await Transaction.countDocuments({ userId: req.user.id });
+        const total = await Transaction.countDocuments(baseFilter);
 
         res.json({
             success: true,
