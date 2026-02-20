@@ -2,9 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { PieChart, Plus, Pencil, Check } from 'lucide-react';
 import api from '../utils/api';
 import { loadRazorpay } from "../utils/razorpayLoader";
+import {
+    MdDeleteOutline,
+    MdLinkOff,
+    MdHelpOutline,
+    MdClose,
+    MdSearch,
+    MdAdd
+} from "react-icons/md";
+import { toast } from "react-toastify";
 
 function Billings() {
-    const [walletBalance, setWalletBalance] = useState("0.00");
+    const [walletBalance, setWalletBalance] = useState(0);
     const [showAddFundsModal, setShowAddFundsModal] = useState(false);
 
     const AddFundsModal = ({ isOpen, onClose, onSuccess }) => {
@@ -85,7 +94,7 @@ function Billings() {
                 <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
                     <div className="flex justify-between items-start p-6 border-b">
                         <div>
-                            <h2 className="text-xl font-bold text-gray-900">Add Funds</h2>
+                            <h2 className="text-xl font-bold text-gray-900 cursor-pointer">Add Funds</h2>
                             <p className="text-gray-500 text-sm mt-1">Add money to your wallet</p>
                         </div>
                         <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -178,14 +187,14 @@ function Billings() {
                     <div className="mb-8">
                         <p className="text-[14px] font-medium text-slate-600 mb-3">Current Balance</p>
                         <p className="text-[42px] leading-none text-blue-500 mb-6 tracking-tight font-medium">
-                            ${Number(balance).toFixed(2)}
+                            ${walletBalance.toFixed(2)}
                         </p>
                     </div>
 
                     <div className="mt-auto">
                         <button
                             onClick={() => setShowAddFundsModal(true)}
-                            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#1e293b] text-white rounded-[8px] text-[14px] font-medium hover:bg-slate-800 transition-colors w-max shadow-sm">
+                            className="cursor-pointer flex items-center justify-center gap-2 px-4 py-2.5 bg-[#1e293b] text-white rounded-[8px] text-[14px] font-medium hover:bg-slate-800 transition-colors w-max shadow-sm">
                             <Plus className="w-4 h-4" />
                             Add Funds
                         </button>
@@ -288,7 +297,7 @@ function Billings() {
                             </li>
                         </ul>
 
-                        <button className="w-full py-2.5 bg-[#0070f3] text-white rounded-[8px] text-[14px] font-semibold hover:bg-[#0060df] transition-colors mt-auto shadow-sm">
+                        <button className="cursor-pointer w-full py-2.5 bg-[#0070f3] text-white rounded-[8px] text-[14px] font-semibold hover:bg-[#0060df] transition-colors mt-auto shadow-sm">
                             Subscribe for $500 monthly
                         </button>
                     </div>
@@ -328,7 +337,7 @@ function Billings() {
                             </li>
                         </ul>
 
-                        <button className="w-full py-2.5 bg-[#0070f3] text-white rounded-[8px] text-[14px] font-semibold hover:bg-[#0060df] transition-colors mt-auto shadow-sm">
+                        <button className="cursor-pointer w-full py-2.5 bg-[#0070f3] text-white rounded-[8px] text-[14px] font-semibold hover:bg-[#0060df] transition-colors mt-auto shadow-sm">
                             Subscribe for $2,000 monthly
                         </button>
                     </div>
