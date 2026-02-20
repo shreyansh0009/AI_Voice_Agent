@@ -24,7 +24,7 @@ function Layout({ children }) {
     { id: 'callHistory', label: 'Call History', path: '/callHistory', icon: SlCallIn },
     { id: 'phone', label: 'Phone Numbers', path: '/phones', icon: MdCall },
     { id: 'knowledgeBase', label: 'Knowledge Base', path: '/knowledgeBase', icon: TbDatabaseCog },
-    { id: 'workflow', label: 'Workflows', path: '/workflows', icon: IoIosGitNetwork },
+    //{ id: 'workflow', label: 'Workflows', path: '/workflows', icon: IoIosGitNetwork },
     { id: 'providers', label: 'Providers', path: '/providers', icon: CiBoxes },
     { id: 'workplace', label: 'Workplace', path: '/workplace', icon: FaUserGear },
    // { id: 'settings', label: 'Settings', path: '/settings', icon: MdSettings },

@@ -7,11 +7,10 @@ import Call from "../components/Call.jsx";
 import Tool from "../components/Tool.jsx";
 import Analytics from "../components/Analytics.jsx";
 import AgentModal from "../components/models/AgentModal.jsx";
-import { generateAgentResponseWithHistory } from "../config/openai.js";
+import api from "../utils/api";
 import { BiTrash } from "react-icons/bi";
 import { MdClose, MdAdd } from "react-icons/md";
 import { toast } from "react-toastify";
-import api from "../utils/api";
 import axios from "axios";
 import { calculateCostPerMinute } from "../utils/pricing.js";
 import {
@@ -78,6 +77,7 @@ export default function AgentSetupSingle() {
   const [userMessage, setUserMessage] = useState("");
   const [isLoadingResponse, setIsLoadingResponse] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [chatCustomerContext, setChatCustomerContext] = useState({});
 
   // Knowledge Base state
   const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -684,37 +684,38 @@ export default function AgentSetupSingle() {
     setIsLoadingResponse(true);
 
     try {
-      // Build conversation history for context
+      // Build conversation history for context (same format as phone calls)
       const conversationHistory = chatMessages.map((msg) => ({
         role: msg.role === "error" ? "assistant" : msg.role,
         content: msg.content,
       }));
 
-      // Use the agent's custom prompt with full conversation context
-      const result = await generateAgentResponseWithHistory(
+      // Call backend — uses the same LLM pipeline as phone calls
+      const res = await api.post("/api/chat/agent-chat", {
+        message: userMessage,
+        agentId: selectedAgentId,
         conversationHistory,
-        userMessage,
-        prompt,
-        {
-          temperature: 0.7,
-          max_tokens: 500,
-        },
-      );
+        customerContext: chatCustomerContext,
+      });
 
-      if (result.success) {
-        const aiMessage = { role: "assistant", content: result.data };
+      if (res.data?.success) {
+        const aiMessage = { role: "assistant", content: res.data.response };
         setChatMessages((prev) => [...prev, aiMessage]);
+        // Persist updated customer context for next turn
+        if (res.data.customerContext) {
+          setChatCustomerContext(res.data.customerContext);
+        }
       } else {
         const errorMessage = {
           role: "error",
-          content: `Error: ${result.error}`,
+          content: `Error: ${res.data?.error || "Unknown error"}`,
         };
         setChatMessages((prev) => [...prev, errorMessage]);
       }
-    } catch {
+    } catch (err) {
       const errorMessage = {
         role: "error",
-        content: "Failed to get response from agent",
+        content: err?.response?.data?.error || "Failed to get response from agent",
       };
       setChatMessages((prev) => [...prev, errorMessage]);
     } finally {
@@ -725,8 +726,8 @@ export default function AgentSetupSingle() {
   // Function to start fresh chat
   function handleStartChat() {
     setChatMessages([]);
-    localStorage.removeItem("agent_chat_history"); // Clear localStorage
-    // Add welcome message as first message if it exists
+    setChatCustomerContext({}); // reset context for new session
+    localStorage.removeItem("agent_chat_history");
     if (welcome && welcome.trim()) {
       setChatMessages([{ role: "assistant", content: welcome }]);
     }

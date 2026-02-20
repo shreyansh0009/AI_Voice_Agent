@@ -1,5 +1,5 @@
 import express from "express";
-import { processChat } from "../controllers/chatController.js";
+import { processChat, agentChat } from "../controllers/chatController.js";
 // Use original streamChatController for /stream (matches VoiceChat's request format)
 // V5 controller (with conversationId) is available at /api/chat/v5/stream
 import { streamChat } from "../controllers/streamChatController.js";
@@ -20,6 +20,12 @@ const router = express.Router();
  * - options: object (optional) - Additional options (language, useRAG, systemPrompt, etc.)
  */
 router.post("/message", authenticate, processChat);
+
+/**
+ * POST /api/chat/agent-chat
+ * Chat with a specific agent — uses the SAME LLM pipeline as phone calls
+ */
+router.post("/agent-chat", authenticate, agentChat);
 
 /**
  * POST /api/chat/stream
