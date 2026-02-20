@@ -9,6 +9,7 @@ import { HiMenuAlt3, HiX } from 'react-icons/hi';
 import { TbDatabaseCog } from "react-icons/tb";
 import { FaUserGear } from "react-icons/fa6";
 import { FiLogOut, FiChevronUp } from 'react-icons/fi';
+import { PiSuitcaseSimpleLight } from "react-icons/pi";
 import { useAuth } from '../contexts/AuthContext';
 
 function Layout({ children }) {
@@ -27,6 +28,7 @@ function Layout({ children }) {
     //{ id: 'workflow', label: 'Workflows', path: '/workflows', icon: IoIosGitNetwork },
     { id: 'providers', label: 'Providers', path: '/providers', icon: CiBoxes },
     { id: 'workplace', label: 'Workplace', path: '/workplace', icon: FaUserGear },
+    { id: 'billing', label: 'Billings', path: '/billing', icon: PiSuitcaseSimpleLight }
    // { id: 'settings', label: 'Settings', path: '/settings', icon: MdSettings },
   ];
 

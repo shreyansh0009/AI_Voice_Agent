@@ -11,7 +11,7 @@ import { AiOutlineOpenAI } from "react-icons/ai";
 import { CgTwilio } from "react-icons/cg";
 
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 // Provider data matching the screenshot
 const PROVIDERS = [
