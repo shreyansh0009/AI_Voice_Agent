@@ -245,7 +245,7 @@ export default function CallHistory() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-4 sm:p-6">
       {/* CSS Animations */}
       <style>{`
         @keyframes fadeIn {
@@ -274,15 +274,15 @@ export default function CallHistory() {
       <div className="max-w-[1400px] mx-auto">
         {/* Header with Filters */}
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/50 p-5 mb-6 transition-all duration-300 hover:shadow-xl">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-4">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full md:w-auto">
               {/* Agent Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">Agent:</span>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <span className="text-sm font-semibold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent whitespace-nowrap">Agent:</span>
                 <select
                   value={selectedAgent}
                   onChange={(e) => setSelectedAgent(e.target.value)}
-                  className="px-4 py-2.5 text-sm border-2 border-indigo-100 rounded-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-400 transition-all duration-300 bg-white/80 hover:border-indigo-300"
+                  className="flex-1 sm:flex-none px-4 py-2.5 text-sm border-2 border-indigo-100 rounded-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-400 transition-all duration-300 bg-white/80 hover:border-indigo-300"
                 >
                   <option value="">All Agents</option>
                   {agents.map((agent) => (
@@ -294,43 +294,43 @@ export default function CallHistory() {
               </div>
 
               {/* Date Range Picker */}
-              <div className="flex items-center gap-2 px-4 py-2.5 border-2 border-purple-100 rounded-xl bg-white/80 hover:border-purple-300 transition-all duration-300 group">
-                <Calendar className="w-4 h-4 text-purple-500 group-hover:rotate-12 transition-transform duration-300" />
+              <div className="flex items-center justify-center sm:justify-start gap-1 sm:gap-2 px-2 sm:px-4 py-2.5 border-2 border-purple-100 rounded-xl bg-white/80 hover:border-purple-300 transition-all duration-300 group w-full sm:w-auto">
+                <Calendar className="w-4 h-4 text-purple-500 shrink-0 group-hover:rotate-12 transition-transform duration-300" />
                 <input
                   type="date"
                   value={dateRange.start}
                   onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                  className="text-sm border-none focus:ring-0 focus:outline-none bg-transparent"
+                  className="text-sm border-none focus:ring-0 focus:outline-none bg-transparent w-full max-w-[110px] sm:max-w-none px-1 sm:px-2"
                 />
-                <span className="text-purple-400 font-bold">→</span>
+                <span className="text-purple-400 font-bold shrink-0">→</span>
                 <input
                   type="date"
                   value={dateRange.end}
                   onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                  className="text-sm border-none focus:ring-0 focus:outline-none bg-transparent"
+                  className="text-sm border-none focus:ring-0 focus:outline-none bg-transparent w-full max-w-[110px] sm:max-w-none px-1 sm:px-2"
                 />
               </div>
             </div>
 
             {/* Action Buttons */}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
               <button
                 onClick={fetchCalls}
                 disabled={loading}
-                className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl hover:from-indigo-600 hover:to-purple-600 disabled:opacity-50 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+                className="flex-1 sm:flex-none flex justify-center items-center gap-2 px-4 sm:px-5 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl hover:from-indigo-600 hover:to-purple-600 disabled:opacity-50 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 whitespace-nowrap"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                 Refresh
               </button>
               <button
                 onClick={stopQueuedCalls}
-                className="px-5 py-2.5 text-sm font-medium text-rose-600 border-2 border-rose-200 rounded-xl hover:bg-rose-50 hover:border-rose-300 transition-all duration-300 transform hover:scale-105"
+                className="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 text-sm font-medium text-rose-600 border-2 border-rose-200 rounded-xl hover:bg-rose-50 hover:border-rose-300 transition-all duration-300 transform hover:scale-105 whitespace-nowrap"
               >
                 Stop Queued
               </button>
               <button
                 onClick={downloadRecords}
-                className="px-5 py-2.5 text-sm font-medium text-emerald-600 border-2 border-emerald-200 rounded-xl hover:bg-emerald-50 hover:border-emerald-300 transition-all duration-300 transform hover:scale-105"
+                className="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 text-sm font-medium text-emerald-600 border-2 border-emerald-200 rounded-xl hover:bg-emerald-50 hover:border-emerald-300 transition-all duration-300 transform hover:scale-105 whitespace-nowrap"
               >
                 Download
               </button>
@@ -340,20 +340,20 @@ export default function CallHistory() {
 
         {/* Performance Metrics */}
         <div className="mb-6">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-xl font-bold flex items-center gap-3">
-              <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-lg">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-5">
+            <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-3">
+              <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-lg shrink-0">
                 <VscGraph className="text-xl text-white" />
               </div>
               <span className="bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
                 Performance Metrics
               </span>
             </h2>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
               {['Group by', 'Status', 'Call type', 'Provider'].map((filter, idx) => (
                 <button
                   key={filter}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 hover:text-indigo-600 bg-white/80 border-2 border-gray-100 rounded-xl hover:border-indigo-200 hover:bg-indigo-50 transition-all duration-300 transform hover:scale-105"
+                  className="flex-1 sm:flex-none flex justify-center items-center gap-2 px-3 sm:px-4 py-2 text-sm font-medium text-gray-600 hover:text-indigo-600 bg-white/80 border-2 border-gray-100 rounded-xl hover:border-indigo-200 hover:bg-indigo-50 transition-all duration-300 transform hover:scale-105 whitespace-nowrap"
                   style={{ animationDelay: `${idx * 50}ms` }}
                 >
                   {filter}
@@ -475,8 +475,8 @@ export default function CallHistory() {
           </div>
 
           {/* Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <div className="overflow-x-auto pb-4">
+            <table className="w-full min-w-[1000px] whitespace-nowrap">
               <thead className="bg-gradient-to-r from-gray-50 to-indigo-50/50 border-b border-gray-200">
                 <tr>
                   {['Execution ID', 'User Number', 'Type', 'Duration', 'Hangup By', 'Batch', 'Timestamp', 'Cost', 'Status', 'Data', 'Trace', 'Raw'].map((header, idx) => (
@@ -598,9 +598,9 @@ export default function CallHistory() {
             style={slideUpAnimation}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-indigo-50 rounded-t-2xl">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 px-4 sm:px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-indigo-50 rounded-t-2xl">
               <h3 className="text-lg font-bold bg-gradient-to-r from-gray-800 to-indigo-600 bg-clip-text text-transparent">Raw Call Data</h3>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText(JSON.stringify(rawDataModal.data, null, 2));
@@ -649,7 +649,7 @@ export default function CallHistory() {
             style={slideUpAnimation}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 bg-white rounded-t-2xl border-b border-gray-100 shadow-sm">
+            <div className="flex items-center justify-between px-4 sm:px-6 py-4 bg-white rounded-t-2xl border-b border-gray-100 shadow-sm">
               <h3 className="text-lg font-bold bg-gradient-to-r from-gray-800 to-purple-600 bg-clip-text text-transparent">Conversation Data</h3>
               <button
                 onClick={() => setConversationModal({ isOpen: false, call: null })}
@@ -660,7 +660,7 @@ export default function CallHistory() {
             </div>
 
             {/* Modal Body - Scrollable */}
-            <div className="flex-1 overflow-auto p-5 space-y-5">
+            <div className="flex-1 overflow-auto p-4 sm:p-5 space-y-4 sm:space-y-5">
               {/* Recording Section */}
               <div className="bg-white rounded-xl border-2 border-indigo-100 p-5 shadow-lg hover:shadow-xl transition-shadow duration-300">
                 <div className="flex items-center justify-between mb-4">
