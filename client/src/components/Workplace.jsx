@@ -172,16 +172,18 @@ const Workplace = () => {
     ];
 
     useEffect(() => {
-        fetchWalletBalance();
+        fetchWallet();
         fetchConcurrencyData();
     }, []);
 
-    const fetchWalletBalance = async () => {
+    const fetchWallet = async () => {
         try {
-            const res = await api.get('/api/payments/wallet');
-            setWalletBalance(res.data.walletBalance || 0);
+            const response = await api.get("/api/payments/wallet");
+            if (response.data.success) {
+                setWalletBalance(response.data.balance);
+            }
         } catch (error) {
-            console.error('Error fetching wallet balance:', error);
+            console.error("Error fetching wallet:", error);
         }
     };
 

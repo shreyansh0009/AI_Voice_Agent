@@ -331,7 +331,9 @@ function AddFundsContent({ onSuccess, onClose }) {
                             }
                         );
                         if (verifyRes.data.success) {
+                            toast.success(`$${amount} added to wallet!`);
                             onSuccess(verifyRes.data.walletBalance);
+                            onClose();
                         }
                     } catch (err) {
                         console.error("Payment verification failed:", err);
