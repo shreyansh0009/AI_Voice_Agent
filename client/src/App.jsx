@@ -22,6 +22,7 @@ const Provider = React.lazy(() => import("./components/Provider"));
 const Login = React.lazy(() => import("./pages/Login"));
 const Signup = React.lazy(() => import("./pages/Signup"));
 const Billings = React.lazy(() => import("./components/Billings"));
+const TapToTalkDemo = React.lazy(() => import("./components/TapToTalkDemo"));
 
 // Minimal loading fallback
 function PageLoader() {
@@ -69,6 +70,8 @@ function PrivateContent() {
           <Route path="/knowledgeBase" element={<KnowledgeBase />} />
           <Route path="/providers" element={<Provider />} />
           <Route path="/billing" element={<Billings />} />
+          <Route path="/tap" element={<TapToTalkDemo />} />
+
         </Routes>
       </Suspense>
     </Layout>

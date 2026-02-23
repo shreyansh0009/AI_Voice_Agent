@@ -107,6 +107,10 @@ router.use("/payments", authenticate, paymentRoutes);
 import spyRoutes from "./spyRoutes.js";
 router.use("/spy", authenticate, spyRoutes);
 
+// Public demo routes (no auth — rate-limited by IP)
+import demoRoutes from "./demoRoutes.js";
+router.use("/demo", demoRoutes);
+
 router.use("/", authenticate, knowledgeRoutes);
 router.use("/auth", authRoutes);
 
