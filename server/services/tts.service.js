@@ -11,7 +11,7 @@ class TTSService {
     this.tabblyOrgId = process.env.TABBLY_ORGANIZATION_ID;
     this.elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
     this.model = "bulbul:v3";
-    this.defaultSarvamSpeaker = "simran";
+    this.defaultSarvamSpeaker = "shruti";
     this.defaultSarvamTemperature = 0.7;
     this.defaultSarvamPace = 1.0;
     this.defaultSarvamSampleRate = "24000";
@@ -50,7 +50,7 @@ class TTSService {
   };
 
   // Valid Sarvam voices: anushka, abhilash, manisha, vidya, arya, karun, hitesh, aditya, ritu, priya, neha, rahul, etc.
-  async speak(text, language = "en", voice = "manisha") {
+  async speak(text, language = "en", voice = null) {
     if (!text || text.trim() === "") return null;
 
     try {
@@ -64,7 +64,7 @@ class TTSService {
         "ashutosh", "advait", "amelia", "sophia", "anand", "tanya", "tarun", "sunny", "mani", "gokul",
         "vijay", "shruti", "suhani", "mohit", "kavitha", "rehan", "soham", "rupali",
       ]);
-      const requestedVoice = (voice || "").toLowerCase();
+      const requestedVoice = (voice || this.defaultSarvamSpeaker).toLowerCase();
       const speaker = v3SupportedSpeakers.has(requestedVoice)
         ? requestedVoice
         : this.defaultSarvamSpeaker;

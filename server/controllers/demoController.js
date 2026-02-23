@@ -3,6 +3,8 @@ import ttsService from '../services/tts.service.js';
 import sessionStore from '../services/demoSessionStore.js';
 import { DEMO_AGENT_PROMPT, DEMO_WELCOME_MESSAGE, DEEPGRAM_MODELS, SARVAM_VOICES } from '../prompts/demoAgent.js';
 
+const DEMO_DEFAULT_VOICE = SARVAM_VOICES.en || 'shruti';
+
 const LANGUAGE_LABELS = {
     en: 'English',
     hi: 'Hindi',
@@ -44,7 +46,7 @@ export const startSession = async (req, res) => {
         // Generate welcome TTS via Sarvam
         let welcomeAudioBase64 = null;
         try {
-            welcomeAudioBase64 = await ttsService.speak(DEMO_WELCOME_MESSAGE, 'en', 'manisha');
+            welcomeAudioBase64 = await ttsService.speak(DEMO_WELCOME_MESSAGE, 'en', DEMO_DEFAULT_VOICE);
         } catch (err) {
             console.warn('⚠️ Could not generate welcome TTS:', err.message);
         }
@@ -206,7 +208,7 @@ export const demoChat = async (req, res) => {
 
         // Generate TTS with correct language
         let audioBase64 = null;
-        const voice = SARVAM_VOICES[responseLang] || 'manisha';
+        const voice = SARVAM_VOICES[responseLang] || DEMO_DEFAULT_VOICE;
         try {
             audioBase64 = await ttsService.speak(fullResponse, responseLang, voice);
         } catch (err) {
