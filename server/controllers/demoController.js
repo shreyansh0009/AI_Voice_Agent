@@ -3,6 +3,30 @@ import ttsService from '../services/tts.service.js';
 import sessionStore from '../services/demoSessionStore.js';
 import { DEMO_AGENT_PROMPT, DEMO_WELCOME_MESSAGE, DEEPGRAM_MODELS, SARVAM_VOICES } from '../prompts/demoAgent.js';
 
+const LANGUAGE_LABELS = {
+    en: 'English',
+    hi: 'Hindi',
+    ta: 'Tamil',
+    te: 'Telugu',
+    bn: 'Bengali',
+    mr: 'Marathi',
+    gu: 'Gujarati',
+    kn: 'Kannada',
+    ml: 'Malayalam',
+    pa: 'Punjabi',
+};
+
+// Keep this aligned with real Deepgram support for our chosen models/configs.
+const SUPPORTED_DEEPGRAM_STT_LANGS = new Set(['en', 'hi', 'ta', 'te', 'bn', 'mr', 'gu', 'kn', 'ml']);
+
+function buildUnsupportedLanguageMessage(currentLang, requestedLang, reasons) {
+    const currentName = LANGUAGE_LABELS[currentLang] || 'English';
+    const requestedName = LANGUAGE_LABELS[requestedLang] || requestedLang.toUpperCase();
+    const reasonText = reasons.length > 0 ? ` for ${reasons.join(' and ')}` : '';
+
+    return `Sorry, I can currently talk only in ${currentName}. I can't switch to ${requestedName}${reasonText} right now. Can we continue in ${currentName}?`;
+}
+
 /**
  * POST /api/demo/start-session
  */
@@ -127,11 +151,25 @@ export const demoChat = async (req, res) => {
         // Parse [LANG:xx] tag if present (language switch)
         let newLanguage = null;
         const langMatch = fullResponse.match(/^\[LANG:([a-z]{2})\]\s*/i);
+        let languageSwitchBlocked = false;
         if (langMatch) {
-            newLanguage = langMatch[1].toLowerCase();
-            fullResponse = fullResponse.replace(langMatch[0], '').trim(); // Strip tag from response
-            session.language = newLanguage; // Persist for future turns
-            console.log(`🌐 Language switched to: ${newLanguage}`);
+            const requestedLanguage = langMatch[1].toLowerCase();
+            const deepgramSupported = SUPPORTED_DEEPGRAM_STT_LANGS.has(requestedLanguage) && !!DEEPGRAM_MODELS[requestedLanguage];
+            const ttsSupported = !!SARVAM_VOICES[requestedLanguage];
+
+            if (deepgramSupported && ttsSupported) {
+                newLanguage = requestedLanguage;
+                fullResponse = fullResponse.replace(langMatch[0], '').trim(); // Strip tag from response
+                session.language = newLanguage; // Persist for future turns
+                console.log(`🌐 Language switched to: ${newLanguage}`);
+            } else {
+                languageSwitchBlocked = true;
+                const reasons = [];
+                if (!deepgramSupported) reasons.push('speech recognition');
+                if (!ttsSupported) reasons.push('speech output');
+                fullResponse = buildUnsupportedLanguageMessage(currentLang, requestedLanguage, reasons);
+                console.log(`🌐 Language switch blocked: ${requestedLanguage} (STT: ${deepgramSupported}, TTS: ${ttsSupported})`);
+            }
         }
 
         const responseLang = newLanguage || currentLang;
@@ -160,7 +198,7 @@ export const demoChat = async (req, res) => {
             audioFormat: 'wav',
             remainingSeconds,
             language: responseLang,
-            languageChanged: !!newLanguage,
+            languageChanged: !!newLanguage && !languageSwitchBlocked,
             deepgramConfig: DEEPGRAM_MODELS[responseLang] || DEEPGRAM_MODELS['en'],
         });
     } catch (error) {
