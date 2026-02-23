@@ -11,7 +11,9 @@ import { FaUserGear } from "react-icons/fa6";
 import { FiLogOut, FiChevronUp } from 'react-icons/fi';
 import { PiSuitcaseSimpleLight } from "react-icons/pi";
 import { FaMicrophoneAlt } from "react-icons/fa";
+import { MdCampaign } from "react-icons/md";
 import { useAuth } from '../contexts/AuthContext';
+
 
 function Layout({ children }) {
   const navigate = useNavigate();
@@ -30,6 +32,7 @@ function Layout({ children }) {
     { id: 'providers', label: 'Providers', path: '/providers', icon: CiBoxes },
     { id: 'workplace', label: 'Workplace', path: '/workplace', icon: FaUserGear },
     { id: 'billing', label: 'Billings', path: '/billing', icon: PiSuitcaseSimpleLight },
+    { id: 'campaign', label: 'Campaign', path: '/campaign', icon: MdCampaign },
     { id: 'tap', label: 'Tap to Talk', path: '/tap', icon: FaMicrophoneAlt }
    // { id: 'settings', label: 'Settings', path: '/settings', icon: MdSettings },
   ];

@@ -10,6 +10,7 @@ import Layout from "./components/Layout";
 import { ToastContainer } from "./components/Toast";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import Campaign from "./components/Campaign";
 
 // Lazy-loaded page components — each becomes its own chunk
 const AdminDashboard = React.lazy(() => import("./pages/AdminDashboard"));
@@ -23,6 +24,7 @@ const Login = React.lazy(() => import("./pages/Login"));
 const Signup = React.lazy(() => import("./pages/Signup"));
 const Billings = React.lazy(() => import("./components/Billings"));
 const TapToTalkDemo = React.lazy(() => import("./components/TapToTalkDemo"));
+const Campaign = React.lazy(() => import("./components/Campaign"));
 
 // Minimal loading fallback
 function PageLoader() {
@@ -71,6 +73,7 @@ function PrivateContent() {
           <Route path="/providers" element={<Provider />} />
           <Route path="/billing" element={<Billings />} />
           <Route path="/tap" element={<TapToTalkDemo />} />
+          <Route path="/campaign" element={<Campaign />} />
 
         </Routes>
       </Suspense>
