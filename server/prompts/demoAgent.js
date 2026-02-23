@@ -53,16 +53,16 @@ export const DEEPGRAM_MODELS = {
 
 // Sarvam voice mapping per language
 export const SARVAM_VOICES = {
-    en: 'shubh',
-    hi: 'shubh',
-    ta: 'shubh',
-    te: 'shubh',
-    bn: 'shubh',
-    mr: 'shubh',
-    gu: 'shubh',
-    kn: 'shubh',
-    ml: 'shubh',
-    pa: 'shubh',
+    en: 'simran',
+    hi: 'simran',
+    ta: 'simran',
+    te: 'simran',
+    bn: 'simran',
+    mr: 'simran',
+    gu: 'simran',
+    kn: 'simran',
+    ml: 'simran',
+    pa: 'simran',
 };
 
 export default { DEMO_AGENT_PROMPT, DEMO_WELCOME_MESSAGE, DEEPGRAM_MODELS, SARVAM_VOICES };
