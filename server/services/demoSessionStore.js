@@ -11,7 +11,7 @@ import crypto from 'crypto';
  */
 
 const SESSION_TTL_MS = 5 * 60 * 1000;       // 5 minutes
-const MAX_SESSIONS_PER_IP = 3;
+const MAX_SESSIONS_PER_IP = 10;
 const MAX_MESSAGES_PER_SESSION = 30;
 const CLEANUP_INTERVAL_MS = 60 * 1000;      // every 60s
 
