@@ -139,8 +139,32 @@ export const demoChat = async (req, res) => {
             }
         }
 
-        if (streamError) {
-            throw new Error(streamError);
+        if (streamError || !fullResponse.trim()) {
+            console.warn(`⚠️ Demo stream issue (${streamError || 'empty response'}). Falling back to non-stream mode.`);
+            try {
+                const fallback = await aiAgentService.processMessage(
+                    message,
+                    'default',
+                    session.customerContext,
+                    session.conversationHistory,
+                    {
+                        language: currentLang,
+                        systemPrompt: DEMO_AGENT_PROMPT,
+                        useRAG: false,
+                        maxTokens: 80,
+                    },
+                );
+
+                fullResponse = (fallback?.response || '').trim();
+                if (fallback?.customerContext) {
+                    updatedContext = fallback.customerContext;
+                }
+                if (fallback?.languageSwitch && !/^\[LANG:/i.test(fullResponse)) {
+                    fullResponse = `[LANG:${fallback.languageSwitch}] ${fullResponse}`;
+                }
+            } catch (fallbackError) {
+                throw new Error(`LLM fallback failed: ${fallbackError.message}`);
+            }
         }
 
         fullResponse = fullResponse.trim();

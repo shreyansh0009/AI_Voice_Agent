@@ -10,7 +10,12 @@ class TTSService {
     this.tabblyMemberId = process.env.TABBLY_MEMBER_ID;
     this.tabblyOrgId = process.env.TABBLY_ORGANIZATION_ID;
     this.elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
-    this.model = "bulbul:v2";
+    this.model = "bulbul:v3";
+    this.defaultSarvamSpeaker = "simran";
+    this.defaultSarvamTemperature = 0.7;
+    this.defaultSarvamPace = 1.0;
+    this.defaultSarvamSampleRate = "24000";
+    this.defaultSarvamCodec = "wav";
 
     // Initialize ElevenLabs client if API key is available
     if (this.elevenLabsApiKey) {
@@ -50,19 +55,34 @@ class TTSService {
 
     try {
       const targetLang = this.languageMap[language] || this.languageMap["en"];
+      const normalizedText = text.trim();
+
+      // bulbul:v3 does not support legacy speakers like manisha/anushka.
+      const v3SupportedSpeakers = new Set([
+        "aditya", "ritu", "priya", "neha", "rahul", "pooja", "rohan", "simran", "kavya", "amit", "dev",
+        "ishita", "shreya", "ratan", "varun", "manan", "sumit", "roopa", "kabir", "aayan", "shubh",
+        "ashutosh", "advait", "amelia", "sophia", "anand", "tanya", "tarun", "sunny", "mani", "gokul",
+        "vijay", "shruti", "suhani", "mohit", "kavitha", "rehan", "soham", "rupali",
+      ]);
+      const requestedVoice = (voice || "").toLowerCase();
+      const speaker = v3SupportedSpeakers.has(requestedVoice)
+        ? requestedVoice
+        : this.defaultSarvamSpeaker;
+      if (requestedVoice && speaker !== requestedVoice) {
+        console.warn(`⚠️ Sarvam v3 speaker "${voice}" not supported. Falling back to "${speaker}".`);
+      }
 
       const response = await axios.post(
         "https://api.sarvam.ai/text-to-speech",
         {
-          inputs: [text],
+          text: normalizedText,
           target_language_code: targetLang,
-          speaker: voice,
+          speaker,
           model: this.model,
-          // Enhanced settings for natural speech (same as VoiceChat.jsx)
-          enable_preprocessing: true,
-          pace: 1.0, // Natural speed
-          pitch: 0, // Neutral pitch
-          loudness: 1.5, // Slightly louder for clarity
+          pace: this.defaultSarvamPace,
+          temperature: this.defaultSarvamTemperature,
+          speech_sample_rate: this.defaultSarvamSampleRate,
+          output_audio_codec: this.defaultSarvamCodec,
         },
         {
           headers: {
@@ -72,8 +92,11 @@ class TTSService {
         },
       );
 
-      // Return the raw base64 audio (this is what Exotel needs)
-      const base64Audio = response.data.audios[0];
+      // Return the raw base64 audio
+      const base64Audio = response?.data?.audios?.[0] || null;
+      if (!base64Audio) {
+        throw new Error("Sarvam TTS returned no audio");
+      }
 
       return base64Audio;
     } catch (err) {
