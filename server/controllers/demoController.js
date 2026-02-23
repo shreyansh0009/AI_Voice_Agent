@@ -96,6 +96,7 @@ export const demoChat = async (req, res) => {
                 useRAG: false,
                 agentId: 'default',
                 conversationId: sessionId,
+                maxTokens: 80,
             },
         );
 
