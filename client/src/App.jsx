@@ -10,7 +10,6 @@ import Layout from "./components/Layout";
 import { ToastContainer } from "./components/Toast";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
-import Campaign from "./components/Campaign";
 
 // Lazy-loaded page components — each becomes its own chunk
 const AdminDashboard = React.lazy(() => import("./pages/AdminDashboard"));
