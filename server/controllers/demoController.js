@@ -87,26 +87,35 @@ export const demoChat = async (req, res) => {
 
         const stream = await aiAgentService.processMessageStream(
             message,
-            'demo',
+            'default',
             session.customerContext,
             session.conversationHistory,
             {
                 language: currentLang,
                 systemPrompt: DEMO_AGENT_PROMPT,
                 useRAG: false,
-                agentId: 'demo',
+                agentId: 'default',
+                conversationId: sessionId,
             },
         );
 
         let fullResponse = '';
         let updatedContext = null;
+        let streamError = null;
 
         for await (const chunk of stream) {
             if (chunk.type === 'content' || chunk.type === 'flow_text') {
                 fullResponse += chunk.content;
             } else if (chunk.type === 'context') {
                 updatedContext = chunk.customerContext;
+            } else if (chunk.type === 'error') {
+                streamError = chunk.message || 'LLM stream failed';
+                break;
             }
+        }
+
+        if (streamError) {
+            throw new Error(streamError);
         }
 
         fullResponse = fullResponse.trim();
