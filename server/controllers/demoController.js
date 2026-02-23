@@ -65,7 +65,7 @@ export const startSession = async (req, res) => {
             expiresIn: result.expiresIn,
             welcomeMessage: DEMO_WELCOME_MESSAGE,
             welcomeAudioBase64,
-            audioFormat: 'wav',
+            audioFormat: ttsService.getOutputCodec(),
             language: 'en',
             deepgramConfig: DEEPGRAM_MODELS['en'],
         });
@@ -122,7 +122,7 @@ export const demoChat = async (req, res) => {
                 useRAG: false,
                 agentId: 'default',
                 conversationId: sessionId,
-                maxTokens: 80,
+                maxTokens: 60,
             },
         );
 
@@ -153,7 +153,7 @@ export const demoChat = async (req, res) => {
                         language: currentLang,
                         systemPrompt: DEMO_AGENT_PROMPT,
                         useRAG: false,
-                        maxTokens: 80,
+                        maxTokens: 60,
                     },
                 );
 
@@ -221,7 +221,7 @@ export const demoChat = async (req, res) => {
             success: true,
             response: fullResponse,
             audioBase64,
-            audioFormat: 'wav',
+            audioFormat: ttsService.getOutputCodec(),
             remainingSeconds,
             language: responseLang,
             languageChanged: !!newLanguage && !languageSwitchBlocked,

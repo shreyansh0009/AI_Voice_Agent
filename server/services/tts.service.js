@@ -14,8 +14,8 @@ class TTSService {
     this.defaultSarvamSpeaker = "shruti";
     this.defaultSarvamTemperature = 0.7;
     this.defaultSarvamPace = 1.0;
-    this.defaultSarvamSampleRate = "24000";
-    this.defaultSarvamCodec = "wav";
+    this.defaultSarvamSampleRate = "16000";
+    this.defaultSarvamCodec = "mp3";
 
     // Initialize ElevenLabs client if API key is available
     if (this.elevenLabsApiKey) {
@@ -48,6 +48,10 @@ class TTSService {
     gu: "gu-IN",
     pa: "pa-IN",
   };
+
+  getOutputCodec() {
+    return this.defaultSarvamCodec || "wav";
+  }
 
   // Valid Sarvam voices: anushka, abhilash, manisha, vidya, arya, karun, hitesh, aditya, ritu, priya, neha, rahul, etc.
   async speak(text, language = "en", voice = null) {
