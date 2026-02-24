@@ -1,5 +1,5 @@
 import express from 'express';
-import { startSession, demoChat } from '../controllers/demoController.js';
+import { startSession, demoChat, demoChatStream } from '../controllers/demoController.js';
 
 const router = express.Router();
 
@@ -16,5 +16,6 @@ router.post('/start-session', startSession);
  * Returns AI response text + ElevenLabs TTS audio (base64 MP3).
  */
 router.post('/chat', demoChat);
+router.post('/chat/stream', demoChatStream);
 
 export default router;

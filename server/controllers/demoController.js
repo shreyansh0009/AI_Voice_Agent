@@ -236,3 +236,252 @@ export const demoChat = async (req, res) => {
         });
     }
 };
+
+/**
+ * POST /api/demo/chat/stream
+ * SSE stream: progressively emits audio chunks for lower perceived latency.
+ */
+export const demoChatStream = async (req, res) => {
+    const writeEvent = (payload) => {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    try {
+        const { sessionId, message } = req.body;
+
+        if (!sessionId) {
+            res.status(400).json({ success: false, error: 'sessionId is required' });
+            return;
+        }
+        if (!message || typeof message !== 'string' || !message.trim()) {
+            res.status(400).json({ success: false, error: 'message is required' });
+            return;
+        }
+
+        const session = sessionStore.getSession(sessionId);
+        if (!session) {
+            res.status(410).json({
+                success: false,
+                error: 'session_expired',
+                message: 'Demo session has expired. Start a new session.',
+            });
+            return;
+        }
+
+        if (!sessionStore.canSendMessage(session)) {
+            res.status(429).json({
+                success: false,
+                error: 'limit_reached',
+                message: 'Message limit reached for this session.',
+            });
+            return;
+        }
+
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders?.();
+
+        sessionStore.addMessage(session, 'user', message);
+        const currentLang = session.language || 'en';
+        let responseLang = currentLang;
+        let newLanguage = null;
+        let languageSwitchBlocked = false;
+        let updatedContext = null;
+
+        const stream = await aiAgentService.processMessageStream(
+            message,
+            'default',
+            session.customerContext,
+            session.conversationHistory,
+            {
+                language: currentLang,
+                systemPrompt: DEMO_AGENT_PROMPT,
+                useRAG: false,
+                agentId: 'default',
+                conversationId: sessionId,
+                maxTokens: 60,
+            },
+        );
+
+        let streamError = null;
+        let chunkIndex = 0;
+        let emittedParts = [];
+        let rawPrefixBuffer = '';
+        let outputBuffer = '';
+        let prefixResolved = false;
+        let ignoreModelText = false;
+
+        const sentenceSplit = (buffer, force = false) => {
+            const out = [];
+            let rest = buffer;
+            while (true) {
+                const m = rest.match(/^[\s\S]*?[.!?।॥](?:\s+|$)/);
+                if (!m) break;
+                out.push(m[0].trim());
+                rest = rest.slice(m[0].length);
+            }
+            if (force && rest.trim()) {
+                out.push(rest.trim());
+                rest = '';
+            }
+            return { out, rest };
+        };
+
+        const speakAndEmit = async (text) => {
+            const clean = (text || '').trim();
+            if (!clean) return;
+            const voice = SARVAM_VOICES[responseLang] || DEMO_DEFAULT_VOICE;
+            let audioBase64 = null;
+            try {
+                audioBase64 = await ttsService.speak(clean, responseLang, voice);
+            } catch (err) {
+                console.warn('⚠️ Streamed demo TTS failed for chunk:', err.message);
+            }
+            chunkIndex += 1;
+            emittedParts.push(clean);
+            writeEvent({
+                type: 'audio_chunk',
+                index: chunkIndex,
+                text: clean,
+                audioBase64,
+                audioFormat: ttsService.getOutputCodec(),
+                language: responseLang,
+            });
+        };
+
+        const resolveLanguagePrefixIfReady = (force = false) => {
+            if (prefixResolved) return;
+            const match = rawPrefixBuffer.match(/^\[LANG:([a-z]{2})\]\s*/i);
+
+            if (match) {
+                const requestedLanguage = match[1].toLowerCase();
+                const deepgramSupported =
+                    SUPPORTED_DEEPGRAM_STT_LANGS.has(requestedLanguage) &&
+                    !!DEEPGRAM_MODELS[requestedLanguage];
+                const ttsSupported = !!SARVAM_VOICES[requestedLanguage];
+
+                if (deepgramSupported && ttsSupported) {
+                    newLanguage = requestedLanguage;
+                    responseLang = requestedLanguage;
+                    session.language = requestedLanguage;
+                    rawPrefixBuffer = rawPrefixBuffer.slice(match[0].length);
+                    prefixResolved = true;
+                    return;
+                }
+
+                languageSwitchBlocked = true;
+                const reasons = [];
+                if (!deepgramSupported) reasons.push('speech recognition');
+                if (!ttsSupported) reasons.push('speech output');
+                rawPrefixBuffer = buildUnsupportedLanguageMessage(
+                    currentLang,
+                    requestedLanguage,
+                    reasons,
+                );
+                prefixResolved = true;
+                ignoreModelText = true;
+                return;
+            }
+
+            if (
+                force ||
+                !rawPrefixBuffer.startsWith('[LANG:') ||
+                rawPrefixBuffer.length >= 18
+            ) {
+                prefixResolved = true;
+            }
+        };
+
+        for await (const chunk of stream) {
+            if (chunk.type === 'context') {
+                updatedContext = chunk.customerContext;
+                continue;
+            }
+            if (chunk.type === 'error') {
+                streamError = chunk.message || 'LLM stream failed';
+                break;
+            }
+            if (chunk.type !== 'content' && chunk.type !== 'flow_text') {
+                continue;
+            }
+
+            if (ignoreModelText) continue;
+
+            const piece = chunk.content || '';
+            rawPrefixBuffer += piece;
+            resolveLanguagePrefixIfReady(false);
+            if (!prefixResolved) continue;
+
+            outputBuffer += rawPrefixBuffer;
+            rawPrefixBuffer = '';
+
+            const shouldForceFlush = outputBuffer.length >= 140;
+            const { out, rest } = sentenceSplit(outputBuffer, shouldForceFlush);
+            outputBuffer = rest;
+            for (const sentence of out) {
+                // eslint-disable-next-line no-await-in-loop
+                await speakAndEmit(sentence);
+            }
+        }
+
+        if (streamError) {
+            throw new Error(streamError);
+        }
+
+        resolveLanguagePrefixIfReady(true);
+        if (!ignoreModelText && rawPrefixBuffer.trim()) {
+            outputBuffer += rawPrefixBuffer;
+            rawPrefixBuffer = '';
+        }
+
+        const { out: finalOut } = sentenceSplit(outputBuffer, true);
+        for (const sentence of finalOut) {
+            // eslint-disable-next-line no-await-in-loop
+            await speakAndEmit(sentence);
+        }
+
+        let fullResponse = emittedParts.join(' ').trim();
+        if (!fullResponse) {
+            fullResponse = "I didn't catch that. Could you say that again?";
+            await speakAndEmit(fullResponse);
+        }
+
+        sessionStore.addMessage(session, 'assistant', fullResponse);
+        if (updatedContext) {
+            session.customerContext = updatedContext;
+        }
+
+        const remainingSeconds = sessionStore.getRemainingSeconds(session);
+        writeEvent({
+            type: 'done',
+            success: true,
+            response: fullResponse,
+            remainingSeconds,
+            language: responseLang,
+            languageChanged: !!newLanguage && !languageSwitchBlocked,
+            deepgramConfig: DEEPGRAM_MODELS[responseLang] || DEEPGRAM_MODELS.en,
+            audioFormat: ttsService.getOutputCodec(),
+        });
+        res.end();
+    } catch (error) {
+        console.error('❌ Demo chat stream error:', error);
+        try {
+            writeEvent({
+                type: 'error',
+                success: false,
+                message: error.message || 'Failed to stream demo message',
+            });
+            res.end();
+        } catch {
+            if (!res.headersSent) {
+                res.status(500).json({
+                    success: false,
+                    error: 'Failed to process demo stream message',
+                    details: error.message,
+                });
+            }
+        }
+    }
+};
