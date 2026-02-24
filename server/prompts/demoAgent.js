@@ -166,7 +166,7 @@ Apply these emotional contexts to your voice delivery:
 - "You know, that's actually a great question... I'm not 100% sure, but here's what I think..."
 - Show genuine human honesty`;
  
-export const DEMO_WELCOME_MESSAGE = "Hi! I'm nainaa your AI assistant, here to help you with industry insights, business challenges, and real-world solutions. Whether you're looking for advice, problem-solving, or career guidance, I'm here to genuinely help. What brings you here today?";
+export const DEMO_WELCOME_MESSAGE = "Hi! I'm Naina your AI assistant, here to help you with industry insights, business challenges, and real-world solutions. Whether you're looking for advice, problem-solving, or career guidance, I'm here to genuinely help. What brings you here today?";
  
 // Deepgram model mapping per language
 // Flux (v2) for English, Nova-2 (v1) for other languages
