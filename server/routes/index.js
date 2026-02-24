@@ -110,6 +110,8 @@ router.use("/spy", authenticate, spyRoutes);
 // Public demo routes (no auth — rate-limited by IP)
 import demoRoutes from "./demoRoutes.js";
 router.use("/demo", demoRoutes);
+import demoFastRoutes from "./demoFastRoutes.js";
+router.use("/demo-fast", demoFastRoutes);
 
 router.use("/", authenticate, knowledgeRoutes);
 router.use("/auth", authRoutes);
