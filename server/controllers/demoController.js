@@ -4,6 +4,7 @@ import sessionStore from '../services/demoSessionStore.js';
 import { DEMO_AGENT_PROMPT, DEMO_WELCOME_MESSAGE, DEEPGRAM_MODELS, SARVAM_VOICES } from '../prompts/demoAgent.js';
 
 const DEMO_DEFAULT_VOICE = SARVAM_VOICES.en || 'shruti';
+const DEMO_MAX_TOKENS = 100;
 
 const LANGUAGE_LABELS = {
     en: 'English',
@@ -27,6 +28,27 @@ function buildUnsupportedLanguageMessage(currentLang, requestedLang, reasons) {
     const reasonText = reasons.length > 0 ? ` for ${reasons.join(' and ')}` : '';
 
     return `Sorry, I can currently talk only in ${currentName}. I can't switch to ${requestedName}${reasonText} right now. Can we continue in ${currentName}?`;
+}
+
+function ensureCompleteSentence(text) {
+    const t = (text || '').trim();
+    if (!t) return '';
+    if (/[.!?।॥]["')\]]?\s*$/.test(t)) return t;
+
+    const marks = ['.', '!', '?', '।', '॥'];
+    let last = -1;
+    for (const m of marks) {
+        const i = t.lastIndexOf(m);
+        if (i > last) last = i;
+    }
+
+    // If we already have a near-end complete sentence, drop trailing fragment.
+    if (last > 0 && last >= Math.floor(t.length * 0.65)) {
+        return t.slice(0, last + 1).trim();
+    }
+
+    // Fallback: close phrase cleanly.
+    return `${t}.`;
 }
 
 /**
@@ -122,7 +144,7 @@ export const demoChat = async (req, res) => {
                 useRAG: false,
                 agentId: 'default',
                 conversationId: sessionId,
-                maxTokens: 60,
+                maxTokens: DEMO_MAX_TOKENS,
             },
         );
 
@@ -153,7 +175,7 @@ export const demoChat = async (req, res) => {
                         language: currentLang,
                         systemPrompt: DEMO_AGENT_PROMPT,
                         useRAG: false,
-                        maxTokens: 60,
+                        maxTokens: DEMO_MAX_TOKENS,
                     },
                 );
 
@@ -169,7 +191,7 @@ export const demoChat = async (req, res) => {
             }
         }
 
-        fullResponse = fullResponse.trim();
+        fullResponse = ensureCompleteSentence(fullResponse.trim());
         if (!fullResponse) {
             fullResponse = "I didn't catch that. Could you say that again?";
         }
@@ -193,7 +215,9 @@ export const demoChat = async (req, res) => {
                 const reasons = [];
                 if (!deepgramSupported) reasons.push('speech recognition');
                 if (!ttsSupported) reasons.push('speech output');
-                fullResponse = buildUnsupportedLanguageMessage(currentLang, requestedLanguage, reasons);
+                fullResponse = ensureCompleteSentence(
+                    buildUnsupportedLanguageMessage(currentLang, requestedLanguage, reasons),
+                );
                 console.log(`🌐 Language switch blocked: ${requestedLanguage} (STT: ${deepgramSupported}, TTS: ${ttsSupported})`);
             }
         }
@@ -301,7 +325,7 @@ export const demoChatStream = async (req, res) => {
                 useRAG: false,
                 agentId: 'default',
                 conversationId: sessionId,
-                maxTokens: 60,
+                maxTokens: DEMO_MAX_TOKENS,
             },
         );
 
@@ -417,12 +441,11 @@ export const demoChatStream = async (req, res) => {
             outputBuffer += rawPrefixBuffer;
             rawPrefixBuffer = '';
 
-            const shouldForceFlush = outputBuffer.length >= 140;
-            const { out, rest } = sentenceSplit(outputBuffer, shouldForceFlush);
+            const { out, rest } = sentenceSplit(outputBuffer, false);
             outputBuffer = rest;
             for (const sentence of out) {
                 // eslint-disable-next-line no-await-in-loop
-                await speakAndEmit(sentence);
+                await speakAndEmit(ensureCompleteSentence(sentence));
             }
         }
 
@@ -439,10 +462,10 @@ export const demoChatStream = async (req, res) => {
         const { out: finalOut } = sentenceSplit(outputBuffer, true);
         for (const sentence of finalOut) {
             // eslint-disable-next-line no-await-in-loop
-            await speakAndEmit(sentence);
+            await speakAndEmit(ensureCompleteSentence(sentence));
         }
 
-        let fullResponse = emittedParts.join(' ').trim();
+        let fullResponse = ensureCompleteSentence(emittedParts.join(' ').trim());
         if (!fullResponse) {
             fullResponse = "I didn't catch that. Could you say that again?";
             await speakAndEmit(fullResponse);
