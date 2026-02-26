@@ -54,12 +54,35 @@ const phoneNumberSchema = new mongoose.Schema(
       enum: ["available", "owned", "linked", "expired"],
       default: "available",
     },
+    // Trial allocation fields
+    trialLeadId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Lead",
+      default: null,
+      index: true,
+    },
+    trialExpiresAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    reservedForTrial: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    isTrialPool: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
   { timestamps: true },
 );
 
 // Index for finding agent's linked number
 phoneNumberSchema.index({ linkedAgentId: 1 });
+phoneNumberSchema.index({ reservedForTrial: 1, trialExpiresAt: 1 });
 
 // Static method to clean phone number format
 phoneNumberSchema.statics.cleanNumber = function (phoneNumber) {

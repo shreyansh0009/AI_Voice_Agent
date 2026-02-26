@@ -107,6 +107,7 @@ const callSchema = new mongoose.Schema(
         // ============================================
         // TRANSCRIPTION
         // ============================================
+        
         transcript: [
             {
                 role: {

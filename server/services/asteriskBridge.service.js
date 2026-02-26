@@ -34,6 +34,7 @@ const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
  * Detect language from response text (same as streamChatController)
  * Used to dynamically switch Deepgram language
  */
+
 function detectResponseLanguage(text) {
   if (!text || text.length < 10) return null;
 
@@ -793,7 +794,7 @@ class CallSession {
           "-i",
           "pipe:0", // Input from stdin
           "-ar",
-          "8000", // Resample to 8kHz for telephony
+          "8000", // Resamplze to 8kH for telephony
           "-ac",
           "1", // Mono
           "-acodec",

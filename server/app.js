@@ -23,6 +23,7 @@ import freeswitchRoutes from "./routes/freeswitchRoutes.js";
 import audioSocketServer from "./services/asteriskBridge.service.js";
 import { startSubscriptionCron } from "./cron/subscriptionCron.js";
 import { startExchangeRateCron } from "./cron/exchangeRateCron.js";
+import { startTrialExpiryCron } from "./cron/trialExpiryCron.js";
 
 const app = express();
 
@@ -37,7 +38,7 @@ app.use(
   cors({
     origin: true, // Allow all origins
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-admin-key"],
     credentials: true,
   })
 );
@@ -153,6 +154,9 @@ if (config.env !== "production") {
 
     // Start exchange rate cron job
     startExchangeRateCron();
+
+    // Start trial expiry cron job
+    startTrialExpiryCron();
   });
 
   // 🔊 Attach WebSocket server for live call spy

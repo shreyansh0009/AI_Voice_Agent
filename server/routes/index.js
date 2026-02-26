@@ -15,6 +15,10 @@ import asteriskRoutes from "./asteriskRoutes.js";
 import phoneNumberRoutes from "./phoneNumberRoutes.js";
 import callRoutes from "./callRoutes.js";
 import paymentRoutes from "./paymentRoutes.js";
+import trialRoutes from "./trialRoutes.js";
+import spyRoutes from "./spyRoutes.js";
+import demoRoutes from "./demoRoutes.js";
+import demoFastRoutes from "./demoFastRoutes.js";
 import ExchangeRate from "../models/ExchangeRate.js";
 
 const router = express.Router();
@@ -95,6 +99,7 @@ router.use("/agentforce", agentforceRoutes);
 router.use("/speech", speechRoutes);
 router.use("/chat", chatRoutes);
 router.use("/asterisk", asteriskRoutes);
+router.use("/trial", trialRoutes);
 router.use("/call", authenticate, callRoutes);
 
 // Protect all routes below (except /auth and health checks)
@@ -104,13 +109,10 @@ router.use("/phone-numbers", authenticate, phoneNumberRoutes);
 router.use("/payments", authenticate, paymentRoutes);
 
 // Spy / live-call monitoring routes
-import spyRoutes from "./spyRoutes.js";
 router.use("/spy", authenticate, spyRoutes);
 
 // Public demo routes (no auth — rate-limited by IP)
-import demoRoutes from "./demoRoutes.js";
 router.use("/demo", demoRoutes);
-import demoFastRoutes from "./demoFastRoutes.js";
 router.use("/demo-fast", demoFastRoutes);
 
 router.use("/", authenticate, knowledgeRoutes);
