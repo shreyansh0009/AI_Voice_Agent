@@ -137,6 +137,11 @@ export default function AgentSetupSingle() {
     webhookUrl: "",
   });
 
+  // Outbound call state
+  const [showOutboundModal, setShowOutboundModal] = useState(false);
+  const [outboundPhone, setOutboundPhone] = useState("");
+  const [isCallingOutbound, setIsCallingOutbound] = useState(false);
+
   // Snapshot of saved agent fields for dirty-state detection
   const savedSnapshot = useRef(null);
 
@@ -2071,8 +2076,18 @@ export default function AgentSetupSingle() {
             </div>
 
             <div className="p-3 border rounded-md bg-slate-50 text-sm">
-              <button className="w-full px-3 py-2 border rounded-md text-sm">
-                Test via web call
+              <button
+                onClick={() => {
+                  if (isNewAgent || !selectedAgentId) {
+                    toast.error("Save your agent first before making a call.");
+                    return;
+                  }
+                  setOutboundPhone("");
+                  setShowOutboundModal(true);
+                }}
+                className="w-full px-3 py-2 border rounded-md text-sm bg-white hover:bg-green-50 hover:border-green-300 transition-colors"
+              >
+                📞 Get Call From Agent
               </button>
               <p className="text-xs text-slate-400 mt-2">
                 Test your agent with voice calls
@@ -2113,6 +2128,92 @@ export default function AgentSetupSingle() {
               }}
               onClose={() => setShowAddFundsModal(false)}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Outbound Call Modal */}
+      {showOutboundModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-sm w-full">
+            <div className="flex justify-between items-center p-5 border-b">
+              <h2 className="text-lg font-bold text-gray-900">📞 Get Call From Agent</h2>
+              <button
+                onClick={() => setShowOutboundModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <MdClose className="text-xl" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Your Phone Number
+                </label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 py-2 bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-sm font-medium text-gray-600">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    value={outboundPhone}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, "").slice(0, 10);
+                      setOutboundPhone(val);
+                    }}
+                    placeholder="9876543210"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-r-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    maxLength={10}
+                    autoFocus
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  Enter your 10-digit mobile number. You'll receive a call from your agent.
+                </p>
+              </div>
+
+              <button
+                onClick={async () => {
+                  if (!/^[6-9]\d{9}$/.test(outboundPhone)) {
+                    toast.error("Enter a valid 10-digit Indian mobile number.");
+                    return;
+                  }
+                  setIsCallingOutbound(true);
+                  try {
+                    const res = await api.post("/api/call/outbound", {
+                      agentId: selectedAgentId,
+                      phoneNumber: outboundPhone,
+                    });
+                    if (res.data.success) {
+                      toast.success(res.data.message || "Call initiated! You'll get a call shortly.");
+                      setShowOutboundModal(false);
+                    } else {
+                      toast.error(res.data.error || "Failed to initiate call.");
+                    }
+                  } catch (err) {
+                    const errMsg = err.response?.data?.error || "Failed to initiate call.";
+                    const errCode = err.response?.data?.code;
+                    if (errCode === "NO_DID") {
+                      toast.error("No phone number linked to this agent. Purchase a number first.");
+                    } else if (errCode === "INSUFFICIENT_BALANCE") {
+                      toast.error("Insufficient wallet balance. Please add funds.");
+                    } else {
+                      toast.error(errMsg);
+                    }
+                  } finally {
+                    setIsCallingOutbound(false);
+                  }
+                }}
+                disabled={isCallingOutbound || outboundPhone.length !== 10}
+                className={`w-full py-2.5 rounded-md text-sm font-medium text-white transition-colors ${isCallingOutbound || outboundPhone.length !== 10
+                    ? "bg-gray-300 cursor-not-allowed"
+                    : "bg-green-600 hover:bg-green-700"
+                  }`}
+              >
+                {isCallingOutbound ? "Calling..." : "Call Now"}
+              </button>
+            </div>
           </div>
         </div>
       )}
