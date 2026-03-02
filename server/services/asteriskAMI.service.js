@@ -200,7 +200,7 @@ class AsteriskAMI {
 
         // Build the SIP dial string: 922+91{DID}{PHONE}
         const dialString = `${SIP_PREFIX}+91${did}${phoneNumber}`;
-        const channel = `SIP/${SIP_TRUNK}/${dialString}`;
+        const channel = `PJSIP/${dialString}@${SIP_TRUNK}`;
 
         console.log(`📞 AMI Originate: ${channel}`);
         console.log(`   UUID: ${uuid}`);
