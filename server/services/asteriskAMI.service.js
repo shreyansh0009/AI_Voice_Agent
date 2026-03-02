@@ -212,7 +212,7 @@ class AsteriskAMI {
         const response = await this._sendAction({
             Action: "Originate",
             Channel: channel,
-            Context: "ai-agent",
+            Context: "outbound-ai",
             Exten: "s",
             Priority: "1",
             CallerID: `"AI Agent" <${did}>`,
