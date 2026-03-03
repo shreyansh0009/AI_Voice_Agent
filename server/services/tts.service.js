@@ -71,14 +71,15 @@ class TTSService {
       const requestBody = isV3
         ? {
           // v3 format: text as string, temperature-based controls
+          // Using 8kHz WAV to match telephony pipeline (avoids MP3 distortion + resampling)
           text: text.trim(),
           target_language_code: targetLang,
           speaker,
           model: resolvedModel,
           pace: 1.0,
-          temperature: 0.7,
-          speech_sample_rate: "16000",
-          output_audio_codec: "mp3",
+          temperature: 0.5,
+          speech_sample_rate: "8000",
+          output_audio_codec: "wav",
         }
         : {
           // v2 format: inputs as array, preprocessing-based controls
