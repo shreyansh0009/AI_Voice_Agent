@@ -98,36 +98,67 @@ export default function Audio({
     { value: "Azure", label: "Azure" },
   ];
 
+  // Sarvam v2 voices (legacy set)
+  const sarvamV2Voices = [
+    { value: "anushka", label: "Anushka (F)" },
+    { value: "abhilash", label: "Abhilash (M)" },
+    { value: "manisha", label: "Manisha (F)" },
+    { value: "vidya", label: "Vidya (F)" },
+    { value: "arya", label: "Arya (F)" },
+    { value: "karun", label: "Karun (M)" },
+    { value: "hitesh", label: "Hitesh (M)" },
+  ];
+
+  // Sarvam v3 voices (expanded set, 38 voices)
+  const sarvamV3Voices = [
+    { value: "shubh", label: "Shubh (M) — Default" },
+    { value: "aditya", label: "Aditya (M)" },
+    { value: "rahul", label: "Rahul (M)" },
+    { value: "rohan", label: "Rohan (M)" },
+    { value: "amit", label: "Amit (M)" },
+    { value: "dev", label: "Dev (M)" },
+    { value: "ratan", label: "Ratan (M)" },
+    { value: "varun", label: "Varun (M)" },
+    { value: "manan", label: "Manan (M)" },
+    { value: "sumit", label: "Sumit (M)" },
+    { value: "kabir", label: "Kabir (M)" },
+    { value: "aayan", label: "Aayan (M)" },
+    { value: "ashutosh", label: "Ashutosh (M)" },
+    { value: "advait", label: "Advait (M)" },
+    { value: "anand", label: "Anand (M)" },
+    { value: "tarun", label: "Tarun (M)" },
+    { value: "sunny", label: "Sunny (M)" },
+    { value: "mani", label: "Mani (M)" },
+    { value: "gokul", label: "Gokul (M)" },
+    { value: "vijay", label: "Vijay (M)" },
+    { value: "mohit", label: "Mohit (M)" },
+    { value: "rehan", label: "Rehan (M)" },
+    { value: "soham", label: "Soham (M)" },
+    { value: "ritu", label: "Ritu (F)" },
+    { value: "priya", label: "Priya (F)" },
+    { value: "neha", label: "Neha (F)" },
+    { value: "pooja", label: "Pooja (F)" },
+    { value: "simran", label: "Simran (F)" },
+    { value: "kavya", label: "Kavya (F)" },
+    { value: "ishita", label: "Ishita (F)" },
+    { value: "shreya", label: "Shreya (F)" },
+    { value: "roopa", label: "Roopa (F)" },
+    { value: "amelia", label: "Amelia (F)" },
+    { value: "sophia", label: "Sophia (F)" },
+    { value: "tanya", label: "Tanya (F)" },
+    { value: "shruti", label: "Shruti (F)" },
+    { value: "suhani", label: "Suhani (F)" },
+    { value: "kavitha", label: "Kavitha (F)" },
+    { value: "rupali", label: "Rupali (F)" },
+  ];
+
   // Provider-specific configurations
   const providerConfigs = {
     Sarvam: {
       models: [
-        { value: "bulbulv2", label: "bulbulv2" },
-        { value: "bulbulv1", label: "bulbulv1" },
-      ],
-      voices: [
-        { value: "anushka", label: "Anushka" },
-        { value: "abhilash", label: "Abhilash" },
-        { value: "manisha", label: "Manisha" },
-        { value: "vidya", label: "Vidya" },
-        { value: "arya", label: "Arya" },
-        { value: "karun", label: "Karun" },
-        { value: "hitesh", label: "Hitesh" },
-        { value: "aditya", label: "Aditya" },
-        { value: "ritu", label: "Ritu" },
-        { value: "chirag", label: "Chirag" },
-        { value: "priya", label: "Priya" },
-        { value: "neha", label: "Neha" },
-        { value: "rahul", label: "Rahul" },
-        { value: "pooja", label: "Pooja" },
-        { value: "rohan", label: "Rohan" },
-        { value: "simran", label: "Simran" },
-        { value: "kavya", label: "Kavya" },
-        { value: "sunita", label: "Sunita" },
-        { value: "tara", label: "Tara" },
-        { value: "anirudh", label: "Anirudh" },
-        { value: "anjali", label: "Anjali" },
-        { value: "ishaan", label: "Ishaan" },
+        { value: "bulbul:v3", label: "Bulbul v3 (Latest)" },
+        { value: "bulbul:v2", label: "Bulbul v2" },
+        { value: "bulbul:v1", label: "Bulbul v1" },
       ],
     },
     Tabbly: {
@@ -184,18 +215,42 @@ export default function Audio({
     },
   };
 
-  // Get current provider's models and voices
+  // Get current provider's models
   const currentModels = providerConfigs[voiceProvider]?.models || [];
-  const currentVoices = providerConfigs[voiceProvider]?.voices || [];
+
+  // Get current voices — for Sarvam, switch based on selected model version
+  const getSarvamVoices = () => {
+    if (voiceModel?.includes("v3")) return sarvamV3Voices;
+    return sarvamV2Voices; // v2 and v1 share the same voice set
+  };
+  const currentVoices =
+    voiceProvider === "Sarvam"
+      ? getSarvamVoices()
+      : providerConfigs[voiceProvider]?.voices || [];
 
   // Handle provider change
   const handleProviderChange = (newProvider) => {
     onVoiceProviderChange(newProvider);
-    // Set default model and voice for the new provider
     const config = providerConfigs[newProvider];
     if (config) {
-      onVoiceModelChange(config.models[0]?.value || "");
-      onVoiceChange(config.voices[0]?.value || "");
+      const firstModel = config.models[0]?.value || "";
+      onVoiceModelChange(firstModel);
+      // Pick correct voice list for Sarvam
+      if (newProvider === "Sarvam") {
+        const voices = firstModel.includes("v3") ? sarvamV3Voices : sarvamV2Voices;
+        onVoiceChange(voices[0]?.value || "");
+      } else {
+        onVoiceChange(config.voices?.[0]?.value || "");
+      }
+    }
+  };
+
+  // Handle model change — reset voice to first in the new model's list
+  const handleModelChange = (newModel) => {
+    onVoiceModelChange(newModel);
+    if (voiceProvider === "Sarvam") {
+      const voices = newModel.includes("v3") ? sarvamV3Voices : sarvamV2Voices;
+      onVoiceChange(voices[0]?.value || "");
     }
   };
 
@@ -256,7 +311,7 @@ export default function Audio({
           <SelectField
             label="Model"
             value={voiceModel}
-            onChange={onVoiceModelChange}
+            onChange={handleModelChange}
             options={currentModels}
           />
           <div>

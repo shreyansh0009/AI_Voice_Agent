@@ -755,6 +755,7 @@ class CallSession {
           text,
           this.language,
           this.voice,
+          this.voiceModel,
         );
         if (audioBase64) {
           audioBuffer = Buffer.from(audioBase64, "base64");

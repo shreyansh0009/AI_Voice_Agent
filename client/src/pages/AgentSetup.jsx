@@ -50,8 +50,8 @@ export default function AgentSetupSingle() {
   const [transcriberModel, setTranscriberModel] = useState("nova-2");
   const [keywords, setKeywords] = useState("");
   const [voiceProvider, setVoiceProvider] = useState("Sarvam");
-  const [voiceModel, setVoiceModel] = useState("bulbulv2");
-  const [voice, setVoice] = useState("manisha");
+  const [voiceModel, setVoiceModel] = useState("bulbul:v3");
+  const [voice, setVoice] = useState("shubh");
   const [bufferSize, setBufferSize] = useState(153);
   const [speedRate, setSpeedRate] = useState(1);
 
@@ -597,8 +597,8 @@ export default function AgentSetupSingle() {
     setTranscriberProvider(agent.transcriberProvider || "Deepgram");
     setTranscriberModel(agent.transcriberModel || "nova-2");
     setVoiceProvider(agent.voiceProvider || "Sarvam");
-    setVoiceModel(agent.voiceModel || "bulbulv2");
-    setVoice(agent.voice || "manisha");
+    setVoiceModel(agent.voiceModel || "bulbul:v3");
+    setVoice(agent.voice || "shubh");
     setBufferSize(agent.bufferSize || 153);
     setSpeedRate(agent.speedRate || 1);
     // Load Engine Configuration
@@ -630,8 +630,8 @@ export default function AgentSetupSingle() {
       transcriberProvider: agent.transcriberProvider || "Deepgram",
       transcriberModel: agent.transcriberModel || "nova-2",
       voiceProvider: agent.voiceProvider || "Sarvam",
-      voiceModel: agent.voiceModel || "bulbulv2",
-      voice: agent.voice || "manisha",
+      voiceModel: agent.voiceModel || "bulbul:v3",
+      voice: agent.voice || "shubh",
       bufferSize: agent.bufferSize || 153,
       speedRate: agent.speedRate || 1,
       engineConfig: agent.engineConfig || engineConfig,
@@ -2207,8 +2207,8 @@ export default function AgentSetupSingle() {
                 }}
                 disabled={isCallingOutbound || outboundPhone.length !== 10}
                 className={`w-full py-2.5 rounded-md text-sm font-medium text-white transition-colors ${isCallingOutbound || outboundPhone.length !== 10
-                    ? "bg-gray-300 cursor-not-allowed"
-                    : "bg-green-600 hover:bg-green-700"
+                  ? "bg-gray-300 cursor-not-allowed"
+                  : "bg-green-600 hover:bg-green-700"
                   }`}
               >
                 {isCallingOutbound ? "Calling..." : "Call Now"}

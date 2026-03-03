@@ -53,28 +53,42 @@ class TTSService {
     return this.defaultSarvamCodec || "wav";
   }
 
-  // Valid Sarvam voices: anushka, abhilash, manisha, vidya, arya, karun, hitesh, aditya, ritu, priya, neha, rahul, etc.
-  async speak(text, language = "en", voice = null) {
+  // Sarvam v2 voices (legacy)
+  v2SupportedSpeakers = new Set([
+    "anushka", "abhilash", "manisha", "vidya", "arya", "karun", "hitesh",
+  ]);
+
+  // Sarvam v3 voices (expanded set)
+  v3SupportedSpeakers = new Set([
+    "aditya", "ritu", "priya", "neha", "rahul", "pooja", "rohan", "simran", "kavya", "amit", "dev",
+    "ishita", "shreya", "ratan", "varun", "manan", "sumit", "roopa", "kabir", "aayan", "shubh",
+    "ashutosh", "advait", "amelia", "sophia", "anand", "tanya", "tarun", "sunny", "mani", "gokul",
+    "vijay", "shruti", "suhani", "mohit", "kavitha", "rehan", "soham", "rupali",
+  ]);
+
+  async speak(text, language = "en", voice = null, model = null) {
     if (!text || text.trim() === "") return null;
 
     try {
       const targetLang = this.languageMap[language] || this.languageMap["en"];
       const normalizedText = text.trim();
 
-      // bulbul:v3 does not support legacy speakers like manisha/anushka.
-      const v3SupportedSpeakers = new Set([
-        "aditya", "ritu", "priya", "neha", "rahul", "pooja", "rohan", "simran", "kavya", "amit", "dev",
-        "ishita", "shreya", "ratan", "varun", "manan", "sumit", "roopa", "kabir", "aayan", "shubh",
-        "ashutosh", "advait", "amelia", "sophia", "anand", "tanya", "tarun", "sunny", "mani", "gokul",
-        "vijay", "shruti", "suhani", "mohit", "kavitha", "rehan", "soham", "rupali",
-      ]);
-      const requestedVoice = (voice || this.defaultSarvamSpeaker).toLowerCase();
-      const speaker = v3SupportedSpeakers.has(requestedVoice)
+      // Resolve model: use passed model, fall back to default
+      const resolvedModel = model || this.model;
+      const isV3 = resolvedModel.includes("v3");
+
+      // Validate voice against the correct speaker set for the chosen model
+      const supportedSpeakers = isV3 ? this.v3SupportedSpeakers : this.v2SupportedSpeakers;
+      const defaultVoice = isV3 ? "shubh" : this.defaultSarvamSpeaker;
+      const requestedVoice = (voice || defaultVoice).toLowerCase();
+      const speaker = supportedSpeakers.has(requestedVoice)
         ? requestedVoice
-        : this.defaultSarvamSpeaker;
+        : defaultVoice;
       if (requestedVoice && speaker !== requestedVoice) {
-        console.warn(`⚠️ Sarvam v3 speaker "${voice}" not supported. Falling back to "${speaker}".`);
+        console.warn(`⚠️ Sarvam ${resolvedModel} speaker "${voice}" not supported. Falling back to "${speaker}".`);
       }
+
+      console.log(`🔊 Sarvam TTS: model=${resolvedModel}, speaker=${speaker}, lang=${targetLang}`);
 
       const response = await axios.post(
         "https://api.sarvam.ai/text-to-speech",
@@ -82,7 +96,7 @@ class TTSService {
           text: normalizedText,
           target_language_code: targetLang,
           speaker,
-          model: this.model,
+          model: resolvedModel,
           pace: this.defaultSarvamPace,
           temperature: this.defaultSarvamTemperature,
           speech_sample_rate: this.defaultSarvamSampleRate,
