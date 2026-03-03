@@ -50,8 +50,8 @@ export default function AgentSetupSingle() {
   const [transcriberModel, setTranscriberModel] = useState("nova-2");
   const [keywords, setKeywords] = useState("");
   const [voiceProvider, setVoiceProvider] = useState("Sarvam");
-  const [voiceModel, setVoiceModel] = useState("bulbul:v3");
-  const [voice, setVoice] = useState("shubh");
+  const [voiceModel, setVoiceModel] = useState("bulbul:v2");
+  const [voice, setVoice] = useState("manisha");
   const [bufferSize, setBufferSize] = useState(153);
   const [speedRate, setSpeedRate] = useState(1);
 
@@ -597,8 +597,8 @@ export default function AgentSetupSingle() {
     setTranscriberProvider(agent.transcriberProvider || "Deepgram");
     setTranscriberModel(agent.transcriberModel || "nova-2");
     setVoiceProvider(agent.voiceProvider || "Sarvam");
-    setVoiceModel(agent.voiceModel || "bulbul:v3");
-    setVoice(agent.voice || "shubh");
+    setVoiceModel(agent.voiceModel || "bulbul:v2");
+    setVoice(agent.voice || "manisha");
     setBufferSize(agent.bufferSize || 153);
     setSpeedRate(agent.speedRate || 1);
     // Load Engine Configuration
@@ -630,8 +630,8 @@ export default function AgentSetupSingle() {
       transcriberProvider: agent.transcriberProvider || "Deepgram",
       transcriberModel: agent.transcriberModel || "nova-2",
       voiceProvider: agent.voiceProvider || "Sarvam",
-      voiceModel: agent.voiceModel || "bulbul:v3",
-      voice: agent.voice || "shubh",
+      voiceModel: agent.voiceModel || "bulbul:v2",
+      voice: agent.voice || "manisha",
       bufferSize: agent.bufferSize || 153,
       speedRate: agent.speedRate || 1,
       engineConfig: agent.engineConfig || engineConfig,

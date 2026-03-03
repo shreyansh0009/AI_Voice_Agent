@@ -44,26 +44,57 @@ class TTSService {
     pa: "pa-IN",
   };
 
-  // Valid Sarvam voices: anushka, abhilash, manisha, vidya, arya, karun, hitesh, aditya, ritu, priya, neha, rahul, etc.
-  async speak(text, language = "en", voice = "manisha") {
+  // Sarvam v3 supported voices (limited set per user request)
+  v3Voices = new Set(["simran", "shruti", "rahul", "aditya"]);
+
+  // Valid Sarvam v2 voices: anushka, abhilash, manisha, vidya, arya, karun, hitesh
+  async speak(text, language = "en", voice = "manisha", model = null) {
     if (!text || text.trim() === "") return null;
 
     try {
       const targetLang = this.languageMap[language] || this.languageMap["en"];
+      const resolvedModel = model || this.model; // default "bulbul:v2"
+      const isV3 = resolvedModel.includes("v3");
+
+      // Validate voice for v3 — only 4 voices allowed, default to simran
+      let speaker = voice;
+      if (isV3) {
+        speaker = this.v3Voices.has(voice?.toLowerCase()) ? voice.toLowerCase() : "simran";
+        if (speaker !== voice?.toLowerCase()) {
+          console.warn(`⚠️ Sarvam v3 voice "${voice}" not in allowed set. Using "simran".`);
+        }
+      }
+
+      console.log(`🔊 Sarvam TTS: model=${resolvedModel}, speaker=${speaker}, lang=${targetLang}`);
+
+      // v2 and v3 have different API payload formats
+      const requestBody = isV3
+        ? {
+          // v3 format: text as string, temperature-based controls
+          text: text.trim(),
+          target_language_code: targetLang,
+          speaker,
+          model: resolvedModel,
+          pace: 1.0,
+          temperature: 0.7,
+          speech_sample_rate: "16000",
+          output_audio_codec: "mp3",
+        }
+        : {
+          // v2 format: inputs as array, preprocessing-based controls
+          inputs: [text],
+          target_language_code: targetLang,
+          speaker,
+          model: resolvedModel,
+          enable_preprocessing: true,
+          pace: 1.0,
+          pitch: 0,
+          loudness: 1.5,
+        };
 
       const response = await axios.post(
         "https://api.sarvam.ai/text-to-speech",
-        {
-          inputs: [text],
-          target_language_code: targetLang,
-          speaker: voice,
-          model: this.model,
-          // Enhanced settings for natural speech (same as VoiceChat.jsx)
-          enable_preprocessing: true,
-          pace: 1.0, // Natural speed
-          pitch: 0, // Neutral pitch
-          loudness: 1.5, // Slightly louder for clarity
-        },
+        requestBody,
         {
           headers: {
             "Content-Type": "application/json",
@@ -72,7 +103,7 @@ class TTSService {
         },
       );
 
-      // Return the raw base64 audio (this is what Exotel needs)
+      // Return the raw base64 audio
       const base64Audio = response.data.audios[0];
 
       return base64Audio;
