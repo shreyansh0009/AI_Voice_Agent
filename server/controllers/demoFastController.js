@@ -1,5 +1,5 @@
 import demoFastAgentService from '../services/demoFastAgent.service.js';
-import ttsService from '../services/tts.service.js';
+import ttsService from '../services/tts.demo.service.js';
 import sessionStore from '../services/demoSessionStore.js';
 import { DEMO_AGENT_PROMPT, DEMO_WELCOME_MESSAGE, DEEPGRAM_MODELS, SARVAM_VOICES } from '../prompts/demoAgent.js';
 
