@@ -547,10 +547,24 @@ class CallSession {
     console.log(`[${this.uuid}] Processing: "${userMessage}"`);
 
     try {
-      // FIX 1: Instant acknowledgement BEFORE LLM processing
-      // This starts audio ~300ms after UtteranceEnd while LLM thinks in background
-      // Perceived latency drops by ~1s without violating flow/script
-      this.enqueueSpeech("ठीक है।");
+      // Smart filler: natural acknowledgment while LLM thinks
+      // - Skips on first turn (user expects real content after welcome)
+      // - Randomized so it doesn't sound robotic
+      // - Language-aware (Hindi vs English)
+      if (this.conversationHistory.length >= 2) {
+        const hindiFills = ["ठीक है।", "जी।", "अच्छा।", "जी बताती हूँ।", "एक सेकंड।", "हाँ जी।"];
+        const englishFills = ["Sure.", "One moment.", "Okay.", "Let me check.", "Right.", "Got it."];
+        const pool = this.language === "hi" ? hindiFills : englishFills;
+
+        // Avoid repeating last filler
+        let filler;
+        do {
+          filler = pool[Math.floor(Math.random() * pool.length)];
+        } while (filler === this._lastFiller && pool.length > 1);
+        this._lastFiller = filler;
+
+        this.enqueueSpeech(filler);
+      }
 
       // Check for "check-in" phrases (hello? are you there? etc.)
       // These should get a quick acknowledgment, not restart the flow
