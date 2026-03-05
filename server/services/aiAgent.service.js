@@ -172,6 +172,10 @@ Rules:
 // ============================================================================
 
 class AIAgentService {
+  // LATENCY OPT: Cache agent slots in memory (agentId → requiredSlots[])
+  // Avoids dynamic import + Agent.findById on every single turn
+  _slotCache = new Map();
+
   constructor() {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
@@ -2808,22 +2812,29 @@ CRITICAL RULES:
       // ============================================================================
       // LOAD AGENT SLOTS FOR DYNAMIC EXTRACTION (NEW - Hybrid Approach)
       // ============================================================================
+      // LATENCY OPT: Use cached slots — skip Agent.findById after first call
       let agentSlots = [];
       if (agentId && agentId !== "default") {
-        try {
-          const Agent = (await import("../models/Agent.js")).default;
-          const agent = await Agent.findById(agentId);
-          if (agent && agent.requiredSlots && agent.requiredSlots.length > 0) {
-            agentSlots = agent.requiredSlots;
-            console.log(
-              `📋 Loaded ${agentSlots.length} dynamic slots for streaming`,
+        if (this._slotCache.has(agentId)) {
+          agentSlots = this._slotCache.get(agentId);
+          console.log(`📋 Using cached ${agentSlots.length} slots for agent ${agentId}`);
+        } else {
+          try {
+            const Agent = (await import("../models/Agent.js")).default;
+            const agent = await Agent.findById(agentId);
+            if (agent && agent.requiredSlots && agent.requiredSlots.length > 0) {
+              agentSlots = agent.requiredSlots;
+              this._slotCache.set(agentId, agentSlots);
+              console.log(
+                `📋 Loaded & cached ${agentSlots.length} dynamic slots for streaming`,
+              );
+            }
+          } catch (error) {
+            console.warn(
+              "⚠️  Could not load agent slots for streaming:",
+              error.message,
             );
           }
-        } catch (error) {
-          console.warn(
-            "⚠️  Could not load agent slots for streaming:",
-            error.message,
-          );
         }
       }
 
@@ -2876,20 +2887,12 @@ CRITICAL RULES:
       }
 
       // ========================================================================
-      // FIRE-AND-FORGET: Slot extraction runs in parallel, does NOT block LLM
+      // LATENCY OPT: DEFER extraction to AFTER LLM stream completes
+      // Two simultaneous OpenAI calls on the same key compete for rate limits,
+      // slowing BOTH. By deferring extraction, the main LLM gets full bandwidth.
       // ========================================================================
       let updatedContext = { ...customerContext };
-      const extractionPromise = this.extractCustomerInfo(userMessage, customerContext, agentSlots)
-        .then((ctx) => {
-          updatedContext = ctx;
-          return ctx;
-        })
-        .catch((err) => {
-          console.error("Slot extraction failed:", err.message);
-          return customerContext;
-        });
-
-      // Note: Context will be yielded AFTER LLM completes, when extraction is done
+      let extractionPromise = null; // Will be started after stream ends
 
       const currentLanguageName = LANGUAGE_CODES[language] || "English";
 
@@ -2924,7 +2927,8 @@ CRITICAL LANGUAGE INSTRUCTION:
 - Example: English script says "What is your name?" → Hindi should be "आपका नाम क्या है?" (just translation, same flow)`;
 
       // Build messages
-      const recentHistory = conversationHistory.slice(-10);
+      // LATENCY OPT: Reduced from 10 to 6 — fewer input tokens = faster first token
+      const recentHistory = conversationHistory.slice(-6);
       const messages = [
         { role: "system", content: enhancedSystemPrompt },
         ...recentHistory,
@@ -2932,12 +2936,13 @@ CRITICAL LANGUAGE INSTRUCTION:
       ];
 
       // Stream from OpenAI with selected model
+      // LATENCY OPT: max_tokens 200→150 — voice responses are 2-3 sentences
       const stream = await this.openai.chat.completions.create({
-        model: model, // Use model from options
+        model: model,
         messages: messages,
         temperature: temperature,
-        max_tokens: maxTokens,
-        stream: true, // Enable streaming
+        max_tokens: 150,
+        stream: true,
       });
 
       let fullResponse = "";
@@ -2973,7 +2978,16 @@ CRITICAL LANGUAGE INSTRUCTION:
         }
       }
 
-      // Wait for extraction to complete and yield final context
+      // LATENCY OPT: Start extraction NOW (after LLM is done — no competition)
+      extractionPromise = this.extractCustomerInfo(userMessage, customerContext, agentSlots)
+        .then((ctx) => {
+          updatedContext = ctx;
+          return ctx;
+        })
+        .catch((err) => {
+          console.error("Slot extraction failed:", err.message);
+          return customerContext;
+        });
       await extractionPromise;
       yield { type: "context", customerContext: updatedContext };
 
