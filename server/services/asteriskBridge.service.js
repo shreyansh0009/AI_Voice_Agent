@@ -284,11 +284,15 @@ class CallSession {
       this.voice = agent.voice || "anushka"; // Use agent's configured voice
       this.voiceProvider = agent.voiceProvider || "Sarvam"; // TTS provider from agent config
       this.voiceModel = agent.voiceModel || "bulbul:v2"; // Voice model from agent config
+      this.transcriberModel = agent.transcriberModel || "nova-2"; // STT model from agent config
       // Use agent.prompt (FULL SCRIPT) - same as web chat passes to VoiceChat
       this.systemPrompt = agent.prompt || "You are a helpful AI assistant.";
 
       console.log(
         `[${this.uuid}] TTS Config: Provider=${this.voiceProvider}, Voice=${this.voice}, Model=${this.voiceModel}`,
+      );
+      console.log(
+        `[${this.uuid}] STT Config: Model=${this.transcriberModel}`,
       );
 
       console.log(
@@ -372,10 +376,11 @@ class CallSession {
 
     try {
       const deepgram = createClient(apiKey);
+      const selectedModel = this.transcriberModel || "nova-2";
 
       // Deepgram settings for 8kHz telephony
       this.deepgramConnection = deepgram.listen.live({
-        model: "nova-2",
+        model: selectedModel,
         language: this.language === "hi" ? "hi" : "en-IN",
         encoding: "linear16",
         sample_rate: 8000, // 8kHz for standard telephony

@@ -84,10 +84,11 @@ export default function Audio({
   ];
 
   const transcriberModelOptions = [
-    { value: "nova-2", label: "nova-2" },
-    { value: "nova-3", label: "nova-3" },
-    { value: "nova", label: "nova" },
-    { value: "base", label: "base" },
+    { value: "nova-3", label: "Nova-3 (Latest)" },
+    { value: "nova-2", label: "Nova-2" },
+    { value: "nova-2-phonecall", label: "Nova-2 (Phone)" },
+    { value: "nova", label: "Nova" },
+    { value: "base", label: "Base" },
   ];
 
   const voiceProviderOptions = [
