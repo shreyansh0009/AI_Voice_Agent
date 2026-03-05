@@ -1,3053 +1,1587 @@
-import OpenAI from "openai";
-import dotenv from "dotenv";
+import net from "net";
+import fs from "fs";
+import { spawn } from "child_process";
 import { fileURLToPath } from "url";
-import path from "path";
-import ragService from "./ragService.js";
-import translationService from "./translationService.js";
-import agentforceService from "./agentforce.service.js";
+import { createClient } from "@deepgram/sdk";
+import aiAgentService from "./aiAgent.service.js";
+import Conversation from "../models/Conversation.js";
+import Call from "../models/Call.js";
+import Agent from "../models/Agent.js";
+import axios from "axios";
+import OpenAI from "openai";
+import ttsService from "./tts.service.js";
+import recordingService from "./recording.service.js";
+import PhoneNumber from "../models/PhoneNumber.js";
+import { hasEnoughBalance, deductCallCost } from "./walletService.js";
+import {
+  MESSAGE_TYPES,
+  parseFrame,
+  createAudioFrame,
+  splitIntoChunks,
+} from "./audioProcessor.js";
 
-// ============================================================================
-// NEW ARCHITECTURE IMPORTS (Refactored for clarity)
-// ============================================================================
-import flowRegistry from "./flowRegistry.js"; // Loads JSON flows
-import stateEngine from "./stateEngine.js"; // Executes steps + transitions
-import promptBuilder from "./promptBuilder.js"; // Builds minimal LLM prompts
-import inputValidator from "./inputValidator.js"; // Validates user input
-import outputParser from "./outputParser.js"; // Parses LLM output (DEPRECATED - use responseContract)
-import responseContract from "./responseContract.js"; // Enforces HARD output contracts
-import intentClassifier from "./intentClassifier.js"; // Intent classification
-import slotExtractor from "./slotExtractor.js"; // Slot extraction
+// Configuration
+const AUDIOSOCKET_PORT = parseInt(process.env.AUDIOSOCKET_PORT || "9092", 10);
+const AUDIOSOCKET_HOST = process.env.AUDIOSOCKET_HOST || "0.0.0.0";
+const DEFAULT_AGENT_ID = process.env.DEFAULT_PHONE_AGENT_ID || null;
 
-// DEPRECATED: Old services (kept for backwards compatibility)
-import stateMachine from "./stateMachine.js"; // @deprecated - use stateEngine
-import flowEngine from "./flowEngine.js"; // @deprecated - use stateEngine + flowRegistry
+// Audio settings for 8kHz telephony (standard)
+const SAMPLE_RATE = 8000; // 8kHz for telephony
+const FRAME_SIZE = 320; // 20ms at 8kHz slin16 (320 bytes = 160 samples × 2 bytes)
+const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
 
-// Ensure we load the server/.env regardless of cwd or import order
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, "..", ".env") });
+// ─────────────────────────────────────────────────────────────
+// LATENCY OPT: WAV introspection — avoids FFmpeg spawn for audio
+// that is already 8kHz mono slin16 (e.g. Sarvam v3 output).
+// Returns null if the buffer is not a valid WAV file.
+// ─────────────────────────────────────────────────────────────
+function analyzeWav(buf) {
+  if (buf.length < 44) return null;
+  if (buf.toString("ascii", 0, 4) !== "RIFF") return null;
+  if (buf.toString("ascii", 8, 12) !== "WAVE") return null;
 
-/**
- * AI Agent Service - Handles conversation logic for both web voice chat and phone calls
- *
- * Architecture:
- * - Dynamic flow extraction from user's agent prompt (no hardcoded state machines)
- * - Automatic customer info extraction and validation
- * - Multi-language support with translation layer
- * - RAG-enabled knowledge base integration
- * - Conversation state tracking to prevent loops and repetition
- *
- * Configuration:
- * - All AI parameters centralized in AI_CONFIG
- * - System prompts defined as constants for reusability
- * - Language codes mapped in LANGUAGE_CODES
- */
+  let offset = 12;
+  let audioFormat, numChannels, sampleRate, bitsPerSample, dataOffset;
 
-// Configuration constants
-const AI_CONFIG = {
-  MODEL: "gpt-4o-mini",
-  EXTRACTION_MODEL: "gpt-4o-mini",
-  DEFAULT_TEMPERATURE: 0.3,
-  DEFAULT_MAX_TOKENS: 150,
-  EXTRACTION_MAX_TOKENS: 200,
-  CONVERSATION_HISTORY_LIMIT: 20, // messages to keep (10 exchanges)
-  PRESENCE_PENALTY: 0.6,
-  FREQUENCY_PENALTY: 0.8,
-};
-
-const LANGUAGE_CODES = {
-  en: "English",
-  hi: "Hindi",
-  ta: "Tamil",
-  te: "Telugu",
-  kn: "Kannada",
-  ml: "Malayalam",
-  bn: "Bengali",
-  mr: "Marathi",
-  gu: "Gujarati",
-  pa: "Punjabi",
-  es: "Spanish",
-  fr: "French",
-  de: "German",
-  zh: "Chinese",
-  ja: "Japanese",
-  ko: "Korean",
-};
-
-const RETRY_PHRASES = [
-  "I didn't catch that. Could you please repeat?",
-  "Sorry, I couldn't hear you clearly. Can you say that again?",
-  "I'm having trouble hearing you. Could you repeat your answer?",
-  "Pardon me, could you please say that again?",
-];
-
-// System prompts as constants for reusability
-const EXTRACTION_SYSTEM_PROMPT = `Extract customer information and requirements from the text. Return ONLY a valid JSON object.
-
-STANDARD CUSTOMER FIELDS (extract if present):
-- name: Customer's name (first name, last name, or full name)
-- phone: Mobile number (10 digits for India, starting with 6-9)
-- email: Email address
-- address: Physical address or location
-- pincode: Postal/ZIP code (6 digits in India)
-- model: Product/service identifier (car model, property type, course name, etc.)
-- orderDetails: Any domain-specific requirements (budget, preferences, specifications)
-
-CRITICAL RULES:
-1. Even if the user provides ONLY a name like "John" or "Rahul" → extract it as {"name": "John"}
-2. Even if the user provides ONLY a number like "9876543210" → extract as {"phone": "9876543210"}
-3. Even if the user provides ONLY a pincode like "305001" → extract as {"pincode": "305001"}
-4. If user says just a product name like "Magnus EX" → extract as {"model": "Magnus EX"}
-5. In conversation, users often answer questions with short responses - extract them!
-6. Extract names from greetings: "Hello I'm Rahul" → {"name": "Rahul"}
-7. Extract names from introductions: "Hi, this is John" → {"name": "John"}
-8. Extract names from "My name is X" or "I am X" patterns
-
-NAME EXTRACTION PATTERNS:
-- "Hello I'm Rahul" → {"name": "Rahul"}
-- "Hi this is John speaking" → {"name": "John"}
-- "My name is Priya" → {"name": "Priya"}
-- "I am Kumar" → {"name": "Kumar"}
-- Just "Rahul" (if it's a response to name question) → {"name": "Rahul"}
-
-PHONE NUMBER EXTRACTION:
-- Extract 10-digit Indian mobile numbers (starting with 6-9)
-- Handle formats: "9876543210", "98765 43210", "987-654-3210", "+91 9876543210"
-- **IMPORTANT**: Handle speech-to-text artifacts where spaces are added between digits
-- Remove all spaces, hyphens, and country codes to get clean 10 digits
-
-PINCODE EXTRACTION:
-- Extract 6-digit Indian pincodes (starting with 1-9)
-- **IMPORTANT**: Handle speech-to-text artifacts where spaces are added: "3 05001" should extract as "305001"
-- Remove all spaces before validation
-
-EXAMPLES:
-Full sentence: "I'm Priya, need red dress size M, my number is 9876543210" → {"name": "Priya", "phone": "9876543210", "orderDetails": {"product": "red dress", "size": "M"}}
-Short answer: "John" → {"name": "John"}
-Short answer: "John Doe" → {"name": "John Doe"}
-Short answer: "9876543210" → {"phone": "9876543210"}
-Short answer: "305001" → {"pincode": "305001"}
-Short answer: "Magnus EX" → {"model": "Magnus EX"}
-Full sentence: "I am Rahul, want to test ride Magnus EX, pincode 305001" → {"name": "Rahul", "pincode": "305001", "model": "Magnus EX"}
-No info: "Yes" → {}
-No info: "Okay" → {}
-No info: "I want to book a test ride" → {}
-
-If no customer-specific info found, return {}
-Be flexible - extract whatever information is relevant to the user's identity or requirements.`;
-
-// ============================================================================
-// MEMORY BLOCK BUILDER
-// ============================================================================
-
-/**
- * Build memory block from collected data
- * This is injected into the system prompt to prevent the LLM from forgetting information
- *
- * @param {object} collectedData - Data collected from previous conversation turns
- * @returns {string} Formatted memory block or empty string
- */
-function buildMemoryBlock(collectedData) {
-  if (!collectedData || Object.keys(collectedData).length === 0) {
-    return "";
+  while (offset < buf.length - 8) {
+    const chunkId = buf.toString("ascii", offset, offset + 4);
+    const chunkSize = buf.readUInt32LE(offset + 4);
+    if (chunkId === "fmt ") {
+      audioFormat    = buf.readUInt16LE(offset + 8);  // 1 = PCM
+      numChannels    = buf.readUInt16LE(offset + 10);
+      sampleRate     = buf.readUInt32LE(offset + 12);
+      bitsPerSample  = buf.readUInt16LE(offset + 22);
+    } else if (chunkId === "data") {
+      dataOffset = offset + 8;
+      break;
+    }
+    offset += 8 + chunkSize;
   }
 
-  const lines = Object.entries(collectedData).map(
-    ([key, value]) => `- ${key}: ${value}`,
-  );
-
-  return `
-COLLECTED INFORMATION (Authoritative – DO NOT ASK AGAIN):
-${lines.join("\n")}
-
-Rules:
-- These values are CONFIRMED
-- Never ask for them again
-- If user repeats them, acknowledge briefly and continue
-`;
+  if (dataOffset == null) return null;
+  return { audioFormat, numChannels, sampleRate, bitsPerSample, dataOffset };
 }
 
-// ============================================================================
-// AI AGENT SERVICE CLASS
-// ============================================================================
+/**
+ * Detect language from response text (same as streamChatController)
+ * Used to dynamically switch Deepgram language
+ */
 
-class AIAgentService {
-  constructor() {
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+function detectResponseLanguage(text) {
+  if (!text || text.length < 10) return null;
 
-    this.isConfigured = !!process.env.OPENAI_API_KEY;
+  // Count Devanagari characters (Hindi)
+  const devanagariPattern = /[\u0900-\u097F]/g;
+  const devanagariMatches = text.match(devanagariPattern) || [];
 
-    if (!this.isConfigured) {
-      console.warn("⚠️  OpenAI not configured. Add OPENAI_API_KEY to .env");
-    }
+  // Count Latin characters (English)
+  const latinPattern = /[a-zA-Z]/g;
+  const latinMatches = text.match(latinPattern) || [];
+
+  const totalChars = devanagariMatches.length + latinMatches.length;
+  if (totalChars < 10) return null;
+
+  const hindiRatio = devanagariMatches.length / totalChars;
+
+  // If more than 40% Hindi characters, consider it Hindi
+  if (hindiRatio > 0.4) {
+    return "hi";
   }
 
-  // ============================================================================
-  // V5: COMPLETE FLOW WITH RESPONSE CONTRACT (FINAL PRODUCTION VERSION)
-  // This eliminates script jumping by enforcing HARD output contracts
-  // ============================================================================
-
-  /**
-   * Process message with COMPLETE flow + response contract enforcement
-   *
-   * FLOW:
-   * User input
-   *   ↓
-   * intentClassifier (only if ActiveUseCase == NULL)
-   *   ↓
-   * slotExtractor
-   *   ↓
-   * inputValidator
-   *   ↓
-   * stateEngine.advance() OR repeatStep()
-   *   ↓
-   * responseContract.validate()
-   *   ↓
-   * TTS
-   *
-   * If contract validation fails → retry LLM with stricter instruction
-   * NEVER accept malformed output
-   *
-   * @param {string} userMessage - User's spoken text (null for first turn)
-   * @param {string} conversationId - Unique conversation ID
-   * @param {object} options - { useCase, language, agentId }
-   * @returns {Promise<object>} Contract-validated response
-   */
-  async processMessageV5(userMessage, conversationId, options = {}) {
-    const {
-      useCase = null, // null = auto-detect via intent
-      language = "en",
-      agentId = null,
-    } = options;
-
-    console.log(`\n${"=".repeat(60)}`);
-    console.log(`🚀 V5 COMPLETE FLOW | Conversation: ${conversationId}`);
-    console.log(`📝 User: "${userMessage || "(first turn)"}"`);
-    console.log(`${"=".repeat(60)}`);
-
-    try {
-      // ========================================
-      // STEP 1: INTENT CLASSIFICATION
-      // Only if useCase is null (need to detect flow)
-      // ========================================
-      let effectiveUseCase = useCase;
-
-      if (!effectiveUseCase && userMessage) {
-        const intentResult = await intentClassifier.classifyIntentSmart(
-          userMessage,
-          {
-            useCase: null,
-            openaiClient: this.openai,
-          },
-        );
-
-        console.log(
-          `🎯 Intent: ${intentResult.intent} (source: ${intentResult.source})`,
-        );
-
-        effectiveUseCase = intentClassifier.mapIntentToUseCase(
-          intentResult.intent,
-        );
-
-        // Handle special intents
-        if (intentClassifier.shouldEscalate(intentResult.intent)) {
-          return {
-            response:
-              language === "hi"
-                ? "मैं आपको एक एजेंट से जोड़ती हूँ।"
-                : "Let me connect you with an agent.",
-            language,
-            status: "escalated",
-            conversationId,
-            _source: "intent_escalation",
-          };
-        }
-      }
-
-      // Default use case
-      effectiveUseCase = effectiveUseCase || "automotive_sales";
-
-      // ========================================
-      // STEP 2: SLOT EXTRACTION + VALIDATION
-      // Extract ONLY what current step needs
-      // ========================================
-      const state = stateEngine.getOrCreateState(
-        conversationId,
-        effectiveUseCase,
-        { language, agentId },
-      );
-      const currentStep = stateEngine.getCurrentStep(state);
-
-      if (userMessage && currentStep) {
-        // Extract slots for current step
-        const slots = slotExtractor.extractSlotsByExpects(
-          currentStep,
-          userMessage,
-        );
-
-        if (Object.keys(slots).length > 0) {
-          console.log(`📦 Slots extracted:`, slots);
-          stateEngine.updateData(conversationId, slots);
-        }
-
-        // Handle yes/no for confirm steps
-        if (currentStep.type === "confirm") {
-          const confirmation = slotExtractor.classifyConfirmation(userMessage);
-          console.log(`✅ Confirmation: ${confirmation}`);
-        }
-      }
-
-      // ========================================
-      // STEP 3: STATE ENGINE ADVANCE
-      // This returns the text from JSON - no LLM yet
-      // ========================================
-      const result = stateEngine.processTurn(conversationId, userMessage, {
-        useCase: effectiveUseCase,
-        language,
-        agentId,
-      });
-
-      console.log(`🎯 Step: ${result.stepId} | Status: ${result.status}`);
-
-      // ========================================
-      // STEP 4: RESPONSE CONTRACT VALIDATION
-      // Ensure the text passes our strict contract
-      // ========================================
-      if (result.text) {
-        // For JSON flow text, validate against contract
-        const contractResult = responseContract.extractResponse(
-          JSON.stringify({ type: "SPEAK", text: result.text }),
-        );
-
-        if (contractResult.success) {
-          console.log(
-            `✅ Contract validated: "${contractResult.text.substring(
-              0,
-              50,
-            )}..."`,
-          );
-
-          return {
-            response: contractResult.text,
-            language: result.language,
-
-            // State
-            conversationId,
-            currentStepId: result.stepId,
-            stepType: result.stepType,
-            useCase: effectiveUseCase,
-            status: result.status,
-
-            // Data
-            customerContext: result.data,
-
-            // Validation
-            validationError: result.validationError,
-            retryCount: result.retryCount,
-
-            // Flags
-            isEnd: result.isEnd,
-            isComplete: result.status === "complete",
-            isEscalated: result.status === "escalated",
-
-            // Agent
-            agentConfig: result.agentConfig,
-
-            // Contract info
-            _contract: {
-              validated: true,
-              source: "state_engine",
-              llmUsed: false,
-            },
-          };
-        } else {
-          // Contract failed - this shouldn't happen with JSON flow text
-          // but handle it gracefully
-          console.warn(`⚠️ Contract validation failed:`, contractResult.errors);
-
-          // Use sanitized text if available
-          const fallbackText =
-            responseContract.validateResponse(
-              JSON.stringify({ type: "SPEAK", text: result.text }),
-            ).sanitized?.text || result.text;
-
-          return {
-            response: fallbackText,
-            language: result.language,
-            conversationId,
-            currentStepId: result.stepId,
-            status: result.status,
-            _contract: {
-              validated: false,
-              errors: contractResult.errors,
-            },
-          };
-        }
-      }
-
-      // ========================================
-      // STEP 5: FLOW COMPLETE - Handle dynamic
-      // ========================================
-      return {
-        response:
-          language === "hi"
-            ? "धन्यवाद! क्या मैं आपकी और कोई मदद कर सकती हूँ?"
-            : "Thank you! Is there anything else I can help you with?",
-        language,
-        conversationId,
-        currentStepId: "flow_complete",
-        status: "complete",
-        customerContext: result.data,
-        _contract: {
-          validated: true,
-          source: "default_closing",
-        },
-      };
-    } catch (error) {
-      console.error("❌ V5 error:", error.message);
-
-      return {
-        response:
-          language === "hi"
-            ? "माफ़ कीजिए, कुछ समस्या हुई।"
-            : "I apologize, something went wrong.",
-        language,
-        conversationId,
-        status: "escalated",
-        _contract: {
-          validated: false,
-          error: error.message,
-        },
-      };
-    }
-  }
-
-  /**
-   * Call LLM with contract enforcement (simple version)
-   * Used only for dynamic/RAG responses
-   *
-   * @param {string} instruction - What to say
-   * @param {boolean} isRetry - Is this a retry?
-   * @returns {Promise<string>} Contract-validated text
-   */
-  async callLLMWithContract(instruction, isRetry = false) {
-    const prompt = responseContract.buildContractPrompt(instruction, isRetry);
-
-    const response = await this.openai.chat.completions.create({
-      model: AI_CONFIG.MODEL,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0,
-      max_tokens: 100,
-      response_format: { type: "json_object" },
-    });
-
-    const rawOutput = response.choices[0].message.content;
-    const extracted = responseContract.extractResponse(rawOutput);
-
-    if (extracted.success) {
-      return extracted.text;
-    }
-
-    // Retry with stricter prompt
-    if (!isRetry) {
-      console.log(`⚠️ Contract failed, retrying with strict prompt...`);
-      return await this.callLLMWithContract(instruction, true);
-    }
-
-    // Return the instruction as fallback
-    console.error(`❌ Contract failed twice, using fallback`);
-    return instruction;
-  }
-
-  /**
-   * Get LLM response with CONTROLLED RETRY STRATEGY
-   *
-   * RETRY RULES:
-   * - Max retries: 2
-   * - Retry only if: JSON parse fails OR schema validation fails
-   * - Never infinite retries
-   * - Never fallback to free text
-   *
-   * @param {string} prompt - The prompt to send
-   * @returns {Promise<object>} Validated response { type, text }
-   * @throws {Error} After max retries exceeded
-   */
-  async getLLMResponseWithRetry(prompt) {
-    const MAX_RETRIES = 2;
-    let lastError = null;
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        console.log(`🤖 LLM attempt ${attempt}/${MAX_RETRIES}`);
-
-        // Call LLM
-        const response = await this.openai.chat.completions.create({
-          model: AI_CONFIG.MODEL,
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0,
-          max_tokens: 100,
-          response_format: { type: "json_object" },
-        });
-
-        const rawOutput = response.choices[0].message.content;
-
-        // Parse (throws on failure)
-        const parsed = outputParser.parseLLMOutput(rawOutput);
-
-        // Validate (throws on failure)
-        const validated = responseContract.validateLLMResponse(parsed);
-
-        console.log(
-          `✅ LLM response validated: "${validated.text?.substring(0, 40)}..."`,
-        );
-        return validated;
-      } catch (error) {
-        lastError = error;
-        console.warn(`⚠️ Attempt ${attempt} failed: ${error.message}`);
-
-        // Modify prompt for retry with stricter instruction
-        if (attempt < MAX_RETRIES) {
-          prompt = `STRICT: ${prompt}\n\nPrevious attempt failed. Output ONLY valid JSON.`;
-        }
-      }
-    }
-
-    // Max retries exceeded - throw the error
-    console.error(
-      `❌ LLM failed after ${MAX_RETRIES} attempts: ${lastError?.message}`,
-    );
-    throw lastError;
-  }
-
-  /**
-   * Get LLM response for a specific step text
-   * Uses minimal prompt + retry strategy
-   *
-   * @param {string} stepText - The text the agent should speak
-   * @returns {Promise<string>} Validated spoken text
-   */
-  async getStepResponse(stepText) {
-    const prompt = promptBuilder.buildStepPromptV2(stepText);
-
-    try {
-      const response = await this.getLLMResponseWithRetry(prompt);
-      return response.text;
-    } catch (error) {
-      // On complete failure, return the original step text
-      console.error(`❌ LLM completely failed, using original text`);
-      return stepText;
-    }
-  }
-
-  // ============================================================================
-  // V4: CLEAN ORCHESTRATOR (Refactored Architecture - LEGACY)
-  // Uses: flowRegistry + stateEngine + promptBuilder + inputValidator + outputParser
-  // ============================================================================
-
-  /**
-   * Process message using the CLEAN ORCHESTRATED architecture
-   *
-   * ARCHITECTURE:
-   * - flowRegistry: Loads JSON flows (data, not code)
-   * - stateEngine: Executes steps, transitions, retries (LLM has ZERO control)
-   * - promptBuilder: Builds minimal prompts (only if LLM needed)
-   * - inputValidator: Validates user input in backend
-   * - outputParser: Parses LLM output strictly
-   *
-   * LLM is ONLY used for:
-   * - Dynamic queries after flow complete
-   * - RAG-based knowledge queries
-   * - NOT for flow text - that comes from JSON
-   *
-   * @param {string} userMessage - User's spoken text (null for first turn)
-   * @param {string} conversationId - Unique conversation ID
-   * @param {object} options - { useCase, language, agentId, useRAG }
-   * @returns {Promise<object>} { response, language, stepId, data, status }
-   */
-  async processMessageV4(userMessage, conversationId, options = {}) {
-    const {
-      useCase = "automotive_sales",
-      language = "en",
-      agentId = null,
-      useRAG = false,
-    } = options;
-
-    console.log(`\n${"=".repeat(60)}`);
-    console.log(`🚀 V4 ORCHESTRATOR | Conversation: ${conversationId}`);
-    console.log(`📝 User: "${userMessage || "(first turn)"}"`);
-    console.log(`📋 UseCase: ${useCase} | Lang: ${language}`);
-    console.log(`${"=".repeat(60)}`);
-
-    try {
-      // ========================================
-      // STEP 1: Execute state engine turn
-      // This returns text from JSON - NO LLM CALL
-      // ========================================
-      const result = stateEngine.processTurn(conversationId, userMessage, {
-        useCase,
-        language,
-        agentId,
-      });
-
-      console.log(`🎯 Step: ${result.stepId} | Status: ${result.status}`);
-      console.log(`📝 Text: "${result.text?.substring(0, 50)}..."`);
-
-      // ========================================
-      // STEP 2: If flow provided text, return directly
-      // NO LLM CALL NEEDED
-      // ========================================
-      if (result.text) {
-        return {
-          response: result.text,
-          language: result.language,
-
-          // State
-          conversationId,
-          currentStepId: result.stepId,
-          stepType: result.stepType,
-          useCase,
-          status: result.status,
-
-          // Data
-          customerContext: result.data,
-
-          // Validation
-          validationError: result.validationError,
-          retryCount: result.retryCount,
-
-          // Flags
-          isEnd: result.isEnd,
-          isComplete: result.status === "complete",
-          isEscalated: result.status === "escalated",
-
-          // Agent
-          agentConfig: result.agentConfig,
-
-          // Debug
-          _source: "state_engine",
-          _llmUsed: false,
-        };
-      }
-
-      // ========================================
-      // STEP 3: Flow complete - handle dynamic queries
-      // ========================================
-      if (result.status === "complete" && useRAG && userMessage) {
-        console.log(`🔍 Flow complete - using RAG for dynamic query`);
-
-        const ragResponse = await this.getRAGResponse(
-          userMessage,
-          [],
-          `You are ${result.agentConfig?.name || "an assistant"
-          }. Answer briefly.`,
-          { agentId },
-        );
-
-        if (ragResponse) {
-          return {
-            response: ragResponse,
-            language: result.language,
-            conversationId,
-            currentStepId: "rag_response",
-            useCase,
-            status: "complete",
-            customerContext: result.data,
-            agentConfig: result.agentConfig,
-            _source: "rag",
-            _llmUsed: true,
-          };
-        }
-      }
-
-      // ========================================
-      // STEP 4: Default response for completed flow
-      // ========================================
-      return {
-        response:
-          language === "hi"
-            ? "धन्यवाद! क्या मैं आपकी और कोई मदद कर सकती हूँ?"
-            : "Thank you! Is there anything else I can help you with?",
-        language: result.language || language,
-        conversationId,
-        currentStepId: "flow_complete",
-        useCase,
-        status: "complete",
-        customerContext: result.data,
-        agentConfig: result.agentConfig,
-        _source: "default_closing",
-        _llmUsed: false,
-      };
-    } catch (error) {
-      console.error("❌ V4 Orchestrator error:", error.message);
-
-      return {
-        response:
-          language === "hi"
-            ? "माफ़ कीजिए, कुछ समस्या हुई। मैं आपको किसी से जोड़ती हूँ।"
-            : "I apologize, something went wrong. Let me connect you with someone.",
-        language,
-        conversationId,
-        currentStepId: "error",
-        status: "escalated",
-        _source: "error_fallback",
-        _error: error.message,
-      };
-    }
-  }
-
-  /**
-   * Get available use cases (flows)
-   */
-  getAvailableUseCases() {
-    return flowRegistry.getAvailableFlows();
-  }
-
-  /**
-   * Get flow metadata
-   */
-  getFlowMetadata(useCase) {
-    return flowRegistry.getFlowMetadata(useCase);
-  }
-
-  /**
-   * Get all flows metadata
-   */
-  getAllFlowsMetadata() {
-    return flowRegistry.getAllFlowsMetadata();
-  }
-
-  // ============================================================================
-  // V3: JSON-DRIVEN FLOW ENGINE (DEPRECATED - Use V4)
-  // NO LLM NEEDED FOR FLOW TEXT - Everything comes from JSON
-  // ============================================================================
-
-  /**
-   * Process message using JSON-driven flow engine
-   *
-   * KEY DIFFERENCE FROM V2:
-   * - V2: Uses LLM to generate response text
-   * - V3: Uses pre-defined JSON flow text (NO LLM for flows!)
-   *
-   * LLM is ONLY used for:
-   * - Dynamic queries not covered by flow
-   * - RAG-based knowledge queries
-   *
-   * @param {string} userMessage - User's spoken text (null for first turn)
-   * @param {string} sessionId - Unique session identifier
-   * @param {object} options - { useCase, language, useRAG, agentId }
-   * @returns {Promise<object>} { response, language, stepId, data, isEnd }
-   */
-  async processMessageV3(userMessage, sessionId, options = {}) {
-    try {
-      const {
-        useCase = "automotive_sales",
-        language = "en",
-        useRAG = false,
-        agentId = null,
-      } = options;
-
-      console.log(`\n${"=".repeat(60)}`);
-      console.log(`🚀 processMessageV3 (JSON Flow) | Session: ${sessionId}`);
-      console.log(`📝 User: "${userMessage || "(first turn)"}"`);
-      console.log(`📋 UseCase: ${useCase}`);
-      console.log(`${"=".repeat(60)}`);
-
-      // ========================================
-      // STEP 1: Execute flow turn
-      // This returns the EXACT text from JSON - no LLM needed!
-      // ========================================
-      const flowResult = flowEngine.processTurn(sessionId, userMessage, {
-        useCase,
-        language,
-      });
-
-      console.log(`🎯 Step: ${flowResult.stepId} (${flowResult.stepType})`);
-      console.log(`📝 Flow text: "${flowResult.text?.substring(0, 50)}..."`);
-
-      // ========================================
-      // STEP 2: Check if flow handled it
-      // ========================================
-      if (flowResult.text) {
-        // Flow provided the response - return directly
-        // NO LLM CALL NEEDED!
-
-        return {
-          response: flowResult.text,
-          language: flowResult.language,
-
-          // State
-          currentStepId: flowResult.stepId,
-          stepType: flowResult.stepType,
-          useCase,
-
-          // Data
-          customerContext: flowResult.data,
-
-          // Status
-          isFlowComplete: flowResult.isComplete || false,
-          isEscalated: flowResult.isEscalated || false,
-          isEnd: flowResult.isEnd || false,
-
-          // Validation
-          validationError: flowResult.validationError,
-          retryCount: flowResult.retryCount,
-
-          // Agent
-          agentConfig: flowResult.agentConfig,
-
-          // Debug
-          _debug: {
-            source: "flow_engine",
-            llmUsed: false,
-          },
-        };
-      }
-
-      // ========================================
-      // STEP 3: Flow complete or needs dynamic response
-      // Use LLM for RAG/dynamic queries
-      // ========================================
-      if (useRAG && userMessage) {
-        console.log(`🔍 Flow complete/dynamic - using RAG`);
-
-        const ragResponse = await this.getRAGResponse(
-          userMessage,
-          [], // No history needed
-          `You are ${flowResult.agentConfig?.name || "an assistant"
-          }. Answer briefly.`,
-          { agentId },
-        );
-
-        if (ragResponse) {
-          return {
-            response: ragResponse,
-            language,
-            currentStepId: "rag_response",
-            stepType: "dynamic",
-            useCase,
-            customerContext: flowResult.data,
-            isFlowComplete: true,
-            _debug: {
-              source: "rag",
-              llmUsed: true,
-            },
-          };
-        }
-      }
-
-      // ========================================
-      // STEP 4: Default closing
-      // ========================================
-      return {
-        response:
-          "Thank you for your time. Is there anything else I can help you with?",
-        language,
-        currentStepId: "flow_complete",
-        stepType: "closing",
-        useCase,
-        customerContext: flowResult.data,
-        isFlowComplete: true,
-        _debug: {
-          source: "default_closing",
-          llmUsed: false,
-        },
-      };
-    } catch (error) {
-      console.error("❌ processMessageV3 error:", error);
-
-      // Graceful fallback
-      return {
-        response:
-          "I apologize for the inconvenience. Let me connect you with someone who can help.",
-        language: options.language || "en",
-        currentStepId: "error",
-        isEscalated: true,
-        _debug: {
-          source: "error_fallback",
-          error: error.message,
-        },
-      };
-    }
-  }
-
-  /**
-   * Get available use cases (flows)
-   */
-  getAvailableUseCases() {
-    return flowEngine.getAvailableFlows();
-  }
-
-  // ============================================================================
-  // V2: 3-PROMPT ARCHITECTURE (Bolna.ai style)
-  // ALL RULES ENFORCED IN BACKEND - LLM NEVER SEES RULES
-  // ============================================================================
-
-  /**
-   * Process user message using 3-Prompt Architecture
-   *
-   * KEY PRINCIPLES:
-   * 1. ALL RULES enforced in backend BEFORE LLM is called
-   * 2. State is EXPLICIT, never inferred from data
-   * 3. LLM only sees: System prompt + Persona + ONE step instruction
-   * 4. LLM never gets a chance to violate rules
-   *
-   * @param {string} userMessage - User's spoken text
-   * @param {string} sessionId - Unique session identifier (for state machine)
-   * @param {object} options - Configuration options
-   * @returns {Promise<object>} Response with state updates
-   */
-  async processMessageV2(userMessage, sessionId, options = {}) {
-    try {
-      const {
-        agentScript = "",
-        agentConfig = {},
-        language = "en",
-        temperature = 0.3,
-        maxTokens = 100,
-        model = AI_CONFIG.MODEL,
-      } = options;
-
-      console.log(`\n${"=".repeat(60)}`);
-      console.log(`🚀 processMessageV2 | Session: ${sessionId}`);
-      console.log(`📝 User: "${userMessage}"`);
-      console.log(`${"=".repeat(60)}`);
-
-      // ========================================
-      // STEP 1: Initialize or retrieve state
-      // ========================================
-      const state = stateMachine.getOrCreateState(sessionId, agentScript, {
-        ...agentConfig,
-        language,
-        useCase: agentConfig.useCase || "general",
-      });
-
-      console.log(
-        `📊 State: Step ${state.stepIndex + 1}/${state.totalSteps} | ${state.currentStepId
-        }`,
-      );
-      console.log(`🔒 Forbidden steps: [${state.forbiddenSteps.join(", ")}]`);
-
-      // ========================================
-      // STEP 2: Handle unclear/empty input
-      // RULE: Max 2 retries, then escalate
-      // ========================================
-      if (this.isUnclearInput(userMessage)) {
-        const { maxRetriesExceeded, retryCount } =
-          stateMachine.incrementRetry(sessionId);
-
-        if (maxRetriesExceeded) {
-          // RULE ENFORCED: Escalate after max retries
-          console.log(`🚨 RULE ENFORCED: Max retries exceeded → Escalating`);
-          return {
-            response:
-              "I'm having trouble understanding. Let me connect you with a human agent who can help.",
-            state: stateMachine.getStateSummary(sessionId),
-            isEscalated: true,
-            currentStep: "escalated",
-          };
-        }
-
-        console.log(`🔄 Retry ${retryCount}/${stateMachine.RULES.MAX_RETRIES}`);
-        return {
-          response: "I didn't catch that clearly. Could you please repeat?",
-          state: stateMachine.getStateSummary(sessionId),
-          isRetry: true,
-          retryCount,
-        };
-      }
-
-      // ========================================
-      // STEP 3: Detect language switch request
-      // RULE: Only switch if not locked
-      // ========================================
-      const requestedLanguage = this.detectLanguageSwitchRequest(userMessage);
-
-      // ========================================
-      // STEP 4: ENFORCE ALL RULES BEFORE LLM
-      // This is where backend takes control
-      // ========================================
-      const enforcement = stateMachine.enforceRulesBeforeLLM(
-        sessionId,
-        userMessage,
-        requestedLanguage,
-      );
-
-      // If rules say don't proceed, return immediately (LLM never called)
-      if (!enforcement.proceed) {
-        console.log(`🛑 RULE ENFORCED: ${enforcement.action}`);
-        return {
-          response: enforcement.response,
-          state: stateMachine.getStateSummary(sessionId),
-          action: enforcement.action,
-          isEscalated: enforcement.action.includes("escalate"),
-        };
-      }
-
-      const effectiveLanguage = enforcement.effectiveLanguage || state.language;
-      console.log(`🌐 Effective language: ${effectiveLanguage}`);
-
-      // ========================================
-      // STEP 5: VALIDATE USER INPUT (NOT LLM OUTPUT)
-      // Backend validates, backend decides
-      // ========================================
-      const currentRequirements =
-        stateMachine.getCurrentStepRequirements(sessionId);
-
-      let validationResult = { allValid: true, validatedData: {}, errors: {} };
-      let shouldRepeatStep = false;
-      let validationError = null;
-
-      if (currentRequirements.length > 0) {
-        // This is a data collection step - VALIDATE USER INPUT
-        console.log(
-          `🔍 Validating input for: ${currentRequirements.join(", ")}`,
-        );
-
-        validationResult = inputValidator.validateStepInput(
-          currentRequirements,
-          userMessage,
-          state.customerData,
-        );
-
-        if (!validationResult.allValid) {
-          // ❌ VALIDATION FAILED - Repeat same step
-          shouldRepeatStep = true;
-          validationError = Object.values(validationResult.errors)[0];
-          console.log(`❌ Validation FAILED: ${validationError}`);
-
-          // Increment retry for this step
-          const { maxRetriesExceeded } = stateMachine.incrementRetry(sessionId);
-          if (maxRetriesExceeded) {
-            console.log(`🚨 Max retries on validation → Escalating`);
-            return {
-              response:
-                "I'm having trouble getting the right information. Let me connect you with someone who can help.",
-              state: stateMachine.getStateSummary(sessionId),
-              isEscalated: true,
-            };
-          }
-        } else {
-          // ✅ VALIDATION PASSED - Update data
-          if (Object.keys(validationResult.newData).length > 0) {
-            stateMachine.updateCustomerData(
-              sessionId,
-              validationResult.newData,
-            );
-            console.log(
-              `✅ Validated data: ${JSON.stringify(validationResult.newData)}`,
-            );
-          }
-        }
-      } else {
-        // Non-data step - try to extract any data anyway (opportunistic)
-        const opportunisticData = inputValidator.extractAllData(userMessage);
-        if (Object.keys(opportunisticData).length > 0) {
-          stateMachine.updateCustomerData(sessionId, opportunisticData);
-          console.log(
-            `📦 Opportunistic data: ${JSON.stringify(opportunisticData)}`,
-          );
-        }
-      }
-
-      // ========================================
-      // STEP 6: DECIDE: Advance or Repeat?
-      // Backend makes this decision, not LLM
-      // ========================================
-      let stepComplete = false;
-
-      if (shouldRepeatStep) {
-        // Stay on same step - validation failed
-        stepComplete = false;
-        console.log(`🔄 Repeating step: ${state.currentStepId}`);
-      } else if (currentRequirements.length > 0) {
-        // Data collection step - check if all required data is NOW collected
-        const updatedState = stateMachine.getState(sessionId);
-        stepComplete = currentRequirements.every(
-          (field) => updatedState.customerData[field],
-        );
-
-        if (stepComplete) {
-          console.log(
-            `✅ Step requirements VALIDATED: ${currentRequirements.join(", ")}`,
-          );
-        }
-      } else {
-        // Non-data step (greeting, confirmation, etc.) - advance on valid response
-        stepComplete = true;
-      }
-
-      // ========================================
-      // STEP 7: EXPLICITLY advance state
-      // ❌ NEVER infer state from data
-      // ✅ ALWAYS advance explicitly after VALIDATION passes
-      // ========================================
-      if (stepComplete && !stateMachine.isFlowComplete(sessionId)) {
-        stateMachine.advanceStep(sessionId);
-        console.log(`➡️ State EXPLICITLY advanced (validation passed)`);
-      }
-
-      // ========================================
-      // STEP 8: Check for confirmation step
-      // RULE: Only confirm once
-      // ========================================
-      const finalState = stateMachine.getState(sessionId);
-      if (finalState.currentStepId === "confirm_details") {
-        if (!stateMachine.canConfirm(sessionId)) {
-          // RULE ENFORCED: Skip confirmation if already done
-          console.log(`🚫 RULE ENFORCED: Confirmation already done → Skipping`);
-          stateMachine.advanceStep(sessionId);
-        } else {
-          // Mark that we're doing confirmation
-          stateMachine.markConfirmationDone(sessionId);
-        }
-      }
-
-      // ========================================
-      // STEP 9: Build minimal prompt (3-prompt architecture)
-      // LLM only sees: System + Persona + Current Step
-      // ❌ NO future steps, NO past steps, NO collected data
-      // ========================================
-      const postAdvanceState = stateMachine.getState(sessionId);
-
-      // Determine what instruction to send
-      let stepInstruction;
-      if (shouldRepeatStep && validationError) {
-        // Validation failed - use retry prompt with error
-        const failedField = currentRequirements[0];
-        stepInstruction = promptBuilder.getRetryPrompt(
-          failedField,
-          validationError,
-        );
-        console.log(`🔄 Using retry prompt for: ${failedField}`);
-      } else {
-        // Normal step instruction
-        stepInstruction = promptBuilder.getStepInstruction(
-          postAdvanceState.currentStepId,
-          postAdvanceState.stepDetails?.[postAdvanceState.stepIndex]
-            ?.instruction,
-        );
-      }
-
-      // Build MINIMAL prompt - only current instruction
-      const promptConfig = promptBuilder.buildConversationPrompt({
-        agentConfig: postAdvanceState.agentConfig,
-        stepConfig: {
-          instruction: stepInstruction,
-          language: effectiveLanguage,
-          customerName: postAdvanceState.customerData?.name || null, // Only name for personalization
-        },
-      });
-
-      console.log(`🎯 Step: ${postAdvanceState.currentStepId}`);
-      console.log(`📝 Instruction: "${stepInstruction.substring(0, 50)}..."`);
-      console.log(`📊 Prompt tokens: ~${promptConfig.metadata.totalTokens}`);
-
-      // ========================================
-      // STEP 10: Call LLM with JSON output format
-      // LLM MUST return: {"spoken_text": "...", "language": "..."}
-      // ========================================
-      const response = await this.openai.chat.completions.create({
-        model,
-        messages: promptConfig.messages,
-        temperature,
-        max_tokens: maxTokens,
-        response_format: { type: "json_object" }, // Force JSON output
-      });
-
-      const rawResponse = response.choices[0].message.content;
-      console.log(`🤖 Raw LLM output: ${rawResponse.substring(0, 100)}...`);
-
-      // ========================================
-      // STEP 11: PARSE WITH STRICT OUTPUT CONTRACT
-      // Extract spoken_text, discard everything else
-      // ========================================
-      const parsed = outputParser.parseResponse(
-        rawResponse,
-        effectiveLanguage,
-        stepInstruction, // Fallback if parsing fails
-      );
-
-      console.log(
-        `✅ Parsed: "${parsed.spoken_text.substring(0, 50)}..." (${parsed.language
-        })`,
-      );
-
-      if (!parsed.parsed) {
-        console.log(`⚠️ JSON parsing failed - used extraction/fallback`);
-      }
-
-      // ========================================
-      // STEP 12: Return response with EXPLICIT state
-      // ========================================
-      const stateForResponse = stateMachine.getStateSummary(sessionId);
-
-      return {
-        // STRICT OUTPUT - Only spoken_text matters
-        response: parsed.spoken_text,
-
-        // EXPLICIT STATE (Non-Negotiable)
-        state: stateForResponse,
-        currentStepId: stateForResponse.currentStepId,
-        stepIndex: stateForResponse.stepIndex,
-        useCase: stateForResponse.useCase,
-        language: parsed.language || effectiveLanguage,
-
-        // Data
-        customerContext: postAdvanceState.customerData,
-
-        // Status
-        isFlowComplete: stateMachine.isFlowComplete(sessionId),
-        isEscalated: stateMachine.isEscalated(sessionId),
-
-        // Language switch (if happened)
-        languageSwitch:
-          requestedLanguage && stateMachine.canSwitchLanguage(sessionId)
-            ? requestedLanguage
-            : null,
-
-        // Debug info
-        _debug: {
-          rawResponse: rawResponse.substring(0, 200),
-          jsonParsed: parsed.parsed,
-          fallbackUsed: parsed.fallback || false,
-        },
-      };
-    } catch (error) {
-      console.error("❌ processMessageV2 error:", error);
-      throw new Error(`Failed to process message: ${error.message}`);
-    }
-  }
-
-  /**
-   * Check if user input is unclear/empty
-   */
-  isUnclearInput(message) {
-    if (!message || typeof message !== "string") return true;
-    const trimmed = message.trim();
-    if (trimmed.length < 2) return true;
-    if (/^[\s\p{P}]+$/u.test(trimmed)) return true; // Only punctuation
-    if (/^(um|uh|hmm|err|ah|huh)+$/i.test(trimmed)) return true; // Filler words
-    return false;
-  }
-
-  /**
-   * Detect if user is requesting a language switch
-   */
-  detectLanguageSwitchRequest(message) {
-    const messageLower = message.toLowerCase();
-
-    // English patterns
-    if (
-      messageLower.includes("switch to hindi") ||
-      messageLower.includes("speak hindi") ||
-      messageLower.includes("in hindi")
-    ) {
-      return "hi";
-    }
-    if (
-      messageLower.includes("switch to english") ||
-      messageLower.includes("speak english") ||
-      messageLower.includes("in english")
-    ) {
-      return "en";
-    }
-
-    // Hindi patterns
-    if (
-      messageLower.includes("हिंदी में") ||
-      messageLower.includes("हिन्दी में")
-    ) {
-      return "hi";
-    }
-    if (
-      messageLower.includes("अंग्रेजी में") ||
-      messageLower.includes("english में")
-    ) {
-      return "en";
-    }
-
-    // Tamil
-    if (messageLower.includes("தமிழில்") || messageLower.includes("in tamil")) {
-      return "ta";
-    }
-
-    // Telugu
-    if (
-      messageLower.includes("తెలుగులో") ||
-      messageLower.includes("in telugu")
-    ) {
-      return "te";
-    }
-
+  return "en";
+}
+
+// Initialize OpenAI client for summary generation
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+/**
+ * Generate a concise call summary using GPT-4o-mini
+ * @param {Array} transcript - Array of {role, content} objects
+ * @param {Object} customerContext - Extracted customer data
+ * @returns {Promise<{summary: string, tokens: {input: number, output: number}} | null>}
+ */
+async function generateCallSummary(transcript, customerContext = {}) {
+  if (!transcript || transcript.length === 0) {
     return null;
   }
 
-  // ============================================================================
-  // LEGACY METHOD - DEPRECATED
-  // ============================================================================
-
-  /**
-   * @deprecated ⚠️ LEGACY - Use processMessageV2() instead
-   *
-   * This method uses the old "monster prompt" architecture that sends
-   * the FULL script to the LLM. It does not follow flows correctly.
-   *
-   * Keeping for backward compatibility during migration.
-   *
-   * @param {string} userMessage - User's spoken text
-   * @param {string} agentId - Agent configuration ID
-   * @param {object} customerContext - Customer information (name, email, phone, etc.)
-   * @param {array} conversationHistory - Recent conversation messages
-   * @param {object} options - Additional options (language, useRAG, etc.)
-   * @returns {Promise<object>} Object containing response text and updated customer context
-   */
-  async processMessage(
-    userMessage,
-    agentId = "default",
-    customerContext = {},
-    conversationHistory = [],
-    options = {},
-  ) {
-    try {
-      const {
-        language = "en",
-        useRAG = false,
-        systemPrompt = "You are a helpful AI assistant for a CRM system.",
-        temperature = 0.4,
-        maxTokens = 150,
-        provider = "openai", // 'openai' or 'agentforce'
-        isRetry = false, // Flag to indicate if this is a retry after no/unclear response
-        lastQuestion = null, // The last question that was asked
-      } = options;
-
-      // ============================================================================
-      // LOAD AGENT SLOTS FOR DYNAMIC EXTRACTION (NEW - Hybrid Approach)
-      // ============================================================================
-      let agentSlots = [];
-      if (agentId && agentId !== "default") {
-        try {
-          const Agent = (await import("../models/Agent.js")).default;
-          const agent = await Agent.findById(agentId);
-          if (agent && agent.requiredSlots && agent.requiredSlots.length > 0) {
-            agentSlots = agent.requiredSlots;
-            console.log(
-              `📋 Loaded ${agentSlots.length} dynamic slots for agent ${agentId}`,
-            );
-          }
-        } catch (error) {
-          console.warn(
-            "⚠️  Could not load agent slots, using universal extraction:",
-            error.message,
-          );
-        }
-      }
-
-      // Handle empty/unclear user input (silence, distortion, STT failure)
-      // Note: Accept Unicode for multi-language support (Hindi, Tamil, etc.)
-      const isEmptyOrUnclear =
-        !userMessage ||
-        userMessage.trim().length < 2 ||
-        /^[\s\p{P}]+$/u.test(userMessage) || // Only whitespace/punctuation (Unicode-aware)
-        userMessage.toLowerCase().match(/^(um|uh|hmm|err|ah)+$/); // Just filler words
-
-      if (isEmptyOrUnclear && lastQuestion) {
-        // User didn't respond clearly - re-ask the question
-        const retryPrompt =
-          RETRY_PHRASES[Math.floor(Math.random() * RETRY_PHRASES.length)];
-
-        return {
-          response: `${retryPrompt} ${lastQuestion}`,
-          customerContext: customerContext, // Return unchanged context
-          languageSwitch: null,
-          isRetry: true,
-        };
-      }
-
-      if (isEmptyOrUnclear && !lastQuestion) {
-        // No clear input and no previous question - generic prompt
-        return {
-          response:
-            "I'm sorry, I didn't catch that. Could you please speak clearly?",
-          customerContext: customerContext, // Return unchanged context
-          languageSwitch: null,
-          isRetry: true,
-        };
-      }
-
-      // If Agentforce is selected, route there (with translation wrapper)
-      if (provider === "agentforce") {
-        // Extract customer info even for Agentforce
-        const updatedContext = await this.extractCustomerInfo(
-          userMessage,
-          customerContext,
-          agentSlots, // Pass dynamic slots
-        );
-
-        const agentforceResponse = await this.getAgentforceResponse(
-          userMessage,
-          language,
-          {
-            useRAG,
-            customerContext: updatedContext,
-            agentId,
-            conversationHistory,
-            systemPrompt,
-          },
-        );
-
-        return {
-          ...agentforceResponse,
-          customerContext: updatedContext,
-        };
-      }
-
-      const currentLanguageName = LANGUAGE_CODES[language] || "English";
-
-      // Extract customer info from the current message FIRST
-      const updatedContext = await this.extractCustomerInfo(
-        userMessage,
-        customerContext,
-        agentSlots, // Pass dynamic slots
-      );
-
-      // Preserve originalQuery and conversationIntent if they already exist
-      if (customerContext.originalQuery && !updatedContext.originalQuery) {
-        updatedContext.originalQuery = customerContext.originalQuery;
-      }
-      if (
-        customerContext.conversationIntent &&
-        !updatedContext.conversationIntent
-      ) {
-        updatedContext.conversationIntent = customerContext.conversationIntent;
-      }
-
-      // Extract and remember the user's original query/problem from first/early messages
-      // Check for problem statements even in first few exchanges
-      if (!updatedContext.originalQuery && conversationHistory.length <= 3) {
-        const isProblemStatement = userMessage
-          .toLowerCase()
-          .match(
-            /\b(not working|broken|issue|problem|charging|starting|error|need|want|buy|purchase|book|interested)\b/,
-          );
-        if (isProblemStatement && userMessage.trim().length > 10) {
-          updatedContext.originalQuery = userMessage;
-          updatedContext.conversationIntent =
-            await this.extractUserIntent(userMessage);
-          console.log(
-            "🎯 Captured original query:",
-            updatedContext.originalQuery,
-          );
-        }
-      }
-
-      // Determine conversation stage and next required field
-      const conversationState = this.determineConversationState(
-        updatedContext,
-        systemPrompt,
-      );
-
-      // Build customer context summary for the prompt
-      const contextSummary = [];
-
-      // Add original query/intent at the top so AI never forgets it
-      if (updatedContext.originalQuery) {
-        contextSummary.push(
-          `🎯 ORIGINAL USER REQUEST: "${updatedContext.originalQuery}"`,
-        );
-      }
-      if (updatedContext.conversationIntent) {
-        contextSummary.push(
-          `📌 USER'S INTENT: ${updatedContext.conversationIntent}`,
-        );
-      }
-
-      if (updatedContext.name)
-        contextSummary.push(
-          `✅ Name: ${updatedContext.name} (ALREADY COLLECTED - DO NOT ASK AGAIN)`,
-        );
-      if (updatedContext.phone)
-        contextSummary.push(
-          `✅ Phone: ${updatedContext.phone} (ALREADY COLLECTED - DO NOT ASK AGAIN)`,
-        );
-      if (updatedContext.pincode)
-        contextSummary.push(
-          `✅ Pincode: ${updatedContext.pincode} (ALREADY COLLECTED - DO NOT ASK AGAIN)`,
-        );
-      if (updatedContext.email)
-        contextSummary.push(
-          `✅ Email: ${updatedContext.email} (ALREADY COLLECTED - DO NOT ASK AGAIN)`,
-        );
-      if (updatedContext.address)
-        contextSummary.push(
-          `✅ Address: ${updatedContext.address} (ALREADY COLLECTED - DO NOT ASK AGAIN)`,
-        );
-      if (
-        updatedContext.orderDetails &&
-        Object.keys(updatedContext.orderDetails).length > 0
-      ) {
-        contextSummary.push(
-          `Order: ${JSON.stringify(updatedContext.orderDetails)}`,
-        );
-      }
-
-      const customerContextString =
-        contextSummary.length > 0
-          ? `\n\nCUSTOMER INFORMATION (Already collected - DO NOT ask again):\n${contextSummary.join(
-            "\n",
-          )}\n`
-          : "";
-
-      // Build memory block from all collected data (NEW: Cleaner approach)
-      const memoryBlock = buildMemoryBlock(updatedContext);
-
-      // Analyze conversation history to track what was already asked
-      const alreadyAsked = this.analyzeConversationHistory(conversationHistory);
-      const trackingInfo =
-        alreadyAsked.length > 0
-          ? `\n\nQUESTIONS ALREADY ASKED (Never repeat these):\n${alreadyAsked.join(
-            "\n",
-          )}\n`
-          : "";
-
-      // Add conversation stage guidance
-      const stageGuidance = conversationState.nextAction
-        ? `\n\n🎯 CURRENT STEP (${conversationState.currentStep}/${conversationState.totalSteps
-        }): ${conversationState.nextAction}
-📋 COMPLETED: ${conversationState.completedSteps?.join(", ") || "None"}
-⏭️  REMAINING: ${conversationState.remainingSteps?.slice(0, 3).join(", ") || "None"
-        }
-
-CRITICAL: You MUST complete the current step before proceeding. Follow your numbered flow exactly.\n`
-        : `\n\n✅ All flow steps completed. ${conversationState.nextAction}\n`;
-
-      console.log("📋 Server: Current customer context:", updatedContext);
-      console.log("🎯 Conversation state:", conversationState);
-
-      // Detect intent and route to appropriate script section (for multi-section scripts)
-      const intentSection = this.detectIntentAndSection(
-        userMessage,
-        conversationHistory,
-        systemPrompt,
-      );
-
-      // Build enhanced system prompt - add context and guidance to user's script
-      const enhancedSystemPrompt = this.buildEnhancedPrompt({
-        basePrompt: systemPrompt,
-        memoryBlock: memoryBlock, // NEW: Injected memory block
-        stageGuidance: stageGuidance,
-        trackingInfo: trackingInfo,
-        language: currentLanguageName,
-        intentSection: intentSection,
-      });
-
-      // If RAG is enabled, try to use knowledge base
-      if (useRAG && userMessage) {
-        try {
-          const ragResponse = await this.getRAGResponse(
-            userMessage,
-            conversationHistory,
-            enhancedSystemPrompt,
-            { temperature, maxTokens, agentId },
-          );
-
-          if (ragResponse) {
-            console.log("🤖 Using RAG response with knowledge base");
-
-            // Remove numbered lists for voice output
-            const cleanedResponse = this.removeNumberedLists(ragResponse);
-
-            const processedResponse = this.processLanguageSwitch(
-              cleanedResponse,
-              LANGUAGE_CODES,
-            );
-            return {
-              ...processedResponse,
-              customerContext: updatedContext, // Include updated context
-            };
-          }
-        } catch (ragError) {
-          console.warn(
-            "⚠️  RAG failed, falling back to standard OpenAI:",
-            ragError.message,
-          );
-        }
-      }
-
-      // Standard OpenAI response (fallback or when RAG disabled)
-      const aiResponse = await this.getStandardResponse(
-        userMessage,
-        conversationHistory,
-        enhancedSystemPrompt,
-        { temperature, maxTokens, languageNames: LANGUAGE_CODES },
-      );
-
-      return {
-        ...aiResponse,
-        customerContext: updatedContext, // Include updated context
-      };
-    } catch (error) {
-      console.error("❌ Error processing message:", error);
-      throw new Error(`Failed to process message: ${error.message}`);
-    }
-  }
-
-  /**
-   * Detect user intent and extract relevant script section
-   * Dynamically routes to the appropriate flow (sales, support, info, etc.)
-   */
-  detectIntentAndSection(userMessage, conversationHistory, systemPrompt) {
-    // If conversation already started, don't re-detect intent
-    if (conversationHistory && conversationHistory.length > 2) {
-      return { section: null, intent: null }; // Continue with current flow
-    }
-
-    // Extract sections from script (Section 0, 1, 1.1, SALES:, SUPPORT:, etc.)
-    const sections = this.extractScriptSections(systemPrompt);
-
-    if (sections.length === 0) {
-      return { section: null, intent: null }; // No sections found, use full script
-    }
-
-    // Detect intent from user's first message
-    const messageLower = userMessage.toLowerCase();
-
-    // Intent keywords mapping (dynamic, not hardcoded for specific domains)
-    const intentKeywords = {
-      sales: [
-        "buy",
-        "purchase",
-        "interested",
-        "looking for",
-        "want to buy",
-        "price",
-        "cost",
-        "afford",
-        "budget",
-        "models",
-        "variants",
-        "booking",
-        "book",
-        "test ride",
-        "demo",
-        "खरीदना",
-        "खरीदूंगा",
-        "लेना है",
-      ],
-      support: [
-        "issue",
-        "problem",
-        "not working",
-        "broken",
-        "repair",
-        "service",
-        "complaint",
-        "help",
-        "fix",
-        "error",
-        "charging",
-        "battery",
-        "समस्या",
-        "ठीक करो",
-        "खराब",
-      ],
-      query: [
-        "information",
-        "details",
-        "tell me about",
-        "what is",
-        "features",
-        "specifications",
-        "specs",
-        "warranty",
-        "जानकारी",
-        "बताइए",
-      ],
-      service: [
-        "service center",
-        "appointment",
-        "booking",
-        "schedule",
-        "visit",
-        "mechanic",
-        "technician",
-        "सर्विस सेंटर",
-      ],
-    };
-
-    // Find matching intent
-    let detectedIntent = null;
-    let maxMatches = 0;
-
-    for (const [intent, keywords] of Object.entries(intentKeywords)) {
-      const matches = keywords.filter((keyword) =>
-        messageLower.includes(keyword),
-      ).length;
-      if (matches > maxMatches) {
-        maxMatches = matches;
-        detectedIntent = intent;
-      }
-    }
-
-    if (!detectedIntent) {
-      return { section: null, intent: null }; // No clear intent, use full script
-    }
-
-    // Find matching section in script
-    const matchingSection = sections.find(
-      (sec) =>
-        sec.title.toLowerCase().includes(detectedIntent) ||
-        sec.title.toLowerCase().includes(detectedIntent + "s"), // plural
-    );
-
-    if (matchingSection) {
-      console.log(
-        `🎯 Intent detected: ${detectedIntent}, routing to section: ${matchingSection.title}`,
-      );
-      return {
-        section: matchingSection.content,
-        intent: detectedIntent,
-        sectionTitle: matchingSection.title,
-      };
-    }
-
-    return { section: null, intent: detectedIntent };
-  }
-
-  /**
-   * Extract sections from script
-   * Supports: "SECTION 1:", "## Sales Flow", "SUPPORT:", etc.
-   */
-  extractScriptSections(systemPrompt) {
-    const sections = [];
-
-    // Pattern 1: "SECTION 0:", "SECTION 1:", "SECTION 1.1:", etc.
-    const sectionPattern =
-      /(?:^|\n)(SECTION\s+[\d.]+[:\s]+[^\n]+)([\s\S]*?)(?=\n(?:SECTION\s+[\d.]+|$))/gi;
-
-    // Pattern 2: "## Sales Flow", "## Support Flow", etc. (Markdown headings)
-    const markdownPattern = /(?:^|\n)(##\s+[^\n]+)([\s\S]*?)(?=\n##|$)/gi;
-
-    // Pattern 3: "SALES:", "SUPPORT:", "QUERY:", etc.
-    const labelPattern = /(?:^|\n)([A-Z]+\s*:)([\s\S]*?)(?=\n[A-Z]+\s*:|$)/g;
-
-    let match;
-
-    // Try pattern 1
-    while ((match = sectionPattern.exec(systemPrompt)) !== null) {
-      sections.push({
-        title: match[1].trim(),
-        content: match[2].trim(),
-      });
-    }
-
-    // Try pattern 2 if no sections found
-    if (sections.length === 0) {
-      while ((match = markdownPattern.exec(systemPrompt)) !== null) {
-        sections.push({
-          title: match[1].replace(/^##\s*/, "").trim(),
-          content: match[2].trim(),
-        });
-      }
-    }
-
-    // Try pattern 3 if still no sections
-    if (sections.length === 0) {
-      while ((match = labelPattern.exec(systemPrompt)) !== null) {
-        sections.push({
-          title: match[1].replace(":", "").trim(),
-          content: match[2].trim(),
-        });
-      }
-    }
-
-    return sections;
-  }
-
-  /**
-   * @deprecated ⚠️ DEPRECATED - DO NOT USE
-   *
-   * This is the "monster prompt" that sends the FULL script + all rules to the LLM.
-   * This approach DOES NOT WORK because:
-   * 1. LLM sees full flow and decides on its own what to do
-   * 2. Rules are unenforceable by LLM
-   * 3. State is implicit (inferred) not explicit (tracked)
-   *
-   * USE INSTEAD: processMessageV2() with 3-prompt architecture
-   * - System prompt (static, short)
-   * - Persona prompt (per-agent tone/style)
-   * - Step prompt (dynamic, ONE step only)
-   *
-   * Keeping for backward compatibility only.
-   */
-  buildEnhancedPrompt({
-    basePrompt,
-    memoryBlock, // NEW: Memory block from buildMemoryBlock()
-    stageGuidance,
-    trackingInfo,
-    language,
-    intentSection,
-  }) {
-    // If intent-based section detected, use that instead of full script
-    const scriptToUse = intentSection?.section || basePrompt;
-    const intentGuidance = intentSection?.sectionTitle
-      ? `\n🎯 DETECTED INTENT: ${intentSection.intent} - Following "${intentSection.sectionTitle}" flow\n`
-      : "";
-
-    return `${scriptToUse}
-
-${memoryBlock}${stageGuidance}${trackingInfo}${intentGuidance}
-
-SYSTEM INSTRUCTIONS (Auto-added for voice chat):
-- Current language: ${language}
-- Keep responses brief (max 2-3 sentences)
-- NO markdown formatting (**bold**, *italics*, [links]) - plain text only
-- Replace placeholders {Name}, {Mobile}, {Pincode}, {Email}, {Address}, {Model} with actual values
-- Never invent customer details - use ONLY from CUSTOMER INFORMATION
-
-🌐 LANGUAGE SWITCHING - CRITICAL:
-When user asks to switch language (e.g., "Can we switch to Hindi?", "हिंदी में बात करें"), you MUST:
-1. Prefix your ENTIRE response with: LANGUAGE_SWITCH:[code] 
-2. Available codes: en, hi, ta, te, kn, ml, bn, mr, gu, pa, es, fr, de, zh, ja, ko
-3. Then respond in the requested language
-Example: "LANGUAGE_SWITCH:hi बिल्कुल! मैं हिंदी में बात कर सकती हूँ।"
-Example: "LANGUAGE_SWITCH:en Sure! I can speak in English."
-
-⚠️ STRICT SCRIPT ADHERENCE - MANDATORY RESPONSE FORMAT:
-You must ALWAYS follow this exact pattern:
-1. Brief acknowledgment (max 5 words) - ONLY if user provided information
-2. Immediately ask the EXACT next question from your script
-3. NO explanations, NO generalizations, NO advice, NO elaboration
-
-🚫 ABSOLUTE PROHIBITIONS - NEVER DO THESE:
-1. NEVER ask for information already in CUSTOMER INFORMATION section
-2. NEVER ask again what's already in QUESTIONS ALREADY ASKED section
-3. NEVER forget the user's ORIGINAL REQUEST - it's the reason for this conversation
-4. NEVER ask "What's your problem/query/issue?" if ORIGINAL USER REQUEST is present
-5. If user says "I already told you X" - CHECK CUSTOMER INFORMATION and acknowledge it
-
-⚠️ HANDLING "I ALREADY TOLD YOU":
-When user says "I already told you my name/number/etc.":
-1. IMMEDIATELY check CUSTOMER INFORMATION section above
-2. If the info IS there (✅ Name: John) → Say "You're right, {Name}. [proceed to next question]"
-3. If info is NOT there → Apologize and ask again politely
-4. NEVER argue or ask again if data is clearly present
-
-📚 EXAMPLES OF CORRECT vs INCORRECT RESPONSES:
-
-❌ WRONG (Re-asking when info already collected):
-CUSTOMER INFORMATION shows: ✅ Name: John
-Agent: "May I have your name please?"
-WRONG! Name is already collected!
-
-✅ CORRECT (Using collected info):
-CUSTOMER INFORMATION shows: ✅ Name: John
-Agent: "Thank you John. What's your mobile number?"
-
-❌ WRONG (Forgetting original query):
-ORIGINAL USER REQUEST: "My scooter isn't starting"
-Agent after 3 messages: "How can I help you today?"
-WRONG! User already said their problem!
-
-✅ CORRECT (Remembering context):
-ORIGINAL USER REQUEST: "My scooter isn't starting"  
-Agent: "I'll help you with that. May I have your name first?"
-
-❌ WRONG (Ignoring "already told you"):
-User: "I already told my name"
-CUSTOMER INFORMATION shows: ✅ Name: Rahul
-Agent: "Sorry, I don't have your name. Can you please share it again?"
-WRONG! Name is right there!
-
-✅ CORRECT (Acknowledging collected data):
-User: "I already told my name"
-CUSTOMER INFORMATION shows: ✅ Name: Rahul
-Agent: "You're right, Rahul. What's your mobile number?"
-
-📚 EXAMPLES OF CORRECT vs INCORRECT RESPONSES:
-
-❌ WRONG (Too generalized, not following script):
-User: "My scooter isn't starting"
-Agent: "I understand your concern. Vehicle issues can be frustrating. There could be several reasons like battery, motor, or electrical issues. Let me help you troubleshoot this problem."
-
-✅ CORRECT (Acknowledges + asks next script question):
-User: "My scooter isn't starting"  
-Agent: "I'll help you with that. May I have your name first?"
-
-❌ WRONG (Giving advice instead of following script):
-User: "I want to buy an electric scooter"
-Agent: "Great choice! Electric scooters are eco-friendly and cost-effective. They have low maintenance and are perfect for city commuting."
-
-✅ CORRECT (Acknowledges + asks next script question):
-User: "I want to buy an electric scooter"
-Agent: "Perfect! Which model interests you - Magnus EX, Nexus, or Eltra?"
-
-❌ WRONG (Explaining instead of asking):
-User: "John"
-Agent: "Thank you John! That's a nice name. Now I need to collect some more information from you to proceed with your request."
-
-✅ CORRECT (Brief acknowledgment + next question):
-User: "John"
-Agent: "Thank you John. What's your mobile number?"
-
-CRITICAL RULES:
-1. FOLLOW YOUR SCRIPT EXACTLY in order
-2. NEVER SKIP STEPS - complete current before next
-3. NEVER REPEAT - check CUSTOMER INFORMATION and QUESTIONS ALREADY ASKED
-4. ONE QUESTION AT A TIME
-5. ACKNOWLEDGE then PROCEED to next step
-6. DO NOT LOOP after completing all steps
-7. STAY ON SCRIPT unless user asks off-topic
-8. RE-ASK politely if response unclear
-9. NO GENERALIZED ANSWERS - only script questions
-10. NO UNSOLICITED ADVICE - stick to information gathering`;
-  }
-
-  /**
-   * Get response using RAG (Retrieval-Augmented Generation)
-   */
-  async getRAGResponse(query, conversationHistory, systemPrompt, options) {
-    // This would call your RAG endpoint (similar to your frontend)
-    // For now, we'll integrate with ragService directly
-
-    if (!ragService.isInitialized()) {
-      return null;
-    }
-
-    try {
-      const { temperature, maxTokens, agentId } = options || {};
-
-      const response = await ragService.chat(
-        query,
-        conversationHistory.slice(-6), // Last 3 exchanges
-        systemPrompt,
+  try {
+    const formattedTranscript = transcript
+      .map(entry => `${entry.role}: ${entry.content}`)
+      .join('\n');
+
+    const contextInfo = Object.keys(customerContext).length > 0
+      ? `\nExtracted data: ${JSON.stringify(customerContext)}`
+      : '';
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
         {
-          temperature,
-          max_tokens: maxTokens,
-          agentId,
+          role: "system",
+          content: `You are a call summary generator. Create a brief, professional summary of the call in 100-150 words maximum.
+          
+The summary should:
+- Describe who called and the purpose
+- Mention key points discussed
+- Include any important outcomes or data collected
+- Be written in third person, past tense
+- Be concise and professional
+
+Do NOT include any headers or bullet points. Write as a single paragraph.`
         },
-      );
-
-      return response.response;
-    } catch (error) {
-      console.error("RAG error:", error);
-      return null;
-    }
-  }
-
-  /**
-   * Get standard OpenAI response
-   */
-  async getStandardResponse(
-    userMessage,
-    conversationHistory,
-    systemPrompt,
-    options,
-  ) {
-    const { temperature, maxTokens, languageNames, model } = options;
-
-    // Use model from options, fallback to config
-    const selectedModel = model || AI_CONFIG.MODEL;
-    console.log(`🤖 Using LLM model: ${selectedModel}`);
-
-    // Build messages array with FULL conversation history for better context
-    const recentHistory = conversationHistory.slice(
-      -AI_CONFIG.CONVERSATION_HISTORY_LIMIT,
-    );
-    const messages = [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      ...recentHistory,
-      {
-        role: "user",
-        content: userMessage,
-      },
-    ];
-
-    // Call OpenAI API with stricter parameters to follow script
-    const response = await this.openai.chat.completions.create({
-      model: selectedModel,
-      messages: messages,
-      temperature: temperature || AI_CONFIG.DEFAULT_TEMPERATURE,
-      max_tokens: maxTokens || AI_CONFIG.DEFAULT_MAX_TOKENS,
-      presence_penalty: AI_CONFIG.PRESENCE_PENALTY,
-      frequency_penalty: AI_CONFIG.FREQUENCY_PENALTY,
+        {
+          role: "user",
+          content: `Generate a summary for this call:\n\n${formattedTranscript}${contextInfo}`
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 200,
     });
 
-    let aiResponse = response.choices[0].message.content;
-
-    // Remove numbered lists for voice output (but AI keeps them mentally)
-    aiResponse = this.removeNumberedLists(aiResponse);
-
-    // Process language switching
-    return this.processLanguageSwitch(aiResponse, languageNames);
-  }
-
-  /**
-   * Remove numbered lists from voice output
-   * Converts "1. Scooter 2. Bike 3. Car" to "Scooter, Bike, or Car"
-   * Converts "1) First option 2) Second option" to "First option or Second option"
-   */
-  removeNumberedLists(text) {
-    // Pattern 1: "1. Item1 2. Item2 3. Item3" → "Item1, Item2, or Item3"
-    // Pattern 2: "1) Item1 2) Item2" → "Item1 or Item2"
-    // Pattern 3: Multiline numbered lists
-
-    let processed = text;
-
-    // Handle inline numbered lists (all on one line)
-    // Match: "1. Item1 2. Item2 3. Item3" or "1) Item1 2) Item2 3) Item3"
-    const inlinePattern = /(?:^|\s)(\d+[.)]\s*[^0-9\n]+?)(?=\s*\d+[.)]|\s*$)/g;
-    const matches = [...processed.matchAll(inlinePattern)];
-
-    if (matches.length >= 2) {
-      // Extract items without numbers
-      const items = matches.map((match) =>
-        match[1].replace(/^\d+[.)]\s*/, "").trim(),
-      );
-
-      // Join with commas and "or" for last item
-      let replacement;
-      if (items.length === 2) {
-        replacement = `${items[0]} or ${items[1]}`;
-      } else {
-        const lastItem = items.pop();
-        replacement = `${items.join(", ")}, or ${lastItem}`;
-      }
-
-      // Replace the entire numbered list with the natural language version
-      const fullMatch = matches[0].index;
-      const lastMatch = matches[matches.length - 1];
-      const endIndex = lastMatch.index + lastMatch[0].length;
-
-      processed =
-        processed.slice(0, fullMatch) + replacement + processed.slice(endIndex);
-    }
-
-    // Handle multiline numbered lists
-    // Match lines starting with "1. ", "2. ", etc.
-    const lines = processed.split("\n");
-    const listItems = [];
-    let inList = false;
-    let listStartIndex = -1;
-    let listEndIndex = -1;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      const numberedLineMatch = line.match(/^(\d+)[.)]\s*(.+)$/);
-
-      if (numberedLineMatch) {
-        if (!inList) {
-          inList = true;
-          listStartIndex = i;
-        }
-        listItems.push(numberedLineMatch[2].trim());
-        listEndIndex = i;
-      } else if (inList && line.length > 0) {
-        // End of list
-        break;
-      }
-    }
-
-    if (listItems.length >= 2) {
-      // Convert to natural language
-      let replacement;
-      if (listItems.length === 2) {
-        replacement = `${listItems[0]} or ${listItems[1]}`;
-      } else {
-        const lastItem = listItems.pop();
-        replacement = `${listItems.join(", ")}, or ${lastItem}`;
-      }
-
-      // Replace the list lines with natural language version
-      lines.splice(
-        listStartIndex,
-        listEndIndex - listStartIndex + 1,
-        replacement,
-      );
-      processed = lines.join("\n");
-    }
-
-    // Clean up any remaining standalone numbers at start of sentences
-    // "1. " → "", "2) " → "" (if somehow missed above)
-    processed = processed.replace(/(?:^|\n)\d+[.)]\s+/g, "");
-
-    return processed.trim();
-  }
-
-  /**
-   * Process language switch commands in AI response
-   */
-  processLanguageSwitch(aiResponse, languageNames) {
-    // Check if AI wants to switch language
-    if (aiResponse.startsWith("LANGUAGE_SWITCH:")) {
-      const match = aiResponse.match(/^LANGUAGE_SWITCH:([a-z]{2})[\s\n]/i);
-
-      if (match) {
-        const newLanguageCode = match[1].toLowerCase();
-
-        if (languageNames[newLanguageCode]) {
-          console.log(`🌐 Language switching to ${newLanguageCode}`);
-
-          // Remove the switch command from response
-          aiResponse = aiResponse
-            .replace(/^LANGUAGE_SWITCH:[a-z]{2}[\s\n]+/i, "")
-            .trim();
-
-          // Return both response and new language
-          return {
-            response: aiResponse,
-            languageSwitch: newLanguageCode,
-          };
-        }
-      }
-    }
-
+    // Return both summary and token usage for cost tracking
     return {
-      response: aiResponse,
-      languageSwitch: null,
+      summary: response.choices[0].message.content.trim(),
+      tokens: {
+        input: response.usage?.prompt_tokens || 0,
+        output: response.usage?.completion_tokens || 0
+      }
     };
+  } catch (error) {
+    console.error(`Failed to generate call summary:`, error.message);
+    return null;
   }
-
-  /**
-   * Get response from Agentforce causing translation if needed
-   */
-  async getAgentforceResponse(userMessage, language, options) {
-    try {
-      console.log(`🤖 Agentforce Request (Lang: ${language}):`, userMessage);
-
-      let englishMessage = userMessage;
-
-      // Step 1: Translate to English if needed
-      // We also handle 'en-IN' etc as just English
-      const isEnglish = !language || language.startsWith("en");
-
-      if (!isEnglish) {
-        console.log(`🔤 Translating input from ${language} to English...`);
-        englishMessage = await translationService.translate(
-          userMessage,
-          "English",
-        );
-        console.log(`   -> English: ${englishMessage}`);
-      }
-
-      // Step 2: Prepare message for Agentforce with System Context
-      // This "tricks" Agentforce into answering even if it thinks it only speaks English
-      let messageToSend = englishMessage;
-
-      if (!isEnglish) {
-        messageToSend = `[SYSTEM NOTE: The user is speaking ${language}. I am acting as a translator. The user asked: "${englishMessage}". You (Agentforce) must answer their query in English naturally. Do NOT apologize for language. Do NOT say you only speak English. Just answer the question.]`;
-      }
-
-      console.log("📡 Calling Agentforce...");
-
-      const agentResponse = await agentforceService.processMessage(
-        messageToSend,
-        options,
-      );
-      console.log("   -> Agentforce Response:", agentResponse);
-
-      // Step 3: Translate back to target language if needed
-      let finalResponse = agentResponse;
-
-      if (!isEnglish) {
-        console.log(`🔤 Translating response from English to ${language}...`);
-        finalResponse = await translationService.translate(
-          agentResponse,
-          language,
-        );
-        console.log(`   -> Translated (${language}): ${finalResponse}`);
-      }
-
-      // Step 4: Prepend LANGUAGE_SWITCH tag so client updates UI
-      // The client looks for "LANGUAGE_SWITCH:xx" at start of string
-      if (language && language.length === 2 && !isEnglish) {
-        finalResponse = `LANGUAGE_SWITCH:${language} ${finalResponse}`;
-      }
-
-      // Return consistent format
-      return {
-        response: finalResponse,
-        language: language,
-        originalResponse: agentResponse,
-      };
-    } catch (error) {
-      console.error("❌ Agentforce processing failed:", error);
-      return "I'm having trouble connecting to my brain right now. Please try again.";
-    }
-  }
-
-  /**
-   * Determine conversation stage and next required field
-   * DYNAMIC state tracking - works for ANY agent/script
-   */
-  determineConversationState(customerContext, systemPrompt) {
-    // Extract numbered flow steps from script (supports any format)
-    const flowSteps = this.extractFlowSteps(systemPrompt);
-
-    if (flowSteps.length === 0) {
-      // Fallback: Auto-detect required fields from script
-      return this.autoDetectRequiredFields(customerContext, systemPrompt);
-    }
-
-    // Check which steps are completed based on collected info
-    const completedSteps = [];
-    const pendingSteps = [];
-
-    for (let i = 0; i < flowSteps.length; i++) {
-      const step = flowSteps[i];
-      const isCompleted = this.isStepCompleted(step, customerContext);
-
-      if (isCompleted) {
-        completedSteps.push({ index: i + 1, text: step });
-      } else {
-        pendingSteps.push({ index: i + 1, text: step });
-      }
-    }
-
-    // Determine next step
-    if (pendingSteps.length > 0) {
-      const nextStep = pendingSteps[0];
-      return {
-        stage: `Step ${nextStep.index}/${flowSteps.length}`,
-        currentStep: nextStep.index,
-        totalSteps: flowSteps.length,
-        nextAction: nextStep.text,
-        completedSteps: completedSteps.map((s) => s.text),
-        remainingSteps: pendingSteps.map((s) => s.text),
-        isComplete: false,
-      };
-    }
-
-    // All steps completed
-    return {
-      stage: "Flow Complete",
-      currentStep: flowSteps.length,
-      totalSteps: flowSteps.length,
-      nextAction: "Proceed to conclusion (booking, transfer, etc.)",
-      isComplete: true,
-    };
-  }
-
-  /**
-   * Extract flow steps from script
-   * Supports multiple formats:
-   * - "1. Step one"
-   * - "Step 1: Do this"
-   * - "After X is given" (conversational templates)
-   * - "FLOW: 1) First step"
-   */
-  extractFlowSteps(systemPrompt) {
-    const steps = [];
-    const lines = systemPrompt.split("\n");
-
-    // Pattern 1: "1. Step" or "1) Step"
-    const numberedPattern = /^\s*(\d+)[.)]\s+(.+)/;
-
-    // Pattern 2: "Step 1:" or "STEP 1:"
-    const stepPattern = /^\s*(?:step|STEP)\s*(\d+)[:\-]\s*(.+)/i;
-
-    // Pattern 3: "After X is given" or "If user says"
-    const conversationalPattern =
-      /^\s*(?:After|If|When)\s+(.+?)(?:\s+is given|\s+says|\s+confirms?|\s+selects?)/i;
-
-    for (const line of lines) {
-      const match1 = line.match(numberedPattern);
-      const match2 = line.match(stepPattern);
-      const match3 = line.match(conversationalPattern);
-
-      if (match1) {
-        steps.push(match1[2].trim());
-      } else if (match2) {
-        steps.push(match2[2].trim());
-      } else if (match3) {
-        // Convert "After name is given" → "Ask for name"
-        const extracted = match3[1].trim();
-        if (extracted.includes("name")) {
-          steps.push("Ask for customer name");
-        } else if (
-          extracted.includes("mobile") ||
-          extracted.includes("phone")
-        ) {
-          steps.push("Ask for mobile number");
-        } else if (
-          extracted.includes("pincode") ||
-          extracted.includes("pin code")
-        ) {
-          steps.push("Ask for pincode");
-        } else if (extracted.includes("email")) {
-          steps.push("Ask for email");
-        } else if (
-          extracted.includes("model") ||
-          extracted.includes("product")
-        ) {
-          steps.push("Ask for preferred model/product");
-        } else if (
-          extracted.includes("location") ||
-          extracted.includes("address")
-        ) {
-          steps.push("Ask for location/address");
-        } else {
-          steps.push(`Complete: ${extracted}`);
-        }
-      }
-    }
-
-    // If no numbered steps found, try to extract bullet points or dashed lists
-    if (steps.length === 0) {
-      const bulletPattern = /^\s*[-•*]\s+(.+)/;
-      for (const line of lines) {
-        const match = line.match(bulletPattern);
-        if (match && match[1].trim().length > 10) {
-          // Ignore short bullets
-          steps.push(match[1].trim());
-        }
-      }
-    }
-
-    // If still nothing, look for FLOW/STEPS/CONVERSATION FLOW sections
-    if (steps.length === 0) {
-      const sectionPattern =
-        /(?:FLOW|STEPS|CONVERSATION FLOW|SCRIPT):\s*\n([\s\S]*?)(?:\n\n|\n[A-Z]|$)/i;
-      const sectionMatch = systemPrompt.match(sectionPattern);
-
-      if (sectionMatch) {
-        const sectionText = sectionMatch[1];
-        const sectionLines = sectionText.split("\n");
-
-        for (const line of sectionLines) {
-          if (line.trim().length > 10) {
-            steps.push(line.replace(/^[-•*\d.)]\s*/, "").trim());
-          }
-        }
-      }
-    }
-
-    return steps;
-  }
-
-  /**
-   * Check if a conversation step is completed
-   */
-  isStepCompleted(stepText, customerContext) {
-    const stepLower = stepText.toLowerCase();
-
-    // Check for name collection
-    if (
-      (stepLower.includes("name") || stepLower.includes("introduce")) &&
-      !stepLower.includes("greet")
-    ) {
-      return !!customerContext.name;
-    }
-
-    // Check for phone collection
-    if (
-      stepLower.includes("phone") ||
-      stepLower.includes("mobile") ||
-      stepLower.includes("number") ||
-      stepLower.includes("contact")
-    ) {
-      return !!customerContext.phone;
-    }
-
-    // Check for location/address
-    if (
-      stepLower.includes("location") ||
-      stepLower.includes("address") ||
-      stepLower.includes("area") ||
-      stepLower.includes("city")
-    ) {
-      return !!customerContext.address;
-    }
-
-    // Check for pincode
-    if (
-      stepLower.includes("pincode") ||
-      stepLower.includes("pin code") ||
-      stepLower.includes("zip")
-    ) {
-      return !!customerContext.pincode;
-    }
-
-    // Check for email
-    if (stepLower.includes("email")) {
-      return !!customerContext.email;
-    }
-
-    // Check for budget/preference in orderDetails
-    if (
-      stepLower.includes("budget") ||
-      stepLower.includes("price") ||
-      stepLower.includes("range")
-    ) {
-      return customerContext.orderDetails?.budget !== undefined;
-    }
-
-    // Check for property type / model / product
-    if (
-      stepLower.includes("type") ||
-      stepLower.includes("model") ||
-      stepLower.includes("bhk") ||
-      stepLower.includes("product")
-    ) {
-      return (
-        customerContext.orderDetails?.propertyType !== undefined ||
-        customerContext.orderDetails?.model !== undefined ||
-        customerContext.orderDetails?.product !== undefined
-      );
-    }
-
-    // Greeting steps are always "completed" after first exchange
-    if (
-      stepLower.includes("greet") ||
-      stepLower.includes("introduce yourself")
-    ) {
-      return true; // Always move past greeting
-    }
-
-    // Unknown step type - assume not completed
-    return false;
-  }
-
-  /**
-   * Fallback: Auto-detect required fields when no explicit flow
-   */
-  autoDetectRequiredFields(customerContext, systemPrompt) {
-    // Parse script to understand required fields (simple approach)
-    const scriptLower = systemPrompt.toLowerCase();
-
-    // Common required fields for most scripts
-    const fieldChecks = [
-      { key: "name", patterns: ["name", "{name}"], label: "customer name" },
-      {
-        key: "phone",
-        patterns: ["phone", "mobile", "number", "{mobile}"],
-        label: "phone number",
-      },
-      {
-        key: "pincode",
-        patterns: ["pincode", "pin code", "{pincode}"],
-        label: "pincode",
-      },
-      {
-        key: "address",
-        patterns: ["address", "location", "{address}"],
-        label: "address",
-      },
-      { key: "email", patterns: ["email", "{email}"], label: "email" },
-    ];
-
-    // Check which fields are mentioned in script and missing from context
-    const requiredFields = [];
-    for (const field of fieldChecks) {
-      const isInScript = field.patterns.some((pattern) =>
-        scriptLower.includes(pattern),
-      );
-      const isMissing = !customerContext[field.key];
-
-      if (isInScript && isMissing) {
-        requiredFields.push(field);
-      }
-    }
-
-    // Determine next field to ask
-    if (requiredFields.length > 0) {
-      const nextField = requiredFields[0];
-      return {
-        stage: `Collecting Info (${requiredFields.length} fields remaining)`,
-        nextField: nextField.label,
-        nextFieldKey: nextField.key,
-        remainingFields: requiredFields.map((f) => f.label),
-        isComplete: false,
-      };
-    }
-
-    // All required fields collected
-    return {
-      stage: "Information Complete",
-      nextField: null,
-      nextAction: "your script's next steps (qualification, booking, etc.)",
-      isComplete: true,
-    };
-  }
-
-  /**
-   * Extract user's intent/purpose from their message
-   * Returns a brief summary of what the user wants
-   */
-  async extractUserIntent(userMessage) {
-    try {
-      // Simple keyword-based extraction for common intents
-      const messageLower = userMessage.toLowerCase();
-
-      // Purchase/Sales intents
-      if (
-        messageLower.match(
-          /\b(buy|purchase|book|test ride|demo|interested|looking for|want to buy)\b/,
-        )
-      ) {
-        return "Purchase/Booking inquiry";
-      }
-
-      // Support/Issue intents
-      if (
-        messageLower.match(
-          /\b(not working|broken|issue|problem|repair|service|complaint|fix|error)\b/,
-        )
-      ) {
-        return "Technical support/Issue resolution";
-      }
-
-      // Information/Query intents
-      if (
-        messageLower.match(
-          /\b(information|details|tell me|what is|features|specs|warranty|price)\b/,
-        )
-      ) {
-        return "Information request";
-      }
-
-      // Service center intents
-      if (
-        messageLower.match(
-          /\b(service center|appointment|schedule|visit|location)\b/,
-        )
-      ) {
-        return "Service center inquiry";
-      }
-
-      // Generic fallback - just return the original message (trimmed)
-      return userMessage.length > 50
-        ? userMessage.substring(0, 47) + "..."
-        : userMessage;
-    } catch (error) {
-      console.error("Intent extraction error:", error);
-      return userMessage;
-    }
-  }
-
-  /**
-   * Analyze conversation history to track what questions were already asked
-   */
-  analyzeConversationHistory(conversationHistory) {
-    const askedQuestions = [];
-
-    for (const msg of conversationHistory) {
-      if (msg.role === "assistant") {
-        const content = msg.content.toLowerCase();
-
-        // Detect if assistant asked for specific information
-        if (content.includes("name") && content.includes("?")) {
-          askedQuestions.push("- Asked for name");
-        }
-        if (
-          (content.includes("phone") ||
-            content.includes("mobile") ||
-            content.includes("number")) &&
-          content.includes("?")
-        ) {
-          askedQuestions.push("- Asked for phone/mobile number");
-        }
-        if (content.includes("email") && content.includes("?")) {
-          askedQuestions.push("- Asked for email");
-        }
-        if (content.includes("address") && content.includes("?")) {
-          askedQuestions.push("- Asked for address");
-        }
-        if (content.includes("pincode") && content.includes("?")) {
-          askedQuestions.push("- Asked for pincode");
-        }
-        if (content.includes("location") && content.includes("?")) {
-          askedQuestions.push("- Asked for location");
-        }
-      }
-    }
-
-    // Remove duplicates
-    return [...new Set(askedQuestions)];
-  }
-
-  /**
-   * Extract customer information from text using AI
-   * Much more reliable than regex patterns
-   */
-  async extractCustomerInfo(text, existingContext = {}, agentSlots = []) {
-    try {
-      console.log("🔍 Extracting customer info from:", text);
-
-      // HYBRID APPROACH: Use dynamic extraction prompt
-      // If agentSlots provided, use them; otherwise fallback to universal extraction
-      let extractionPrompt;
-
-      if (agentSlots && agentSlots.length > 0) {
-        // Import scriptAnalyzer dynamically to avoid circular dependency
-        const { default: scriptAnalyzer } = await import("./scriptAnalyzer.js");
-        extractionPrompt =
-          scriptAnalyzer.buildDynamicExtractionPrompt(agentSlots);
-        console.log(
-          `📋 Using DYNAMIC extraction for ${agentSlots.length} slots:`,
-          agentSlots.map((s) => s.name),
-        );
-      } else {
-        // Fallback to universal extraction
-        extractionPrompt = EXTRACTION_SYSTEM_PROMPT;
-        console.log("📋 Using UNIVERSAL extraction (no agent slots detected)");
-      }
-
-      const response = await this.openai.chat.completions.create({
-        model: AI_CONFIG.EXTRACTION_MODEL,
-        messages: [
-          {
-            role: "system",
-            content: extractionPrompt, // DYNAMIC PROMPT!
-          },
-          {
-            role: "user",
-            content: text,
-          },
-        ],
-        temperature: 0,
-        max_tokens: AI_CONFIG.EXTRACTION_MAX_TOKENS,
-      });
-      const jsonStr = response.choices[0].message.content.trim();
-      console.log("🤖 AI extraction raw response:", jsonStr);
-
-      // Handle markdown code blocks if AI returns them
-      const cleanJson = jsonStr.replace(/```json\n?|```\n?/g, "").trim();
-      console.log("🧹 Cleaned JSON:", cleanJson);
-
-      if (cleanJson && cleanJson !== "{}") {
-        const updates = JSON.parse(cleanJson);
-        console.log("📦 Parsed updates:", updates);
-
-        // Clean phone number if extracted
-        if (updates.phone) {
-          // Remove all non-digits
-          let cleanPhone = updates.phone.replace(/\D/g, "");
-          // Remove country code if present (91 prefix)
-          if (cleanPhone.startsWith("91") && cleanPhone.length === 12) {
-            cleanPhone = cleanPhone.substring(2);
-          }
-          // Validate it's a 10-digit number starting with 6-9
-          if (/^[6-9]\d{9}$/.test(cleanPhone)) {
-            updates.phone = cleanPhone;
-            console.log("✅ Cleaned phone number:", cleanPhone);
-          } else {
-            console.warn("⚠️ Invalid phone format, discarding:", updates.phone);
-            delete updates.phone;
-          }
-        }
-
-        if (Object.keys(updates).length > 0) {
-          // Merge with existing context, but don't overwrite with empty values
-          const newContext = { ...existingContext };
-
-          // Only update fields that have actual values (not empty strings)
-          Object.keys(updates).forEach((key) => {
-            const value = updates[key];
-            if (value !== "" && value !== null && value !== undefined) {
-              // For objects, merge them
-              if (typeof value === "object" && !Array.isArray(value)) {
-                newContext[key] = { ...newContext[key], ...value };
-              } else {
-                newContext[key] = value;
-              }
-            }
-          });
-
-          newContext.lastUpdated = new Date().toISOString();
-
-          console.log("📝 AI Extracted customer info:", updates);
-          console.log("✅ Merged context:", newContext);
-          return newContext;
-        }
-      }
-
-      console.log("ℹ️ No customer info extracted from AI (empty response)");
-    } catch (error) {
-      console.error(
-        "❌ AI extraction failed, using regex fallback:",
-        error.message,
-      );
-
-      // Fallback to regex patterns
-      const updates = {};
-
-      // Extract phone numbers (Indian format) - Multiple patterns
-      const phonePatterns = [
-        /\b(\+?91[-\s]?)?([6-9]\d{9})\b/, // Standard format
-        /\b([6-9]\d{4}[\s-]?\d{5})\b/, // With space/dash in middle
-        /\b([6-9]\d{2}[\s-]?\d{3}[\s-]?\d{4})\b/, // Multiple separators
-      ];
-
-      for (const pattern of phonePatterns) {
-        const phoneMatch = text.match(pattern);
-        if (phoneMatch) {
-          // Extract just the digits
-          const cleanPhone = phoneMatch[0].replace(/\D/g, "");
-          // Remove country code if present
-          const phone =
-            cleanPhone.startsWith("91") && cleanPhone.length === 12
-              ? cleanPhone.substring(2)
-              : cleanPhone;
-
-          if (/^[6-9]\d{9}$/.test(phone)) {
-            updates.phone = phone;
-            break;
-          }
-        }
-      }
-
-      // Extract email
-      const emailMatch = text.match(
-        /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/,
-      );
-      if (emailMatch) {
-        updates.email = emailMatch[0];
-      }
-
-      // Extract pincode (6 digits) - Remove spaces first (STT often adds spaces)
-      const cleanedForPincode = text.replace(/\s+/g, ""); // Remove all spaces
-      const pincodeMatch = cleanedForPincode.match(/\b[1-9]\d{5}\b/);
-      if (pincodeMatch) {
-        updates.pincode = pincodeMatch[0];
-      }
-
-      // Extract name - multiple patterns
-      let nameMatch = text.match(
-        /(?:my name is|i am|this is|i'm|call me)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i,
-      );
-
-      // If no explicit name pattern, try to extract capitalized words (likely names)
-      // Only if text is short (1-3 words) and starts with capital letter
-      if (!nameMatch && text.trim().split(/\s+/).length <= 3) {
-        const capitalizedMatch = text.match(
-          /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\.?$/,
-        );
-        if (capitalizedMatch) {
-          updates.name = capitalizedMatch[1];
-        }
-      } else if (nameMatch) {
-        updates.name = nameMatch[1];
-      }
-
-      // Extract model/product names (capitalized words with potential alphanumeric)
-      // Examples: "Magnus EX", "Primus", "iPhone 15", "Model 3"
-      if (
-        !updates.name &&
-        !updates.phone &&
-        !updates.pincode &&
-        !updates.email
-      ) {
-        const modelMatch = text.match(/^([A-Z][a-zA-Z0-9\s]+?)(?:\s*[,.])?$/);
-        if (modelMatch && modelMatch[1].trim().split(/\s+/).length <= 4) {
-          updates.model = modelMatch[1].trim();
-        }
-      }
-
-      if (Object.keys(updates).length > 0) {
-        // Merge with existing context, but don't overwrite with empty values
-        const newContext = { ...existingContext };
-
-        // Only update fields that have actual values (not empty strings)
-        Object.keys(updates).forEach((key) => {
-          const value = updates[key];
-          if (value !== "" && value !== null && value !== undefined) {
-            // For objects, merge them
-            if (typeof value === "object" && !Array.isArray(value)) {
-              newContext[key] = { ...newContext[key], ...value };
-            } else {
-              newContext[key] = value;
-            }
-          }
-        });
-
-        newContext.lastUpdated = new Date().toISOString();
-
-        console.log("📝 Regex extracted customer info:", updates);
-        console.log("✅ Merged context:", newContext);
-        return newContext;
-      }
-    }
+}
+
+/**
+ * Call Session - manages state for a single phone call
+ */
+class CallSession {
+  constructor(uuid, socket, calledNumber = null) {
+    this.uuid = uuid;
+    this.socket = socket;
+    this.calledNumber = calledNumber; // DID that was called
+    this.conversationId = null;
+
+    // Agent configuration (to be loaded)
+    this.agentId = null;
+    this.flowId = null;
+    this.startStepId = null;
+    this.agentConfig = {};
+    this.welcomeMessage = null;
+    this.systemPrompt = null; // Agent's full script (same as web)
+    this.flow = null; // Store loaded flow
+    this.language = "en";
+    this.voice = "anushka"; // Agent's configured voice
+    this.voiceProvider = "Sarvam"; // Default TTS provider (Sarvam, ElevenLabs, Tabbly)
+    this.voiceModel = "bulbul:v2"; // Default voice model
+
+    // Audio buffering
+    this.audioBuffer = [];
+    this.lastAudioTime = Date.now();
+    this.isProcessing = false;
+    this.silenceTimer = null;
+
+    // Deepgram real-time connection
+    this.deepgramConnection = null;
+    this.transcript = "";
+    this.isFinal = false;
+
+    // Conversation state (for AI Agent Service - same as web chat)
+    this.conversationHistory = [];
+    this.customerContext = {};
+
+    // ⚡ Phase 3: Audio queue for sentence-by-sentence streaming
+    this.audioQueue = [];
+    this.isSpeaking = false;
+
+    // ⚡ Phase 4: Barge-in detection (speech cancellation token)
+    this.currentSpeechToken = 0;
+    this.userIsSpeaking = false; // Set true when Deepgram detects actual speech
+
+    // LATENCY OPT: TTS pre-fetch cache — text → Promise<Buffer (raw PCM)>
+    // Pre-fetching starts the moment text is enqueued, so audio is ready
+    // by the time the queue consumer needs it (hides TTS API latency).
+    this.ttsPreCache = new Map();
+
+    //Call tracking for database
+    this.callDbId = null; // MongoDB _id for this call
+    this.callStartTime = Date.now();
+    this.fullTranscript = []; // Full conversation transcript
+    this.callerNumber = null; // Caller's phone number (from SIP headers)
+
+    // 💰 LLM token tracking for cost calculation
+    this.totalInputTokens = 0;
+    this.totalOutputTokens = 0;
+
+    //Call recording
+    this.recording = null;
+
+    // 🔊 Live spy listeners (WebSocket connections listening to this call)
+    this.spyListeners = new Set();
+    this.agentName = null; // populated in initializeAgent
 
     console.log(
-      "ℹ️ No customer info found in text, returning existing context",
+      `[${uuid}] New call session created (DID: ${calledNumber || "unknown"
+      })`,
     );
-    return existingContext;
   }
 
   /**
-   * Process message with streaming response (for lower latency)
-   * Yields chunks as they arrive from OpenAI
-   * @yields {object} Chunks with type: 'content', 'context', 'language', 'done'
+   * Broadcast raw PCM audio to all spy WebSocket listeners
+   * @param {Buffer} audioData - Raw slin16 PCM data
+   * @param {string} source - 'caller' or 'agent'
    */
-  async *processMessageStream(
-    userMessage,
-    agentId = "default",
-    customerContext = {},
-    conversationHistory = [],
-    options = {},
-  ) {
+  broadcastToSpies(audioData, source) {
+    if (this.spyListeners.size === 0) return;
+    // Prefix: 1 byte source marker (0x01=caller, 0x02=agent) + audio data
+    const marker = Buffer.alloc(1);
+    marker[0] = source === 'caller' ? 0x01 : 0x02;
+    const frame = Buffer.concat([marker, audioData]);
+    for (const ws of this.spyListeners) {
+      if (ws.readyState === 1) { // WebSocket.OPEN
+        ws.send(frame);
+      } else {
+        this.spyListeners.delete(ws);
+      }
+    }
+  }
+
+  /**
+   * Initialize agent from called number
+   */
+  async initializeAgent() {
     try {
-      const {
-        language = "en",
-        useRAG = false,
-        systemPrompt = "You are a helpful AI assistant.",
-        temperature = 0.3,
-        maxTokens = 200, // Default for streaming - enough for complete responses
-        provider = "openai",
-        model = AI_CONFIG.MODEL, // Add model selection
-      } = options;
+      // 1. Get agent ID from database (PhoneNumber collection)
+      const cleanedNumber = PhoneNumber.cleanNumber(this.calledNumber);
+      const phoneRecord = await PhoneNumber.findOne({ number: cleanedNumber });
 
-      // Log selected model
-      console.log(`🤖 Streaming with model: ${model}`);
+      let agentId = phoneRecord?.linkedAgentId?.toString() || null;
 
-      // ============================================================================
-      // LOAD AGENT SLOTS FOR DYNAMIC EXTRACTION (NEW - Hybrid Approach)
-      // ============================================================================
-      let agentSlots = [];
-      if (agentId && agentId !== "default") {
-        try {
-          const Agent = (await import("../models/Agent.js")).default;
-          const agent = await Agent.findById(agentId);
-          if (agent && agent.requiredSlots && agent.requiredSlots.length > 0) {
-            agentSlots = agent.requiredSlots;
-            console.log(
-              `📋 Loaded ${agentSlots.length} dynamic slots for streaming`,
-            );
-          }
-        } catch (error) {
-          console.warn(
-            "⚠️  Could not load agent slots for streaming:",
-            error.message,
-          );
+      if (phoneRecord && agentId) {
+        console.log(`📞 DID ${this.calledNumber} → Agent ${agentId}`);
+      } else {
+        console.warn(
+          `⚠️No agent mapped for DID: ${this.calledNumber} (cleaned: ${cleanedNumber})`,
+        );
+      }
+
+      // Fallback to default if no mapping found
+      if (!agentId) {
+        agentId = process.env.DEFAULT_PHONE_AGENT_ID || null;
+        if (agentId) {
+          console.log(`📞 Using default agent: ${agentId}`);
         }
       }
 
-      // Quick validation
-      const isEmptyOrUnclear = !userMessage || userMessage.trim().length < 2;
+      if (!agentId) {
+        throw new Error(`No agent configured for DID: ${this.calledNumber}`);
+      }
 
-      if (isEmptyOrUnclear) {
-        yield {
-          type: "content",
-          content: "I didn't catch that. Could you please repeat?",
-        };
-        yield { type: "done" };
+      // 2. Load agent from database
+      const agent = await Agent.findById(agentId);
+
+      if (!agent) {
+        throw new Error(`Agent not found: ${agentId}`);
+      }
+
+      this.agentName = agent.name;
+      console.log(`[${this.uuid}] Loaded agent: ${agent.name} (${agentId})`);
+
+      // 3. Load flow using fs.readFileSync (same as chatV5Controller)
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = import("path").then((p) => p.dirname(__filename));
+      const flowPath = new URL(
+        `../flows/${agent.flowId}.json`,
+        import.meta.url,
+      );
+      const flowContent = fs.readFileSync(flowPath, "utf-8");
+      const flow = JSON.parse(flowContent);
+
+      if (!flow || !flow.startStep) {
+        throw new Error(`Invalid flow: ${agent.flowId}`);
+      }
+
+      // 4. Store agent configuration and flow
+      this.agentId = agentId;
+      this.userId = agent.userId;  // ← needed to associate call with the agent's owner
+      this.flowId = agent.flowId;
+      this.startStepId = flow.startStep;
+      this.flow = flow; // Store flow for processTurn
+      this.agentConfig = agent.agentConfig || {};
+      this.knowledgeBaseFiles = agent.knowledgeBaseFiles || [];
+      this.analyticsConfig = agent.analyticsConfig || { summarization: false, extraction: false };
+      this.welcomeMessage =
+        agent.welcome ||
+        flow.steps?.greeting?.text?.en ||
+        "Hello! How can I help you today?";
+      this.language = agent.supportedLanguages?.[0] || "en";
+      this.voice = agent.voice || "anushka"; // Use agent's configured voice
+      this.voiceProvider = agent.voiceProvider || "Sarvam"; // TTS provider from agent config
+      this.voiceModel = agent.voiceModel || "bulbul:v2"; // Voice model from agent config
+      // Use agent.prompt (FULL SCRIPT) - same as web chat passes to VoiceChat
+      this.systemPrompt = agent.prompt || "You are a helpful AI assistant.";
+
+      console.log(
+        `[${this.uuid}] TTS Config: Provider=${this.voiceProvider}, Voice=${this.voice}, Model=${this.voiceModel}`,
+      );
+
+      console.log(
+        `[${this.uuid}] Flow: ${this.flowId}, Start: ${this.startStepId}`,
+      );
+
+      // 5. Pre-call wallet balance check
+      if (this.userId) {
+        const { allowed, balance, required } = await hasEnoughBalance(this.userId);
+        if (!allowed) {
+          console.warn(`[${this.uuid}] Insufficient wallet balance: $${balance.toFixed(4)} < $${required.toFixed(4)}`);
+          // Attach flag so the outer catch can play a TTS message
+          const err = new Error('Insufficient wallet balance to connect this call.');
+          err.code = 'INSUFFICIENT_BALANCE';
+          throw err;
+        }
+        console.log(`[${this.uuid}] Wallet balance OK: $${balance.toFixed(4)}`);
+      }
+
+      return true;
+    } catch (error) {
+      console.error(
+        `[${this.uuid}] Failed to initialize agent:`,
+        error.message,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Create call record in database
+   * Called after agent is initialized, before welcome message
+   */
+  async createCallRecord() {
+    try {
+      const callRecord = await Call.create({
+        callId: this.uuid,
+        executionId: this.uuid.substring(0, 8),
+        agentId: this.agentId,
+        userId: this.userId,          // ← associate call with agent owner
+        calledNumber: this.calledNumber,
+        callerNumber: this.callerNumber || this.calledNumber,
+        userNumber: this.callerNumber || this.calledNumber,
+        status: "answered",
+        startedAt: new Date(this.callStartTime),
+        conversationType: "asterisk inbound",
+        provider: "Asterisk",
+        rawData: {
+          uuid: this.uuid,
+          calledNumber: this.calledNumber,
+          agentId: this.agentId,
+          flowId: this.flowId,
+          language: this.language,
+          voiceProvider: this.voiceProvider,
+        },
+      });
+
+      this.callDbId = callRecord._id;
+      console.log(`📊 [${this.uuid}] Call record created: ${callRecord._id}`);
+
+      // Start recording
+      this.recording = recordingService.startRecording(this.uuid);
+
+      return callRecord;
+    } catch (error) {
+      console.error(`[${this.uuid}] Failed to create call record:`, error.message);
+      // Don't throw - call should continue even if DB fails
+      return null;
+    }
+  }
+
+  /**
+   * Initialize Deepgram real-time STT connection
+   */
+  async initDeepgram() {
+    const apiKey = process.env.DEEPGRAM_API_KEY;
+    if (!apiKey) {
+      console.error(`[${this.uuid}] DEEPGRAM_API_KEY not configured`);
+      return false;
+    }
+
+    try {
+      const deepgram = createClient(apiKey);
+
+      // Deepgram settings for 8kHz telephony
+      this.deepgramConnection = deepgram.listen.live({
+        model: "nova-2",
+        language: this.language === "hi" ? "hi" : "en-IN",
+        encoding: "linear16",
+        sample_rate: 8000, // 8kHz for standard telephony
+        channels: 1,
+        smart_format: true,
+        punctuate: true,
+        interim_results: true,
+        utterance_end_ms: 800, // LATENCY OPT: reduced from 1200ms
+        vad_events: true,
+        endpointing: 200, // LATENCY OPT: reduced from 400ms
+      });
+
+      // Handle transcription results
+      this.deepgramConnection.on("Results", (data) => {
+        const transcript = data.channel?.alternatives?.[0]?.transcript || "";
+        const isFinal = data.is_final;
+
+        if (transcript) {
+          //Phase 4: Check if this is real speech (not noise/fillers)
+          const isRealSpeech =
+            transcript.length >= 3 && /[a-zA-Z\u0900-\u097F]/.test(transcript);
+
+          // Trigger barge-in only on confirmed real speech
+          if (isRealSpeech && this.isSpeaking && !this.userIsSpeaking) {
+            this.userIsSpeaking = true;
+            this.currentSpeechToken++;
+            this.audioQueue.length = 0; // Clear pending speech
+            console.log(
+              `[${this.uuid}] Barge-in confirmed (real speech), stopping agent`,
+            );
+          }
+
+          if (isFinal) {
+            this.transcript += (this.transcript ? " " : "") + transcript;
+            console.log(`🎤 [${this.uuid}] Final: "${transcript}"`);
+
+            // FIX 3: Early trigger on isFinal instead of waiting for UtteranceEnd
+            // This saves ~700-900ms latency
+            if (transcript.length > 5 && !this.isProcessing) {
+              clearTimeout(this.silenceTimer);
+              this.silenceTimer = setTimeout(() => {
+                if (!this.isProcessing && this.transcript) {
+                  console.log(`⚡ [${this.uuid}] Early trigger (isFinal)`);
+                  this.processUserInput();
+                }
+              }, 100); // LATENCY OPT: reduced from 300ms
+            }
+          } else {
+            console.log(`🎤 [${this.uuid}] Interim: "${transcript}"`);
+          }
+        }
+      });
+
+      // Handle utterance end (user stopped speaking) - fallback for edge cases
+      this.deepgramConnection.on("UtteranceEnd", async () => {
+        console.log(`🔇 [${this.uuid}] Utterance ended`);
+        this.userIsSpeaking = false; //Phase 4: Reset speech flag
+        clearTimeout(this.silenceTimer); // Clear any pending early trigger
+        if (this.transcript && !this.isProcessing) {
+          await this.processUserInput();
+        }
+      });
+
+      this.deepgramConnection.on("Error", (error) => {
+        console.error(`❌ [${this.uuid}] Deepgram error:`, error);
+      });
+
+      this.deepgramConnection.on("Close", () => {
+        console.log(`🔌 [${this.uuid}] Deepgram connection closed`);
+      });
+
+      console.log(`[${this.uuid}] Deepgram real-time STT initialized`);
+      return true;
+    } catch (error) {
+      console.error(
+        `[${this.uuid}] Failed to init Deepgram:`,
+        error.message,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * LATENCY OPT: Fetch TTS and return raw slin16 PCM buffer.
+   * - Sarvam WAV already at 8kHz → strip header in-process (no FFmpeg).
+   * - ElevenLabs MP3 / Tabbly WAV at wrong rate → FFmpeg resample.
+   * Results are cached in ttsPreCache so repeated text (fillers) is instant.
+   */
+  async fetchTTSAudio(text) {
+    try {
+      if (this.voiceProvider === "ElevenLabs") {
+        const mp3Buffer = await ttsService.speakWithElevenLabs(
+          text,
+          this.voice,
+          this.voiceModel || "eleven_multilingual_v2",
+        );
+        if (!mp3Buffer) return null;
+        return this.convertToSlin16(mp3Buffer); // MP3 → 8kHz PCM via FFmpeg
+      }
+
+      if (this.voiceProvider === "Tabbly") {
+        const wavBuffer = await ttsService.speakWithTabbly(
+          text,
+          this.voice,
+          this.voiceModel || "tabbly-tts",
+        );
+        if (!wavBuffer) return null;
+        // Check if already 8kHz mono PCM — skip FFmpeg if so
+        const info = analyzeWav(Buffer.from(wavBuffer));
+        if (info && info.audioFormat === 1 && info.sampleRate === 8000
+            && info.numChannels === 1 && info.bitsPerSample === 16) {
+          return Buffer.from(wavBuffer).slice(info.dataOffset);
+        }
+        return this.convertToSlin16(Buffer.from(wavBuffer));
+      }
+
+      // Default: Sarvam
+      const audioBase64 = await ttsService.speak(
+        text,
+        this.language,
+        this.voice,
+        this.voiceModel,
+      );
+      if (!audioBase64) return null;
+      const wavBuffer = Buffer.from(audioBase64, "base64");
+
+      // If Sarvam returned 8kHz mono PCM WAV (v3 or future v2), strip header only.
+      // Otherwise fall back to FFmpeg resampling.
+      const info = analyzeWav(wavBuffer);
+      if (info && info.audioFormat === 1 && info.sampleRate === 8000
+          && info.numChannels === 1 && info.bitsPerSample === 16) {
+        console.log(`[${this.uuid}] WAV already 8kHz PCM — skipping FFmpeg`);
+        return wavBuffer.subarray(info.dataOffset);
+      }
+      return this.convertToSlin16(wavBuffer);
+    } catch (err) {
+      console.error(`[${this.uuid}] fetchTTSAudio error:`, err.message);
+      return null;
+    }
+  }
+
+  /**
+   * LATENCY OPT: Stream pre-converted slin16 PCM directly to Asterisk.
+   * Skips the FFmpeg step — use after fetchTTSAudio() returns a PCM buffer.
+   */
+  async streamRawPCMToAsterisk(pcmBuffer, token = this.currentSpeechToken) {
+    try {
+      const chunks = splitIntoChunks(pcmBuffer, FRAME_SIZE);
+
+      if (this.recording) {
+        this.recording.markAISpeechStart();
+      }
+
+      for (let i = 0; i < chunks.length; i++) {
+        if (token !== this.currentSpeechToken) {
+          console.log(`[${this.uuid}] Speech cancelled mid-playback (barge-in)`);
+          break;
+        }
+        if (!this.socket.writable) break;
+
+        this.socket.write(createAudioFrame(chunks[i]));
+        this.broadcastToSpies(chunks[i], "agent");
+
+        if (this.recording) {
+          this.recording.addAIAudio(chunks[i], i);
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+
+      if (token === this.currentSpeechToken) {
+        console.log(`[${this.uuid}] PCM stream complete (${chunks.length} frames)`);
+      }
+    } catch (error) {
+      console.error(`[${this.uuid}] PCM stream failed:`, error.message);
+      this.sendSilence(200);
+    }
+  }
+
+  /**
+   * Send audio to Deepgram for real-time transcription
+   */
+  sendAudioToSTT(audioData) {
+    if (
+      this.deepgramConnection &&
+      this.deepgramConnection.getReadyState() === 1
+    ) {
+      this.deepgramConnection.send(audioData);
+    }
+  }
+
+  /**
+   * ⚡ Phase 3 + LATENCY OPT: Enqueue speech with parallel TTS pre-fetch.
+   *
+   * Key optimisation: TTS fetch starts the moment text arrives here —
+   * not when the queue consumer gets to it.  This means while sentence N
+   * is playing (20ms × frames), sentence N+1's TTS API call is already
+   * in-flight.  By the time N finishes, N+1 is usually ready → zero gap.
+   *
+   * The ttsPreCache Map (text → Promise<PCM Buffer>) also serves as a
+   * persistent filler cache: fillers like "Sure." are resolved once and
+   * the settled Promise is reused on every subsequent turn (0ms wait).
+   */
+  async enqueueSpeech(text) {
+    if (!text?.trim()) return;
+    const trimmed = text.trim();
+
+    // Start TTS fetch immediately (non-blocking) — store the Promise
+    if (!this.ttsPreCache.has(trimmed)) {
+      this.ttsPreCache.set(trimmed, this.fetchTTSAudio(trimmed));
+    }
+
+    this.audioQueue.push(trimmed);
+
+    // Single consumer guarantee — only one drainer at a time
+    if (this.isSpeaking) return;
+    this.isSpeaking = true;
+
+    try {
+      while (this.audioQueue.length > 0) {
+        const nextChunk = this.audioQueue.shift();
+        const token = this.currentSpeechToken;
+
+        // Await the pre-fetched TTS (may already be resolved for fillers)
+        const pcmBuffer = await this.ttsPreCache.get(nextChunk);
+
+        // Keep the settled Promise in cache so repeated fillers cost 0ms
+        // (only evict if cache grows large to avoid memory bloat)
+        if (this.ttsPreCache.size > 30) {
+          this.ttsPreCache.delete(nextChunk);
+        }
+
+        if (!pcmBuffer || token !== this.currentSpeechToken) break;
+
+        await this.streamRawPCMToAsterisk(pcmBuffer, token);
+      }
+    } finally {
+      this.isSpeaking = false;
+    }
+  }
+
+  /**
+   * Check if message is a "check-in" phrase (hello? are you there?)
+   * User is checking if agent is still listening, not asking a new question
+   */
+  isCheckInPhrase(message) {
+    const lowerMessage = message.toLowerCase().trim();
+
+    // Check-in phrases in English and Hindi
+    const checkInPhrases = [
+      "hello",
+      "hello?",
+      "hello hello",
+      "hi",
+      "hi?",
+      "hey",
+      "hey?",
+      "are you there",
+      "are you there?",
+      "you there",
+      "you there?",
+      "can you hear me",
+      "can you hear me?",
+      "anyone there",
+      "anyone there?",
+      "हेलो",
+      "हैलो",
+      "सुन रहे हो",
+      "क्या आप सुन रहे हैं",
+    ];
+
+    // Check if message matches any check-in phrase
+    return checkInPhrases.some(
+      (phrase) =>
+        lowerMessage === phrase ||
+        lowerMessage === phrase + "?" ||
+        lowerMessage.replace(/\?+/g, "") === phrase,
+    );
+  }
+
+  /**
+   * Process user input through AI agent (SAME as web chat)
+   */
+  async processUserInput() {
+    if (this.isProcessing || !this.transcript) return;
+
+    this.isProcessing = true;
+    const userMessage = this.transcript.trim();
+    this.transcript = "";
+
+    console.log(`[${this.uuid}] Processing: "${userMessage}"`);
+
+    try {
+      // Smart filler: natural acknowledgment while LLM thinks
+      // - Skips on first turn (user expects real content after welcome)
+      // - Randomized so it doesn't sound robotic
+      // - Language-aware (Hindi vs English)
+      if (this.conversationHistory.length >= 2) {
+        const hindiFills = ["ठीक है।", "जी।", "अच्छा।", "जी बताती हूँ।", "एक सेकंड।", "हाँ जी।"];
+        const englishFills = ["Sure.", "One moment.", "Okay.", "Let me check.", "Right.", "Got it."];
+        const pool = this.language === "hi" ? hindiFills : englishFills;
+
+        // Avoid repeating last filler
+        let filler;
+        do {
+          filler = pool[Math.floor(Math.random() * pool.length)];
+        } while (filler === this._lastFiller && pool.length > 1);
+        this._lastFiller = filler;
+
+        this.enqueueSpeech(filler);
+      }
+
+      // Check for "check-in" phrases (hello? are you there? etc.)
+      // These should get a quick acknowledgment, not restart the flow
+      if (this.isCheckInPhrase(userMessage)) {
+        console.log(
+          `[${this.uuid}] Check-in phrase detected, quick response`,
+        );
+        await this.speakResponse("जी हाँ, मैं यहाँ हूँ। कृपया बताइए।");
+        this.isProcessing = false;
         return;
       }
 
-      // ========================================================================
-      // FAST PATH: Try state engine FIRST for immediate flow text
-      // This MUST happen before slot extraction or LLM
-      // ========================================================================
-      let flowText = null;
-      const conversationId = options.conversationId || `stream-${Date.now()}`;
-      const useCase = options.useCase || "default";
-
-      try {
-        const turnResult = stateEngine.processTurn(
-          conversationId,
-          userMessage,
-          {
-            useCase,
-            language,
-            agentId,
-          },
-        );
-
-        // If state engine returned text, emit it IMMEDIATELY
-        if (turnResult?.text) {
-          flowText = turnResult.text;
-          console.log(`⚡ FAST PATH: Emitting flow text immediately`);
-          yield {
-            type: "flow_text",
-            content: turnResult.text,
-          };
-        }
-      } catch (flowError) {
-        // State engine failed - continue with LLM-only path
-        console.warn(
-          `⚠️ State engine failed, using LLM-only:`,
-          flowError.message,
-        );
-      }
-
-      // ========================================================================
-      // FIRE-AND-FORGET: Slot extraction runs in parallel, does NOT block LLM
-      // ========================================================================
-      let updatedContext = { ...customerContext };
-      const extractionPromise = this.extractCustomerInfo(userMessage, customerContext, agentSlots)
-        .then((ctx) => {
-          updatedContext = ctx;
-          return ctx;
-        })
-        .catch((err) => {
-          console.error("Slot extraction failed:", err.message);
-          return customerContext;
-        });
-
-      // Note: Context will be yielded AFTER LLM completes, when extraction is done
-
-      const currentLanguageName = LANGUAGE_CODES[language] || "English";
-
-      // Build memory block from collected data (prevents re-asking)
-      const memoryBlock = buildMemoryBlock(updatedContext);
-
-      // Simplified prompt for speed
-      const enhancedSystemPrompt = `${systemPrompt}
-
-${memoryBlock}
-VOICE OUTPUT RULES:
-- Keep responses BRIEF (2-3 sentences max)
-- ALWAYS complete your sentences - never stop mid-sentence
-- Respond in ${currentLanguageName}
-- ALWAYS include actual numbers and prices (e.g., "1 crore", "13 crores", "2 BHK")
-- NO markdown formatting
-- Speak naturally without bullet points
-
-INPUT VALIDATION RULES (CRITICAL):
-- NEVER acknowledge receiving information that was NOT actually provided
-- If user says "My name is" WITHOUT an actual name → ask "I didn't catch your name. Could you please tell me your name?"
-- If user says "My number is" WITHOUT digits → ask "I didn't hear your phone number. Could you please share it?"
-- If user says "My pincode is" WITHOUT a 6-digit number → ask "Could you please share your pincode?"
-- ONLY confirm receiving info when you have the ACTUAL VALUE (e.g., "My name is Rahul" OR "I am Priya")
-- Incomplete sentences like "My name is", "I am", "It's" without content = NO information received
-
-CRITICAL LANGUAGE INSTRUCTION:
-- When responding in Hindi (or any non-English language), you MUST follow the EXACT SAME script/flow as you would in English
-- ONLY translate the script responses - do NOT generate new content or search for information
-- Your knowledge is LIMITED to the script and RAG context provided above - do NOT use external knowledge
-- If the user asks something outside the script, politely redirect them back to the script flow
-- Example: English script says "What is your name?" → Hindi should be "आपका नाम क्या है?" (just translation, same flow)`;
-
-      // Build messages
-      const recentHistory = conversationHistory.slice(-10);
-      const messages = [
-        { role: "system", content: enhancedSystemPrompt },
-        ...recentHistory,
-        { role: "user", content: userMessage },
-      ];
-
-      // Stream from OpenAI with selected model
-      const stream = await this.openai.chat.completions.create({
-        model: model, // Use model from options
-        messages: messages,
-        temperature: temperature,
-        max_tokens: maxTokens,
-        stream: true, // Enable streaming
+      // Add user message to conversation history
+      this.conversationHistory.push({
+        role: "user",
+        content: userMessage,
       });
 
+      // Save to full transcript for database
+      this.fullTranscript.push({
+        role: "user",
+        content: userMessage,
+        timestamp: new Date(),
+      });
+
+      // Keep history manageable (last 6 turns = 12 messages)
+      if (this.conversationHistory.length > 12) {
+        this.conversationHistory = this.conversationHistory.slice(-12);
+      }
+
+      // Start timer BEFORE stream call to measure full latency
+      const t0 = Date.now();
+
+      // Process through AI Agent Service - USE STREAMING (SAME as web chat!)
+      // This is the key fix: web uses processMessageStream, so phone must too
+      const stream = await aiAgentService.processMessageStream(
+        userMessage,
+        this.agentId,
+        this.customerContext || {},
+        this.conversationHistory,
+        {
+          // Pass same options as web chat
+          language: this.language,
+          systemPrompt: this.systemPrompt, // Full script (same as web)
+          useRAG: this.knowledgeBaseFiles.length > 0, // Enable RAG only if agent has linked knowledge base files
+          agentId: this.agentId,
+        },
+      );
+
+      // ⚡ PHASE 3.5: True streaming TTS - with character threshold
       let fullResponse = "";
-      let detectedLanguageSwitch = null;
+      let updatedContext = null;
+      let ttsBuffer = "";
+      let firstContentLogged = false;
+      let flowTextSpoken = false; // Guard: prevent LLM repeating flow text
+
+      // Speak after 140 chars OR sentence boundary (reduces ElevenLabs calls)
+      const shouldFlush = (text) => {
+        return text.length >= 140 || /[.!?।]\s*$/.test(text);
+      };
 
       for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content;
-        if (content) {
-          fullResponse += content;
+        // FAST PATH: Speak flow text immediately (no LLM wait)
+        if (chunk.type === "flow_text") {
+          console.log(`⚡ [${this.uuid}] Speaking flow text immediately`);
+          flowTextSpoken = true;
+          this.enqueueSpeech(chunk.content);
+          continue;
+        }
 
-          // Check for language switch at start
-          if (
-            fullResponse.startsWith("LANGUAGE_SWITCH:") &&
-            !detectedLanguageSwitch
-          ) {
-            const match = fullResponse.match(/^LANGUAGE_SWITCH:([a-z]{2})/i);
-            if (match) {
-              detectedLanguageSwitch = match[1].toLowerCase();
-              yield { type: "language", code: detectedLanguageSwitch };
-              // Remove the prefix from what we're yielding
-              const cleanContent = content.replace(
-                /^LANGUAGE_SWITCH:[a-z]{2}\s*/i,
-                "",
-              );
-              if (cleanContent) {
-                yield { type: "content", content: cleanContent };
-              }
-              continue;
-            }
+        if (chunk.type === "context") {
+          updatedContext = chunk.customerContext;
+          continue;
+        }
+
+        if (chunk.type === "content") {
+          // Log first content arrival time
+          if (!firstContentLogged) {
+            console.log(
+              `[${this.uuid}] First LLM content after ${Date.now() - t0}ms`,
+            );
+            firstContentLogged = true;
           }
 
-          yield { type: "content", content };
+          // Skip early LLM content if flow text already spoken (prevent repetition)
+          if (flowTextSpoken && fullResponse.length < 10) {
+            fullResponse += chunk.content;
+            continue;
+          }
+
+          fullResponse += chunk.content;
+          ttsBuffer += chunk.content;
+
+          // Speak when threshold reached
+          if (shouldFlush(ttsBuffer)) {
+            const sentence = ttsBuffer.trim();
+            ttsBuffer = "";
+
+            console.log(
+              `[${this.uuid}] Streaming chunk: "${sentence.substring(0, 50)}..."`,
+            );
+            this.enqueueSpeech(sentence); // ⚡ DO NOT await - AI keeps generating while audio plays
+          }
+        }
+
+        if (chunk.type === "done" || chunk.type === "error") {
+          break;
         }
       }
 
-      // Wait for extraction to complete and yield final context
-      await extractionPromise;
-      yield { type: "context", customerContext: updatedContext };
+      // Flush any remaining text that didn't end with a sentence boundary
+      const remaining = ttsBuffer.trim();
+      if (remaining.length > 0) {
+        console.log(
+          `[${this.uuid}] Final sentence: "${remaining.substring(0, 50)}..."`,
+        );
+        this.enqueueSpeech(remaining);
+      }
 
-      yield { type: "done" };
+      // Get AI response for logging and history
+      const aiResponse =
+        fullResponse || "I couldn't process that. Please try again.";
+
+      console.log(
+        `[${this.uuid}] AI Response: "${aiResponse.substring(0, 100)}..."`,
+      );
+
+      // Update customer context if returned
+      if (updatedContext) {
+        this.customerContext = {
+          ...this.customerContext,
+          ...updatedContext,
+        };
+      }
+
+      // Auto-detect language from AI response (same as VoiceChat.jsx)
+      const detectedLang = detectResponseLanguage(aiResponse);
+      if (detectedLang && detectedLang !== this.language) {
+        console.log(
+          `[${this.uuid}] Language switch detected: ${this.language} → ${detectedLang}`,
+        );
+        this.language = detectedLang;
+
+        // Reinitialize Deepgram with new language
+        if (this.deepgramConnection) {
+          this.deepgramConnection.finish();
+          await this.initDeepgram();
+        }
+      }
+
+      // Add AI response to conversation history
+      this.conversationHistory.push({
+        role: "assistant",
+        content: aiResponse,
+      });
+
+      // Save to full transcript for database
+      this.fullTranscript.push({
+        role: "assistant",
+        content: aiResponse,
+        timestamp: new Date(),
+      });
     } catch (error) {
-      console.error("❌ Stream processing error:", error);
-      yield { type: "error", message: error.message };
+      console.error(` [${this.uuid}] Processing error:`, error);
+      await this.speakResponse(
+        "Sorry, I encountered an error. Please try again.",
+      );
+    } finally {
+      this.isProcessing = false;
     }
   }
 
   /**
-   * Response cache for common queries (simple in-memory cache)
+   * Convert text to speech and stream to Asterisk.
+   * Uses fetchTTSAudio() + streamRawPCMToAsterisk() — no FFmpeg for
+   * audio that is already 8kHz PCM (Sarvam v3).
    */
-  responseCache = new Map();
-  cacheMaxAge = 5 * 60 * 1000; // 5 minutes
-
-  /**
-   * Get cached response if available and fresh
-   */
-  getCachedResponse(message, agentId) {
-    const key = `${agentId}:${message.toLowerCase().trim().substring(0, 100)}`;
-    const cached = this.responseCache.get(key);
-
-    if (cached && Date.now() - cached.timestamp < this.cacheMaxAge) {
-      return cached.data;
+  async speakResponse(text, token = this.currentSpeechToken) {
+    console.log(
+      `[${this.uuid}] TTS: "${text.substring(0, 50)}..." (Provider: ${this.voiceProvider})`,
+    );
+    try {
+      const pcmBuffer = await this.fetchTTSAudio(text);
+      if (!pcmBuffer) {
+        console.error(`[${this.uuid}] No audio from TTS (${this.voiceProvider})`);
+        return;
+      }
+      await this.streamRawPCMToAsterisk(pcmBuffer, token);
+    } catch (error) {
+      console.error(`[${this.uuid}] TTS error (${this.voiceProvider}):`, error.message);
+      this.sendSilence(500);
     }
-
-    // Clean up stale entry
-    if (cached) {
-      this.responseCache.delete(key);
-    }
-
-    return null;
   }
 
   /**
-   * Cache a response for quick retrieval
+   * Convert WAV to slin16 8kHz using ffmpeg
+   * @param {Buffer} wavBuffer - Input WAV audio
+   * @returns {Promise<Buffer>} - Raw signed 16-bit PCM data
    */
-  cacheResponse(message, agentId, response) {
-    // Only cache short, common queries
-    const normalizedMessage = message.toLowerCase().trim();
+  async convertToSlin16(wavBuffer) {
+    return new Promise((resolve, reject) => {
+      const ffmpeg = spawn(
+        "ffmpeg",
+        [
+          "-i",
+          "pipe:0", // Input from stdin
+          "-ar",
+          "8000", // Resamplze to 8kH for telephony
+          "-ac",
+          "1", // Mono
+          "-acodec",
+          "pcm_s16le", // Signed 16-bit little-endian (slin16)
+          "-f",
+          "s16le", // Raw s16le output (no container)
+          "pipe:1", // Output to stdout
+        ],
+        {
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
 
-    // Don't cache personalized responses
-    if (
-      normalizedMessage.length > 100 ||
-      response.customerContext?.name ||
-      response.customerContext?.phone
-    ) {
-      return;
-    }
+      const chunks = [];
 
-    const key = `${agentId}:${normalizedMessage.substring(0, 100)}`;
+      ffmpeg.stdout.on("data", (chunk) => chunks.push(chunk));
+      ffmpeg.stderr.on("data", (data) => {
+        // FFmpeg logs to stderr, ignore unless error
+      });
 
-    this.responseCache.set(key, {
-      data: response,
-      timestamp: Date.now(),
+      ffmpeg.on("close", (code) => {
+        if (code === 0) {
+          resolve(Buffer.concat(chunks));
+        } else {
+          reject(new Error(`FFmpeg exited with code ${code}`));
+        }
+      });
+
+      ffmpeg.on("error", (err) => {
+        reject(err);
+      });
+
+      // Write WAV data to ffmpeg stdin
+      ffmpeg.stdin.write(wavBuffer);
+      ffmpeg.stdin.end();
     });
+  }
 
-    // Limit cache size
-    if (this.responseCache.size > 100) {
-      const firstKey = this.responseCache.keys().next().value;
-      this.responseCache.delete(firstKey);
+  /**
+   * Send µ-law silence frames
+   * @param {number} ms - Duration in milliseconds
+   */
+  sendSilence(ms = 200) {
+    const frames = Math.ceil(ms / 20);
+    const silenceFrame = Buffer.alloc(FRAME_SIZE, 0x00); // 0x00 is slin16 silence
+
+    for (let i = 0; i < frames; i++) {
+      if (this.socket.writable) {
+        this.socket.write(createAudioFrame(silenceFrame));
+      }
     }
   }
 
   /**
-   * Clear response cache
+   * Stream audio back to Asterisk via AudioSocket
+   * Uses ffmpeg to convert WAV → slin16 8kHz
+   * REAL-TIME pacing: 20ms per frame (matches telephony clocking)
+   * ⚡ Phase 4: Supports barge-in cancellation via token
    */
-  clearCache() {
-    this.responseCache.clear();
-    console.log("🗑️ Response cache cleared");
+  async streamAudioToAsterisk(audioBuffer, token = this.currentSpeechToken) {
+    try {
+      const slinData = await this.convertToSlin16(audioBuffer);
+      const chunks = splitIntoChunks(slinData, FRAME_SIZE);
+
+      // Mark when AI speech starts for timeline-based recording
+      if (this.recording) {
+        this.recording.markAISpeechStart();
+      }
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+
+        // Phase 4: Stop immediately if barge-in occurred
+        if (token !== this.currentSpeechToken) {
+          console.log(
+            ` [${this.uuid}] Speech cancelled mid-playback (barge-in)`,
+          );
+          break;
+        }
+
+        if (!this.socket.writable) break;
+
+        this.socket.write(createAudioFrame(chunk));
+
+        // 🔊 Broadcast AI audio to spy listeners
+        this.broadcastToSpies(chunk, 'agent');
+
+        // Capture AI audio with chunk index for timeline positioning
+        if (this.recording) {
+          this.recording.addAIAudio(chunk, i);
+        }
+
+        // REAL-TIME pacing: 20ms per frame
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+
+      // Only log completion if not cancelled
+      if (token === this.currentSpeechToken) {
+        console.log(
+          `[${this.uuid}] Audio stream complete (${chunks.length} frames)`,
+        );
+      }
+    } catch (error) {
+      console.error(` [${this.uuid}] Audio streaming failed:`, error.message);
+      this.sendSilence(200);
+    }
+  }
+
+  /**
+   * Handle incoming audio from Asterisk
+   */
+  handleAudio(audioData) {
+    this.lastAudioTime = Date.now();
+
+    // Capture user audio for recording
+    if (this.recording) {
+      this.recording.addUserAudio(audioData);
+    }
+
+    // 🔊 Broadcast caller audio to spy listeners
+    this.broadcastToSpies(audioData, 'caller');
+
+    // Phase 4: Barge-in now handled by Deepgram VAD (in Results handler)
+    // Removed raw audio barge-in trigger to prevent false positives from noise
+    this.sendAudioToSTT(audioData);
+  }
+
+  /**
+   * Play welcome message when call connects
+   */
+  async playWelcome() {
+    const welcomeMessage =
+      this.welcomeMessage ||
+      "Hello! I'm your AI assistant. How can I help you today?";
+
+    console.log(`[${this.uuid}] Playing welcome message`);
+
+    // Auto-detect language from welcome message (same as VoiceChat.jsx)
+    const detectedLang = detectResponseLanguage(welcomeMessage);
+    if (detectedLang && detectedLang !== this.language) {
+      console.log(
+        `[${this.uuid}] Welcome in ${detectedLang}, switching Deepgram language`,
+      );
+      this.language = detectedLang;
+
+      // Reinitialize Deepgram with detected language
+      if (this.deepgramConnection) {
+        this.deepgramConnection.finish();
+        await this.initDeepgram();
+      }
+    }
+
+    await this.speakResponse(welcomeMessage);
+  }
+
+  /**
+   * Clean up session
+   */
+  async cleanup() {
+    console.log(`[${this.uuid}] Cleaning up session`);
+
+    // 🔊 Close all spy listeners
+    for (const ws of this.spyListeners) {
+      try {
+        ws.close(1000, 'Call ended');
+      } catch (e) { /* ignore */ }
+    }
+    this.spyListeners.clear();
+
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+    }
+
+    if (this.deepgramConnection) {
+      try {
+        this.deepgramConnection.finish();
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+    }
+
+    // Log call end
+    if (this.conversationId) {
+      Conversation.findByIdAndUpdate(this.conversationId, {
+        $set: {
+          "metadata.callEndTime": new Date(),
+          "metadata.callStatus": "completed",
+        },
+      }).catch((e) => console.error(`Failed to update conversation:`, e));
+    }
+
+    // Finalize call record in database
+    if (this.callDbId) {
+      const duration = Math.floor((Date.now() - this.callStartTime) / 1000);
+
+      // Estimate tokens from transcript (~4 characters = 1 token)
+      // User messages = input tokens, Assistant messages = output tokens
+      let estimatedInputTokens = 0;
+      let estimatedOutputTokens = 0;
+
+      for (const entry of this.fullTranscript) {
+        const tokenCount = Math.ceil((entry.content?.length || 0) / 4);
+        if (entry.role === "user") {
+          estimatedInputTokens += tokenCount;
+        } else if (entry.role === "assistant") {
+          estimatedOutputTokens += tokenCount;
+        }
+      }
+
+      // Add system prompt tokens (~500 tokens estimated)
+      estimatedInputTokens += 500;
+
+      // Generate AI summary of the call ONLY if summarization is enabled
+      let callSummary = null;
+      let summaryInputTokens = 0;
+      let summaryOutputTokens = 0;
+
+      if (this.analyticsConfig?.summarization) {
+        const summaryResult = await generateCallSummary(this.fullTranscript, this.customerContext);
+        if (summaryResult) {
+          callSummary = summaryResult.summary;
+          summaryInputTokens = summaryResult.tokens?.input || 0;
+          summaryOutputTokens = summaryResult.tokens?.output || 0;
+          console.log(`[${this.uuid}] Call summary generated (${summaryInputTokens}+${summaryOutputTokens} tokens)`);
+        }
+      } else {
+        console.log(`[${this.uuid}] Summarization disabled, skipping summary generation`);
+      }
+
+      // Add summary tokens to total LLM usage
+      const totalInputTokens = estimatedInputTokens + summaryInputTokens;
+      const totalOutputTokens = estimatedOutputTokens + summaryOutputTokens;
+
+      // Calculate all costs (now includes conversation + summary tokens)
+      const telephonyCost = await Call.calculateTelephonyCost(duration);
+      const llmCostUSD = Call.calculateLLMCost(totalInputTokens, totalOutputTokens);
+      const totalCost = await Call.calculateTotalCost(duration, totalInputTokens, totalOutputTokens);
+
+      // Upload recording to Cloudinary
+      let recordingUrl = null;
+      if (this.recording) {
+        const recordingResult = await recordingService.stopAndUpload(this.uuid);
+        if (recordingResult) {
+          recordingUrl = recordingResult.url;
+          console.log(`[${this.uuid}] Recording uploaded: ${recordingUrl}`);
+        }
+      }
+
+      // Build comprehensive rawData JSON for detailed analytics
+      const formattedTranscript = this.fullTranscript
+        .map(entry => `${entry.role}: ${entry.content}`)
+        .join('\n');
+
+      const rawData = {
+        id: this.uuid,
+        agent_id: this.agentId?.toString() || null,
+        batch_id: null,
+        created_at: new Date(this.callStartTime).toISOString(),
+        updated_at: new Date().toISOString(),
+        scheduled_at: null,
+        conversation_duration: duration,
+        total_cost: totalCost,
+        transcript: formattedTranscript,
+        usage_breakdown: {
+          llmModel: {
+            "gpt-4o-mini": {
+              input: totalInputTokens,
+              output: totalOutputTokens,
+            },
+          },
+          voice_id: this.voice || null,
+          llmTokens: totalInputTokens + totalOutputTokens,
+          buffer_size: 200,
+          endpointing: 100,
+          provider_source: {
+            llm: "openai",
+            synthesizer: this.voiceProvider?.toLowerCase() || "sarvam",
+            transcriber: "deepgram",
+          },
+          incremental_delay: 200,
+          synthesizer_model: this.voiceModel || "bulbul:v2",
+          transcriber_model: "nova-2",
+          llm_usage_breakdown: {
+            conversation: {
+              input: estimatedInputTokens,
+              output: estimatedOutputTokens,
+              model: "gpt-4o-mini",
+              provider: "openai",
+            },
+          },
+          transcriber_duration: duration,
+          transcriber_language: this.language || "en",
+          transcriber_provider: "deepgram",
+          synthesizer_provider: this.voiceProvider?.toLowerCase() || "sarvam",
+        },
+        cost_breakdown: {
+          llm: llmCostUSD * 83, // Convert to INR
+          telephony: telephonyCost,
+          platform: 0,
+          synthesizer: 0,
+          transcriber: 0,
+          total: totalCost,
+          llm_breakdown: {
+            conversation: llmCostUSD * 83,
+          },
+        },
+        extracted_data: this.analyticsConfig?.extraction ? (this.customerContext || {}) : {},
+        summary: callSummary, // AI-generated summary (null if disabled)
+        error_message: null,
+        status: "completed",
+        user_number: this.callerNumber || this.calledNumber,
+        agent_number: this.calledNumber,
+        initiated_at: new Date(this.callStartTime).toISOString(),
+        telephony_data: {
+          duration: duration.toString(),
+          to_number: this.callerNumber || this.calledNumber,
+          from_number: this.calledNumber,
+          recording_url: recordingUrl,
+          hosted_telephony: false,
+          provider_call_id: this.uuid,
+          call_type: "inbound",
+          provider: "asterisk",
+          hangup_by: "user",
+          hangup_reason: "normal",
+        },
+        context_details: {
+          recipient_data: {
+            timezone: "Asia/Kolkata",
+          },
+          recipient_phone_number: this.callerNumber || this.calledNumber,
+        },
+        provider: "asterisk",
+        latency_data: {
+          region: "in",
+          transcriber: {
+            time_to_connect: 100,
+            turns: this.fullTranscript
+              .filter(e => e.role === "user")
+              .map((entry, index) => ({
+                turn: index + 1,
+                turn_latency: [{
+                  sequence_id: 1,
+                  text: entry.content?.substring(0, 50) || "",
+                }],
+              })),
+          },
+          llm: {
+            turns: this.fullTranscript
+              .filter(e => e.role === "assistant")
+              .map((entry, index) => ({
+                turn: index + 1,
+                time_to_first_token: 300,
+                time_to_last_token: 600,
+              })),
+          },
+          synthesizer: {
+            time_to_connect: 50,
+            turns: this.fullTranscript
+              .filter(e => e.role === "assistant")
+              .map((entry, index) => ({
+                turn: index + 1,
+                time_to_first_token: 200,
+                time_to_last_token: 500,
+              })),
+          },
+        },
+      };
+
+      Call.findByIdAndUpdate(this.callDbId, {
+        status: "completed",
+        endedAt: new Date(),
+        duration: duration,
+        telephonyCost: telephonyCost,
+        llmTokens: {
+          input: estimatedInputTokens,
+          output: estimatedOutputTokens,
+        },
+        llmCostUSD: llmCostUSD,
+        cost: totalCost,
+        hangupBy: "user",
+        transcript: this.fullTranscript,
+        transcriptCount: this.fullTranscript.length,
+        customerContext: this.customerContext,
+        rawData: rawData,
+        recordingUrl: recordingUrl,
+      }).then(async () => {
+        console.log(`[${this.uuid}] Call record finalized: duration=${duration}s, telephony=₹${telephonyCost.toFixed(2)}, LLM=$${llmCostUSD.toFixed(4)} (${totalInputTokens}+${totalOutputTokens} tokens), total=₹${totalCost.toFixed(2)}`);
+
+        // 💰 Deduct call cost from user wallet
+        if (this.userId && totalCost > 0) {
+          const durationStr = `${duration}s`;
+          await deductCallCost(
+            this.userId,
+            totalCost,
+            this.uuid,
+            `Call ${this.uuid.substring(0, 8)} — ${durationStr}, ₹${totalCost.toFixed(2)}`
+          );
+        }
+      }).catch((e) => console.error(`Failed to finalize call record:`, e));
+    }
   }
 }
 
-// Export singleton instance
-const aiAgentService = new AIAgentService();
-export default aiAgentService;
+/**
+ * AudioSocket Server
+ */
+class AudioSocketServer {
+  constructor() {
+    this.server = null;
+    this.sessions = new Map(); // uuid -> CallSession
+    this.pendingCalls = new Map(); // uuid -> DID (registered before AudioSocket connects)
+  }
+
+  /**
+   * Register a pending call (called by /api/asterisk/register-call)
+   * This stores the UUID -> DID mapping before AudioSocket connects
+   */
+  registerPendingCall(uuid, did) {
+    this.pendingCalls.set(uuid, did);
+    console.log(`Pending call registered: ${uuid} → ${did}`);
+
+    // Clean up after 30 seconds if not used
+    setTimeout(() => {
+      if (this.pendingCalls.has(uuid)) {
+        this.pendingCalls.delete(uuid);
+        console.log(`🗑️ Expired pending call: ${uuid}`);
+      }
+    }, 30000);
+  }
+
+  /**
+   * Start the TCP server
+   */
+  start() {
+    this.server = net.createServer((socket) => {
+      this.handleConnection(socket);
+    });
+
+    this.server.on("error", (error) => {
+      console.error("AudioSocket server error:", error);
+    });
+
+    this.server.listen(AUDIOSOCKET_PORT, AUDIOSOCKET_HOST, () => {
+      console.log("═".repeat(50));
+      console.log(
+        `AudioSocket Server listening on ${AUDIOSOCKET_HOST}:${AUDIOSOCKET_PORT}`,
+      );
+      console.log("═".repeat(50));
+    });
+
+    return this.server;
+  }
+
+  /**
+   * Handle new connection from Asterisk
+   */
+  handleConnection(socket) {
+    console.log(
+      `New connection from ${socket.remoteAddress}:${socket.remotePort}`,
+    );
+
+    let session = null;
+    let buffer = Buffer.alloc(0);
+
+    socket.on("data", async (data) => {
+      buffer = Buffer.concat([buffer, data]);
+
+      // Parse frames from buffer
+      while (true) {
+        const frame = parseFrame(buffer);
+        if (!frame) break;
+
+        buffer = buffer.slice(frame.consumed);
+
+        switch (frame.type) {
+          case MESSAGE_TYPES.UUID:
+            // First message: call UUID
+            // AudioSocket sends UUID as 16 raw bytes (binary), need to convert to string
+            let uuid;
+            if (frame.data.length === 16) {
+              // Binary UUID (16 bytes) - convert to standard UUID string format
+              const hex = frame.data.toString("hex");
+              uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+            } else {
+              // String UUID (fallback)
+              uuid = frame.data.toString("utf8").trim();
+            }
+
+            console.log(`Parsed UUID: ${uuid} (${frame.data.length} bytes)`);
+
+            // Look up DID from pending calls (registered via /api/asterisk/register-call)
+            const calledNumber = this.pendingCalls.get(uuid) || null;
+            if (calledNumber) {
+              this.pendingCalls.delete(uuid); // Clean up after use
+              console.log(
+                `📞 Call connected: ${uuid} (DID: ${calledNumber} from registry)`,
+              );
+            } else {
+              console.log(
+                `📞 Call connected: ${uuid} (DID: unknown - not pre-registered)`,
+              );
+            }
+
+            session = new CallSession(uuid, socket, calledNumber);
+            this.sessions.set(uuid, session);
+
+            // Initialize agent from DID mapping
+            try {
+              await session.initializeAgent();
+
+              // Create call record in database
+              await session.createCallRecord();
+
+              // Initialize STT and play welcome
+              await session.initDeepgram();
+              await session.playWelcome();
+            } catch (error) {
+              console.error(`Failed to initialize call: ${error.message}`);
+              // If insufficient balance, save a failed call record and play a neutral message
+              if (error.code === 'INSUFFICIENT_BALANCE') {
+                // Save a failed call record so it appears in Call History
+                try {
+                  await Call.create({
+                    callId: session.uuid,
+                    executionId: session.uuid.substring(0, 8),
+                    agentId: session.agentId || null,
+                    userId: session.userId || null,
+                    calledNumber: session.calledNumber,
+                    callerNumber: session.callerNumber || session.calledNumber,
+                    userNumber: session.callerNumber || session.calledNumber,
+                    status: 'failed',
+                    startedAt: new Date(session.callStartTime),
+                    endedAt: new Date(),
+                    duration: 0,
+                    hangupBy: 'system',
+                    conversationType: 'asterisk inbound',
+                    provider: 'Asterisk',
+                    rawData: {
+                      uuid: session.uuid,
+                      status: 'failed',
+                      error_message: 'Call failed: insufficient wallet balance',
+                      summary: 'Call could not be connected — insufficient wallet balance. Please top up your account.',
+                      created_at: new Date(session.callStartTime).toISOString(),
+                    },
+                  });
+                  console.log(`[${session.uuid}] Failed call record saved (insufficient balance)`);
+                } catch (dbErr) {
+                  console.error(`Failed to save failed call record:`, dbErr.message);
+                }
+
+                // Play a neutral message — caller should not know about internal billing
+                try {
+                  if (!session.voiceProvider) session.voiceProvider = 'Sarvam';
+                  if (!session.voice) session.voice = 'anushka';
+                  if (!session.voiceModel) session.voiceModel = 'bulbul:v2';
+                  if (!session.language) session.language = 'en';
+                  await session.speakResponse(
+                    'We are unable to connect your call at this time. Please try again later.'
+                  );
+                  await new Promise(r => setTimeout(r, 1500));
+                } catch (ttsErr) {
+                  console.error(`Failed to play rejection message:`, ttsErr.message);
+                }
+              }
+              socket.end();
+              this.sessions.delete(uuid);
+            }
+            break;
+
+          case MESSAGE_TYPES.AUDIO:
+            // Audio frame from caller
+            if (session) {
+              session.handleAudio(frame.data);
+            }
+            break;
+
+          case MESSAGE_TYPES.ERROR:
+            console.error(
+              `AudioSocket error from Asterisk:`,
+              frame.data.toString(),
+            );
+            break;
+
+          default:
+            console.warn(`Unknown frame type: ${frame.type}`);
+        }
+      }
+    });
+
+    socket.on("close", () => {
+      console.log(`Connection closed`);
+      if (session) {
+        session.cleanup();
+        this.sessions.delete(session.uuid);
+      }
+    });
+
+    socket.on("error", (error) => {
+      console.error(`Socket error:`, error.message);
+      if (session) {
+        session.cleanup();
+        this.sessions.delete(session.uuid);
+      }
+    });
+  }
+
+  /**
+   * Stop the server
+   */
+  stop() {
+    if (this.server) {
+      this.server.close();
+      console.log("AudioSocket server stopped");
+    }
+  }
+
+  /**
+   * Get active call count
+   */
+  getActiveCallCount() {
+    return this.sessions.size;
+  }
+
+  /**
+   * Get active calls for a specific user (for spy API)
+   * @param {string} userId - Filter by user ID (so users only see their own calls)
+   * @returns {Array} Active call info objects
+   */
+  getActiveCalls(userId) {
+    const calls = [];
+    for (const [uuid, session] of this.sessions) {
+      // Filter by userId so users only see their own agents' calls
+      if (userId && session.userId && session.userId.toString() !== userId.toString()) {
+        continue;
+      }
+      calls.push({
+        callId: uuid,
+        callerNumber: session.callerNumber || 'Unknown',
+        calledNumber: session.calledNumber || 'Unknown',
+        agentName: session.agentName || 'Unknown Agent',
+        agentId: session.agentId || null,
+        startTime: session.callStartTime,
+        spyCount: session.spyListeners.size,
+      });
+    }
+    return calls;
+  }
+}
+
+// Singleton instance
+const audioSocketServer = new AudioSocketServer();
+
+export default audioSocketServer;
