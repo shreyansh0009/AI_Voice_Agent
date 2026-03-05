@@ -2887,45 +2887,26 @@ CRITICAL RULES:
       }
 
       // ========================================================================
-      // LATENCY OPT: SMART extraction — skip when no data, fire-and-forget
+      // LATENCY OPT: DEFER extraction to AFTER LLM stream completes
+      // Two simultaneous OpenAI calls on the same key compete for rate limits,
+      // slowing BOTH. By deferring extraction, the main LLM gets full bandwidth.
       // ========================================================================
       let updatedContext = { ...customerContext };
-
-      // Quick regex check: does this message even contain extractable data?
-      // Skip the entire OpenAI extraction call for pure conversational messages
-      const hasExtractableData = /\d{3,}/.test(userMessage)          // 3+ digits (phone, pincode, vehicle)
-        || /@/.test(userMessage)                                      // email
-        || /\b(my name|i am|i'm|mera naam|main)\b/i.test(userMessage) // name patterns
-        || /[A-Z]{2}\d{2}[A-Z]{1,2}\d{4}/i.test(userMessage);        // vehicle registration
+      let extractionPromise = null; // Will be started after stream ends
 
       const currentLanguageName = LANGUAGE_CODES[language] || "English";
 
       // Build memory block from collected data (prevents re-asking)
       const memoryBlock = buildMemoryBlock(updatedContext);
 
-      // ========================================================================
-      // LATENCY OPT: PROMPT CACHING — Split into STATIC + DYNAMIC messages
-      //
-      // OpenAI automatically caches prompt prefixes ≥1024 tokens when the
-      // prefix is IDENTICAL across API calls. By making the first system
-      // message completely static (same every turn), the LLM reuses cached
-      // KV computation → ~50% TTFT reduction.
-      //
-      // Structure:
-      //   messages[0] = STATIC system prompt (agent script + rules) → CACHED
-      //   messages[1] = DYNAMIC context (memory block + language)  → small, not cached
-      //   messages[2..n] = conversation history
-      //   messages[n+1] = user message
-      // ========================================================================
+      // Simplified prompt for speed
+      const enhancedSystemPrompt = `${systemPrompt}
 
-      // STATIC: Agent script + voice rules — NEVER changes between turns
-      // This is the cache key for OpenAI's automatic prompt caching
-      if (!this._cachedStaticPrompt || this._cachedStaticPromptKey !== systemPrompt) {
-        this._cachedStaticPrompt = `${systemPrompt}
-
+${memoryBlock}
 VOICE OUTPUT RULES:
 - Keep responses BRIEF (2-3 sentences max)
 - ALWAYS complete your sentences - never stop mid-sentence
+- Respond in ${currentLanguageName}
 - ALWAYS include actual numbers and prices (e.g., "1 crore", "13 crores", "2 BHK")
 - NO markdown formatting
 - Speak naturally without bullet points
@@ -2944,19 +2925,12 @@ CRITICAL LANGUAGE INSTRUCTION:
 - Your knowledge is LIMITED to the script and RAG context provided above - do NOT use external knowledge
 - If the user asks something outside the script, politely redirect them back to the script flow
 - Example: English script says "What is your name?" → Hindi should be "आपका नाम क्या है?" (just translation, same flow)`;
-        this._cachedStaticPromptKey = systemPrompt;
-        console.log(`📦 Static prompt cached (${this._cachedStaticPrompt.length} chars)`);
-      }
 
-      // DYNAMIC: Memory block + language (small, changes each turn)
-      const dynamicContext = `${memoryBlock}
-Respond in ${currentLanguageName}.`;
-
-      // Build messages — static prefix stays identical → OpenAI caches it
+      // Build messages
+      // LATENCY OPT: Reduced from 10 to 6 — fewer input tokens = faster first token
       const recentHistory = conversationHistory.slice(-6);
       const messages = [
-        { role: "system", content: this._cachedStaticPrompt },  // CACHED by OpenAI
-        { role: "system", content: dynamicContext },              // Small, dynamic
+        { role: "system", content: enhancedSystemPrompt },
         ...recentHistory,
         { role: "user", content: userMessage },
       ];
@@ -3004,26 +2978,19 @@ Respond in ${currentLanguageName}.`;
         }
       }
 
-      // LATENCY OPT: Fire-and-forget extraction — does NOT block the generator
-      // Data reaches customerContext for the NEXT turn via background promise
-      if (hasExtractableData) {
-        // Store promise on instance so asteriskBridge can await if needed
-        this._pendingExtraction = this.extractCustomerInfo(userMessage, customerContext, agentSlots)
-          .then((ctx) => {
-            updatedContext = ctx;
-            return ctx;
-          })
-          .catch((err) => {
-            console.error("Slot extraction failed:", err.message);
-            return customerContext;
-          });
-        // DON'T await — yield context immediately and let extraction finish in background
-        console.log(`🔍 Extraction started in background (has data: true)`);
-      } else {
-        console.log(`⏭️ Extraction skipped (no extractable data detected)`);
-      }
-
+      // LATENCY OPT: Start extraction NOW (after LLM is done — no competition)
+      extractionPromise = this.extractCustomerInfo(userMessage, customerContext, agentSlots)
+        .then((ctx) => {
+          updatedContext = ctx;
+          return ctx;
+        })
+        .catch((err) => {
+          console.error("Slot extraction failed:", err.message);
+          return customerContext;
+        });
+      await extractionPromise;
       yield { type: "context", customerContext: updatedContext };
+
       yield { type: "done" };
     } catch (error) {
       console.error("❌ Stream processing error:", error);
