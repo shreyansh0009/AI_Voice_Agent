@@ -2887,12 +2887,16 @@ CRITICAL RULES:
       }
 
       // ========================================================================
-      // LATENCY OPT: DEFER extraction to AFTER LLM stream completes
-      // Two simultaneous OpenAI calls on the same key compete for rate limits,
-      // slowing BOTH. By deferring extraction, the main LLM gets full bandwidth.
+      // LATENCY OPT: SMART extraction — skip when no data, fire-and-forget
       // ========================================================================
       let updatedContext = { ...customerContext };
-      let extractionPromise = null; // Will be started after stream ends
+
+      // Quick regex check: does this message even contain extractable data?
+      // Skip the entire OpenAI extraction call for pure conversational messages
+      const hasExtractableData = /\d{3,}/.test(userMessage)          // 3+ digits (phone, pincode, vehicle)
+        || /@/.test(userMessage)                                      // email
+        || /\b(my name|i am|i'm|mera naam|main)\b/i.test(userMessage) // name patterns
+        || /[A-Z]{2}\d{2}[A-Z]{1,2}\d{4}/i.test(userMessage);        // vehicle registration
 
       const currentLanguageName = LANGUAGE_CODES[language] || "English";
 
@@ -2978,19 +2982,26 @@ CRITICAL LANGUAGE INSTRUCTION:
         }
       }
 
-      // LATENCY OPT: Start extraction NOW (after LLM is done — no competition)
-      extractionPromise = this.extractCustomerInfo(userMessage, customerContext, agentSlots)
-        .then((ctx) => {
-          updatedContext = ctx;
-          return ctx;
-        })
-        .catch((err) => {
-          console.error("Slot extraction failed:", err.message);
-          return customerContext;
-        });
-      await extractionPromise;
-      yield { type: "context", customerContext: updatedContext };
+      // LATENCY OPT: Fire-and-forget extraction — does NOT block the generator
+      // Data reaches customerContext for the NEXT turn via background promise
+      if (hasExtractableData) {
+        // Store promise on instance so asteriskBridge can await if needed
+        this._pendingExtraction = this.extractCustomerInfo(userMessage, customerContext, agentSlots)
+          .then((ctx) => {
+            updatedContext = ctx;
+            return ctx;
+          })
+          .catch((err) => {
+            console.error("Slot extraction failed:", err.message);
+            return customerContext;
+          });
+        // DON'T await — yield context immediately and let extraction finish in background
+        console.log(`🔍 Extraction started in background (has data: true)`);
+      } else {
+        console.log(`⏭️ Extraction skipped (no extractable data detected)`);
+      }
 
+      yield { type: "context", customerContext: updatedContext };
       yield { type: "done" };
     } catch (error) {
       console.error("❌ Stream processing error:", error);
