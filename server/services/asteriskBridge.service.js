@@ -30,38 +30,6 @@ const SAMPLE_RATE = 8000; // 8kHz for telephony
 const FRAME_SIZE = 320; // 20ms at 8kHz slin16 (320 bytes = 160 samples × 2 bytes)
 const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
 
-// ─────────────────────────────────────────────────────────────
-// LATENCY OPT: WAV introspection — avoids FFmpeg spawn for audio
-// that is already 8kHz mono slin16 (e.g. Sarvam v3 output).
-// Returns null if the buffer is not a valid WAV file.
-// ─────────────────────────────────────────────────────────────
-function analyzeWav(buf) {
-  if (buf.length < 44) return null;
-  if (buf.toString("ascii", 0, 4) !== "RIFF") return null;
-  if (buf.toString("ascii", 8, 12) !== "WAVE") return null;
-
-  let offset = 12;
-  let audioFormat, numChannels, sampleRate, bitsPerSample, dataOffset;
-
-  while (offset < buf.length - 8) {
-    const chunkId = buf.toString("ascii", offset, offset + 4);
-    const chunkSize = buf.readUInt32LE(offset + 4);
-    if (chunkId === "fmt ") {
-      audioFormat    = buf.readUInt16LE(offset + 8);  // 1 = PCM
-      numChannels    = buf.readUInt16LE(offset + 10);
-      sampleRate     = buf.readUInt32LE(offset + 12);
-      bitsPerSample  = buf.readUInt16LE(offset + 22);
-    } else if (chunkId === "data") {
-      dataOffset = offset + 8;
-      break;
-    }
-    offset += 8 + chunkSize;
-  }
-
-  if (dataOffset == null) return null;
-  return { audioFormat, numChannels, sampleRate, bitsPerSample, dataOffset };
-}
-
 /**
  * Detect language from response text (same as streamChatController)
  * Used to dynamically switch Deepgram language
@@ -200,11 +168,6 @@ class CallSession {
     // ⚡ Phase 4: Barge-in detection (speech cancellation token)
     this.currentSpeechToken = 0;
     this.userIsSpeaking = false; // Set true when Deepgram detects actual speech
-
-    // LATENCY OPT: TTS pre-fetch cache — text → Promise<Buffer (raw PCM)>
-    // Pre-fetching starts the moment text is enqueued, so audio is ready
-    // by the time the queue consumer needs it (hides TTS API latency).
-    this.ttsPreCache = new Map();
 
     //Call tracking for database
     this.callDbId = null; // MongoDB _id for this call
@@ -420,9 +383,9 @@ class CallSession {
         smart_format: true,
         punctuate: true,
         interim_results: true,
-        utterance_end_ms: 800, // LATENCY OPT: reduced from 1200ms
+        utterance_end_ms: 1200, // Triggers UtteranceEnd event
         vad_events: true,
-        endpointing: 200, // LATENCY OPT: reduced from 400ms
+        endpointing: 400,
       });
 
       // Handle transcription results
@@ -458,7 +421,7 @@ class CallSession {
                   console.log(`⚡ [${this.uuid}] Early trigger (isFinal)`);
                   this.processUserInput();
                 }
-              }, 100); // LATENCY OPT: reduced from 300ms
+              }, 300); //300ms instead of waiting for UtteranceEnd
             }
           } else {
             console.log(`🎤 [${this.uuid}] Interim: "${transcript}"`);
@@ -496,103 +459,6 @@ class CallSession {
   }
 
   /**
-   * LATENCY OPT: Fetch TTS and return raw slin16 PCM buffer.
-   * - Sarvam WAV already at 8kHz → strip header in-process (no FFmpeg).
-   * - ElevenLabs MP3 / Tabbly WAV at wrong rate → FFmpeg resample.
-   * Results are cached in ttsPreCache so repeated text (fillers) is instant.
-   */
-  async fetchTTSAudio(text) {
-    try {
-      if (this.voiceProvider === "ElevenLabs") {
-        const mp3Buffer = await ttsService.speakWithElevenLabs(
-          text,
-          this.voice,
-          this.voiceModel || "eleven_multilingual_v2",
-        );
-        if (!mp3Buffer) return null;
-        return this.convertToSlin16(mp3Buffer); // MP3 → 8kHz PCM via FFmpeg
-      }
-
-      if (this.voiceProvider === "Tabbly") {
-        const wavBuffer = await ttsService.speakWithTabbly(
-          text,
-          this.voice,
-          this.voiceModel || "tabbly-tts",
-        );
-        if (!wavBuffer) return null;
-        // Check if already 8kHz mono PCM — skip FFmpeg if so
-        const info = analyzeWav(Buffer.from(wavBuffer));
-        if (info && info.audioFormat === 1 && info.sampleRate === 8000
-            && info.numChannels === 1 && info.bitsPerSample === 16) {
-          return Buffer.from(wavBuffer).slice(info.dataOffset);
-        }
-        return this.convertToSlin16(Buffer.from(wavBuffer));
-      }
-
-      // Default: Sarvam
-      const audioBase64 = await ttsService.speak(
-        text,
-        this.language,
-        this.voice,
-        this.voiceModel,
-      );
-      if (!audioBase64) return null;
-      const wavBuffer = Buffer.from(audioBase64, "base64");
-
-      // If Sarvam returned 8kHz mono PCM WAV (v3 or future v2), strip header only.
-      // Otherwise fall back to FFmpeg resampling.
-      const info = analyzeWav(wavBuffer);
-      if (info && info.audioFormat === 1 && info.sampleRate === 8000
-          && info.numChannels === 1 && info.bitsPerSample === 16) {
-        console.log(`[${this.uuid}] WAV already 8kHz PCM — skipping FFmpeg`);
-        return wavBuffer.subarray(info.dataOffset);
-      }
-      return this.convertToSlin16(wavBuffer);
-    } catch (err) {
-      console.error(`[${this.uuid}] fetchTTSAudio error:`, err.message);
-      return null;
-    }
-  }
-
-  /**
-   * LATENCY OPT: Stream pre-converted slin16 PCM directly to Asterisk.
-   * Skips the FFmpeg step — use after fetchTTSAudio() returns a PCM buffer.
-   */
-  async streamRawPCMToAsterisk(pcmBuffer, token = this.currentSpeechToken) {
-    try {
-      const chunks = splitIntoChunks(pcmBuffer, FRAME_SIZE);
-
-      if (this.recording) {
-        this.recording.markAISpeechStart();
-      }
-
-      for (let i = 0; i < chunks.length; i++) {
-        if (token !== this.currentSpeechToken) {
-          console.log(`[${this.uuid}] Speech cancelled mid-playback (barge-in)`);
-          break;
-        }
-        if (!this.socket.writable) break;
-
-        this.socket.write(createAudioFrame(chunks[i]));
-        this.broadcastToSpies(chunks[i], "agent");
-
-        if (this.recording) {
-          this.recording.addAIAudio(chunks[i], i);
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-
-      if (token === this.currentSpeechToken) {
-        console.log(`[${this.uuid}] PCM stream complete (${chunks.length} frames)`);
-      }
-    } catch (error) {
-      console.error(`[${this.uuid}] PCM stream failed:`, error.message);
-      this.sendSilence(200);
-    }
-  }
-
-  /**
    * Send audio to Deepgram for real-time transcription
    */
   sendAudioToSTT(audioData) {
@@ -605,49 +471,24 @@ class CallSession {
   }
 
   /**
-   * ⚡ Phase 3 + LATENCY OPT: Enqueue speech with parallel TTS pre-fetch.
-   *
-   * Key optimisation: TTS fetch starts the moment text arrives here —
-   * not when the queue consumer gets to it.  This means while sentence N
-   * is playing (20ms × frames), sentence N+1's TTS API call is already
-   * in-flight.  By the time N finishes, N+1 is usually ready → zero gap.
-   *
-   * The ttsPreCache Map (text → Promise<PCM Buffer>) also serves as a
-   * persistent filler cache: fillers like "Sure." are resolved once and
-   * the settled Promise is reused on every subsequent turn (0ms wait).
+   * ⚡ Phase 3: Enqueue speech for sequential sentence-by-sentence TTS
+   * Guarantees: No overlapping audio, no interleaved socket writes
    */
   async enqueueSpeech(text) {
-    if (!text?.trim()) return;
-    const trimmed = text.trim();
+    if (!text || !text.trim()) return;
 
-    // Start TTS fetch immediately (non-blocking) — store the Promise
-    if (!this.ttsPreCache.has(trimmed)) {
-      this.ttsPreCache.set(trimmed, this.fetchTTSAudio(trimmed));
-    }
+    this.audioQueue.push(text.trim());
 
-    this.audioQueue.push(trimmed);
-
-    // Single consumer guarantee — only one drainer at a time
+    // Single consumer guarantee - only one speech at a time
     if (this.isSpeaking) return;
+
     this.isSpeaking = true;
 
     try {
       while (this.audioQueue.length > 0) {
         const nextChunk = this.audioQueue.shift();
-        const token = this.currentSpeechToken;
-
-        // Await the pre-fetched TTS (may already be resolved for fillers)
-        const pcmBuffer = await this.ttsPreCache.get(nextChunk);
-
-        // Keep the settled Promise in cache so repeated fillers cost 0ms
-        // (only evict if cache grows large to avoid memory bloat)
-        if (this.ttsPreCache.size > 30) {
-          this.ttsPreCache.delete(nextChunk);
-        }
-
-        if (!pcmBuffer || token !== this.currentSpeechToken) break;
-
-        await this.streamRawPCMToAsterisk(pcmBuffer, token);
+        const token = this.currentSpeechToken; // ⚡ Phase 4: Read token (increment only on barge-in)
+        await this.speakResponse(nextChunk, token);
       }
     } finally {
       this.isSpeaking = false;
@@ -897,23 +738,60 @@ class CallSession {
   }
 
   /**
-   * Convert text to speech and stream to Asterisk.
-   * Uses fetchTTSAudio() + streamRawPCMToAsterisk() — no FFmpeg for
-   * audio that is already 8kHz PCM (Sarvam v3).
+   * Convert text to speech and stream to Asterisk
    */
   async speakResponse(text, token = this.currentSpeechToken) {
     console.log(
       `[${this.uuid}] TTS: "${text.substring(0, 50)}..." (Provider: ${this.voiceProvider})`,
     );
+
     try {
-      const pcmBuffer = await this.fetchTTSAudio(text);
-      if (!pcmBuffer) {
-        console.error(`[${this.uuid}] No audio from TTS (${this.voiceProvider})`);
+      let audioBuffer;
+
+      // Route to appropriate TTS provider based on agent configuration
+      if (this.voiceProvider === "ElevenLabs") {
+        // Use ElevenLabs TTS
+        audioBuffer = await ttsService.speakWithElevenLabs(
+          text,
+          this.voice, // ElevenLabs voice ID
+          this.voiceModel || "eleven_multilingual_v2",
+        );
+      } else if (this.voiceProvider === "Tabbly") {
+        // Use Tabbly TTS
+        audioBuffer = await ttsService.speakWithTabbly(
+          text,
+          this.voice,
+          this.voiceModel || "tabbly-tts",
+        );
+      } else {
+        // Default to Sarvam TTS (returns base64)
+        const audioBase64 = await ttsService.speak(
+          text,
+          this.language,
+          this.voice,
+          this.voiceModel,
+        );
+        if (audioBase64) {
+          audioBuffer = Buffer.from(audioBase64, "base64");
+        }
+      }
+
+      if (!audioBuffer) {
+        console.error(
+          ` [${this.uuid}] No audio from TTS (${this.voiceProvider})`,
+        );
         return;
       }
-      await this.streamRawPCMToAsterisk(pcmBuffer, token);
+
+      // Send audio buffer to Asterisk (with cancellation token)
+      await this.streamAudioToAsterisk(audioBuffer, token);
     } catch (error) {
-      console.error(`[${this.uuid}] TTS error (${this.voiceProvider}):`, error.message);
+      console.error(
+        ` [${this.uuid}] TTS error (${this.voiceProvider}):`,
+        error.message,
+      );
+
+      // Send µ-law silence instead of crashing
       this.sendSilence(500);
     }
   }

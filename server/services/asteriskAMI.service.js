@@ -10,10 +10,8 @@
  *   AMI_PORT     - default 5038
  *   AMI_USER     - AMI manager username
  *   AMI_SECRET   - AMI manager password
- *   SIP_TRUNK    - PJSIP endpoint name in Asterisk (default "sip-trunk")
+ *   SIP_TRUNK    - SIP trunk name in Asterisk (default "webphone")
  *   SIP_PREFIX   - Fixed prefix from SIP provider (default "922")
- *   SIP_HOST     - SIP provider domain for outbound (default "webphone.in")
- *   SIP_PORT     - SIP provider port (default "5060")
  */
 
 import net from "net";
@@ -23,10 +21,8 @@ const AMI_HOST = process.env.AMI_HOST || "127.0.0.1";
 const AMI_PORT = parseInt(process.env.AMI_PORT || "5038", 10);
 const AMI_USER = process.env.AMI_USER || "admin";
 const AMI_SECRET = process.env.AMI_SECRET || "admin";
-const SIP_TRUNK = process.env.SIP_TRUNK || "sip-trunk";
+const SIP_TRUNK = process.env.SIP_TRUNK || "webphone";
 const SIP_PREFIX = process.env.SIP_PREFIX || "922";
-const SIP_HOST = process.env.SIP_HOST || "webphone.in";
-const SIP_PORT = process.env.SIP_PORT || "5060";
 
 class AsteriskAMI {
     constructor() {
@@ -204,10 +200,7 @@ class AsteriskAMI {
 
         // Build the SIP dial string: 922+91{DID}{PHONE}
         const dialString = `${SIP_PREFIX}+91${did}${phoneNumber}`;
-
-        // Direct SIP URI dialing through existing sip-trunk endpoint
-        // Format: PJSIP/{endpoint}/sip:{number}@{provider}:{port}
-        const channel = `PJSIP/${SIP_TRUNK}/sip:${dialString}@${SIP_HOST}:${SIP_PORT}`;
+        const channel = `PJSIP/${dialString}@${SIP_TRUNK}`;
 
         console.log(`📞 AMI Originate: ${channel}`);
         console.log(`   UUID: ${uuid}`);
