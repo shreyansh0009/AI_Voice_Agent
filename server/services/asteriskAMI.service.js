@@ -200,6 +200,10 @@ class AsteriskAMI {
 
         // Build the SIP dial string: 922+91{DID}{PHONE}
         const dialString = `${SIP_PREFIX}+91${did}${phoneNumber}`;
+
+        // Use the webphoneuri endpoint configured by SIP provider in pjsip.conf
+        // Provider uses callback model: Originate → provider dials user → user answers → 
+        // provider sends new INVITE back to our Asterisk in [from-webphone] context
         const channel = `PJSIP/${dialString}@${SIP_TRUNK}`;
 
         console.log(`📞 AMI Originate: ${channel}`);
