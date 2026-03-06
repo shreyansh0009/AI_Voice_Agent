@@ -2953,12 +2953,20 @@ Respond in ${currentLanguageName}`;
         temperature: temperature,
         max_tokens: 150, // Voice responses are short
         stream: true,
+        stream_options: { include_usage: true }, // Send usage data to log cache hits!
       });
 
       let fullResponse = "";
       let detectedLanguageSwitch = null;
 
       for await (const chunk of stream) {
+        // Log cache hits if usage info is available (usually in the last chunk)
+        if (chunk.usage) {
+          const cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens || 0;
+          const totalPromptTokens = chunk.usage.prompt_tokens || 0;
+          console.log(`📊 OpenAI Usage: ${totalPromptTokens} prompt tokens (cached: ${cachedTokens})`);
+        }
+
         const content = chunk.choices[0]?.delta?.content;
         if (content) {
           fullResponse += content;
