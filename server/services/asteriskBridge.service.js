@@ -4,6 +4,7 @@ import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { createClient } from "@deepgram/sdk";
 import aiAgentService from "./aiAgent.service.js";
+import stateEngine from "./stateEngine.js";
 import Conversation from "../models/Conversation.js";
 import Call from "../models/Call.js";
 import Agent from "../models/Agent.js";
@@ -137,6 +138,9 @@ class CallSession {
     this.agentId = null;
     this.flowId = null;
     this.startStepId = null;
+    this.currentStepId = null; // State engine: current step in the flow
+    this.collectedData = {};   // State engine: slots collected so far
+    this.retryCount = 0;       // State engine: retry counter
     this.agentConfig = {};
     this.welcomeMessage = null;
     this.systemPrompt = null; // Agent's full script (same as web)
@@ -272,6 +276,7 @@ class CallSession {
       this.userId = agent.userId;  // ← needed to associate call with the agent's owner
       this.flowId = agent.flowId;
       this.startStepId = flow.startStep;
+      this.currentStepId = flow.startStep; // State engine: start at first step
       this.flow = flow; // Store flow for processTurn
       this.agentConfig = agent.agentConfig || {};
       this.knowledgeBaseFiles = agent.knowledgeBaseFiles || [];
@@ -587,21 +592,90 @@ class CallSession {
         this.conversationHistory = this.conversationHistory.slice(-12);
       }
 
+      // ========================================================================
+      // 🚀 STATE ENGINE BYPASS — Try scripted response BEFORE hitting LLM
+      // If state engine returns text, speak it instantly (0ms LLM latency!)
+      // Only falls back to the slow 25K-token LLM for off-script responses
+      // ========================================================================
+      if (this.flow && this.currentStepId) {
+        try {
+          // Build a conversation-like object from session state
+          const conversation = {
+            currentStepId: this.currentStepId,
+            language: this.language,
+            collectedData: this.collectedData || {},
+            retryCount: this.retryCount || 0,
+            maxRetries: 2,
+            status: 'active',
+            flowId: this.flowId,
+            agentConfig: this.agentConfig || {},
+          };
+
+          const turnResult = stateEngine.processTurn({
+            conversation,
+            userInput: userMessage,
+            flow: this.flow,
+          });
+
+          if (turnResult && turnResult.text) {
+            console.log(`⚡ [${this.uuid}] STATE ENGINE HIT: "${turnResult.text.substring(0, 60)}..."`);
+            console.log(`➡️ [${this.uuid}] Step: ${this.currentStepId} → ${turnResult.nextStepId || 'END'}`);
+
+            // Update session state
+            if (turnResult.nextStepId) {
+              this.currentStepId = turnResult.nextStepId;
+            }
+            if (turnResult.dataPatch && Object.keys(turnResult.dataPatch).length > 0) {
+              this.collectedData = { ...this.collectedData, ...turnResult.dataPatch };
+              this.customerContext = { ...this.customerContext, ...turnResult.dataPatch };
+              console.log(`📦 [${this.uuid}] Collected:`, turnResult.dataPatch);
+            }
+            this.retryCount = turnResult.retryCount || 0;
+
+            // Speak the scripted response immediately — NO LLM needed!
+            this.enqueueSpeech(turnResult.text);
+
+            // Add to conversation history
+            this.conversationHistory.push({
+              role: 'assistant',
+              content: turnResult.text,
+            });
+            this.fullTranscript.push({
+              role: 'assistant',
+              content: turnResult.text,
+              timestamp: new Date(),
+            });
+
+            // Check if flow is complete
+            if (turnResult.isEnd || turnResult.status === 'complete') {
+              console.log(`✅ [${this.uuid}] Flow complete!`);
+            }
+
+            this.isProcessing = false;
+            return; // 🚀 SKIP LLM ENTIRELY!
+          }
+        } catch (stateError) {
+          console.warn(`⚠️ [${this.uuid}] State engine failed, falling back to LLM: ${stateError.message}`);
+        }
+      }
+
+      // ========================================================================
+      // LLM FALLBACK — Only reached for off-script / free-form responses
+      // ========================================================================
+
       // Start timer BEFORE stream call to measure full latency
       const t0 = Date.now();
 
-      // Process through AI Agent Service - USE STREAMING (SAME as web chat!)
-      // This is the key fix: web uses processMessageStream, so phone must too
+      // Process through AI Agent Service - USE STREAMING
       const stream = await aiAgentService.processMessageStream(
         userMessage,
         this.agentId,
         this.customerContext || {},
         this.conversationHistory,
         {
-          // Pass same options as web chat
           language: this.language,
-          systemPrompt: this.systemPrompt, // Full script (same as web)
-          useRAG: this.knowledgeBaseFiles.length > 0, // Enable RAG only if agent has linked knowledge base files
+          systemPrompt: this.systemPrompt,
+          useRAG: this.knowledgeBaseFiles.length > 0,
           agentId: this.agentId,
         },
       );

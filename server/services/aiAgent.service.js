@@ -2850,49 +2850,11 @@ CRITICAL RULES:
         return;
       }
 
-      // ========================================================================
-      // FAST PATH: Try state engine FIRST for immediate flow text
-      // This MUST happen before slot extraction or LLM
-      // ========================================================================
-      let flowText = null;
-      const conversationId = options.conversationId || `stream-${Date.now()}`;
-      const useCase = options.useCase || "default";
+      // NOTE: State engine bypass now lives in asteriskBridge.service.js
+      // where the flow document and session state are available.
+      // processMessageStream is the LLM-only fallback path.
 
-      try {
-        const turnResult = stateEngine.processTurn(
-          conversationId,
-          userMessage,
-          {
-            useCase,
-            language,
-            agentId,
-          },
-        );
-
-        // If state engine returned text, emit it IMMEDIATELY
-        if (turnResult?.text) {
-          flowText = turnResult.text;
-          console.log(`⚡ FAST PATH: Emitting flow text immediately`);
-          yield {
-            type: "flow_text",
-            content: turnResult.text,
-          };
-        }
-      } catch (flowError) {
-        // State engine failed - continue with LLM-only path
-        console.warn(
-          `⚠️ State engine failed, using LLM-only:`,
-          flowError.message,
-        );
-      }
-
-      // ========================================================================
-      // LATENCY OPT: DEFER extraction to AFTER LLM stream completes
-      // Two simultaneous OpenAI calls on the same key compete for rate limits,
-      // slowing BOTH. By deferring extraction, the main LLM gets full bandwidth.
-      // ========================================================================
       let updatedContext = { ...customerContext };
-      let extractionPromise = null; // Will be started after stream ends
 
       const currentLanguageName = LANGUAGE_CODES[language] || "English";
 
