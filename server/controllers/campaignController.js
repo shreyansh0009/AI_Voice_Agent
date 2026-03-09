@@ -76,37 +76,43 @@ function parseContactsFile(filePath) {
  *
  * Returns DID numbers owned by the user that are NOT linked to any agent
  * (i.e., available for campaign outbound calling).
+ * Uses the same data source as MyNumbers page (/api/phone-numbers).
  */
 export const getAvailableChannels = async (req, res) => {
   try {
     const userId = req.user.id;
-    const now = new Date();
 
-    // Find DIDs owned by user, status "owned" (not linked), valid subscription
-    const availableDIDs = await PhoneNumber.find({
-      ownerId: userId,
-      status: "owned",
-      expiresAt: { $gt: now },
+    // Same query as getAllPhoneNumbers in phoneNumberController — get user's numbers
+    const allNumbers = await PhoneNumber.find({
+      $or: [
+        { ownerId: userId },
+        { status: "available" },
+      ],
     })
-      .select("number displayNumber expiresAt")
-      .sort({ displayNumber: 1 })
+      .sort({ status: 1, displayNumber: 1 })
       .lean();
 
-    // Also get total owned (linked + unlinked) for context
-    const totalOwned = await PhoneNumber.countDocuments({
-      ownerId: userId,
-      status: { $in: ["owned", "linked"] },
-      expiresAt: { $gt: now },
-    });
+    // "My Numbers" = owned + linked  (same filter as MyNumbers.jsx line 451)
+    const myNumbers = allNumbers.filter(
+      (p) => p.status === "linked" || p.status === "owned"
+    );
 
-    const linkedCount = totalOwned - availableDIDs.length;
+    // Available for campaign = owned but NOT linked to any agent
+    const availableDIDs = myNumbers.filter((p) => p.status === "owned");
+
+    // Linked to agents (occupied for inbound)
+    const linkedDIDs = myNumbers.filter((p) => p.status === "linked");
 
     res.json({
       success: true,
       availableChannels: availableDIDs.length,
-      totalOwned,
-      linkedToAgents: linkedCount,
-      channels: availableDIDs,
+      totalOwned: myNumbers.length,
+      linkedToAgents: linkedDIDs.length,
+      channels: availableDIDs.map((d) => ({
+        _id: d._id,
+        number: d.number,
+        displayNumber: d.displayNumber,
+      })),
     });
   } catch (error) {
     console.error("Error fetching available channels:", error);
@@ -274,15 +280,14 @@ export const startCampaign = async (req, res) => {
       return res.status(400).json({ success: false, error: "Campaign is already completed" });
     }
 
-    // Get available channels
-    const now = new Date();
-    const availableDIDs = await PhoneNumber.find({
-      ownerId: userId,
-      status: "owned",
-      expiresAt: { $gt: now },
-    })
-      .select("number displayNumber")
-      .lean();
+    // Get available channels — same query as getAvailableChannels
+    const allNumbers = await PhoneNumber.find({
+      $or: [{ ownerId: userId }, { status: "available" }],
+    }).lean();
+
+    const availableDIDs = allNumbers.filter(
+      (p) => p.status === "owned"
+    );
 
     if (availableDIDs.length === 0) {
       return res.status(400).json({
@@ -290,24 +295,6 @@ export const startCampaign = async (req, res) => {
         error: "No available channels. All your DID numbers are linked to agents.",
       });
     }
-
-    const actualChannels = Math.min(channelCount, availableDIDs.length);
-
-    // Check wallet balance
-    const user = await User.findById(userId);
-    if (!user || (user.walletBalance || 0) <= 0) {
-      return res.status(402).json({
-        success: false,
-        error: "Insufficient wallet balance. Please add funds.",
-        code: "INSUFFICIENT_BALANCE",
-      });
-    }
-
-    // Update campaign status
-    campaign.status = "running";
-    campaign.channelsUsed = actualChannels;
-    campaign.startedAt = new Date();
-    await campaign.save();
 
     // Get pending contacts
     const pendingContacts = campaign.contacts.filter((c) => c.status === "pending");
@@ -323,18 +310,25 @@ export const startCampaign = async (req, res) => {
       });
     }
 
-    // Start calling in background — first batch
-    const firstBatch = pendingContacts.slice(0, actualChannels);
+    // Cap channels: min(requested, available DIDs, pending contacts)
+    const actualChannels = Math.min(channelCount, availableDIDs.length, pendingContacts.length);
+
+    // Update campaign status
+    campaign.status = "running";
+    campaign.channelsUsed = actualChannels;
+    campaign.startedAt = new Date();
+    await campaign.save();
+
     const agent = await Agent.findById(campaign.agentId);
 
     console.log(
       `📞 Campaign ${campaign.name}: Starting with ${actualChannels} channels, ` +
-        `${pendingContacts.length} pending contacts`
+        `${pendingContacts.length} pending contacts, ${availableDIDs.length} DIDs available`
     );
 
-    // Fire first batch of calls (non-blocking)
-    processCampaignBatch(campaign._id, firstBatch, availableDIDs, agent, userId).catch(
-      (err) => console.error("Campaign batch error:", err)
+    // Fire campaign processing in background (non-blocking)
+    processCampaign(campaign._id, availableDIDs.slice(0, actualChannels), agent, userId).catch(
+      (err) => console.error("Campaign processing error:", err)
     );
 
     res.json({
@@ -354,118 +348,145 @@ export const startCampaign = async (req, res) => {
 };
 
 /**
- * Process a batch of campaign calls.
- * Calls contacts using available DIDs round-robin.
- * After each call completes, picks next pending contact.
+ * Process the entire campaign using N channels concurrently.
+ *
+ * Each channel (DID) picks the next pending contact, calls it,
+ * waits for the call to be originated, then picks the next one.
+ * When all contacts are processed, campaign is marked completed.
+ *
+ * @param {string} campaignId
+ * @param {Array} dids - The DID objects to use as channels
+ * @param {Object} agent - Agent document
+ * @param {string} userId
  */
-async function processCampaignBatch(campaignId, contacts, availableDIDs, agent, userId) {
-  for (let i = 0; i < contacts.length; i++) {
-    const contact = contacts[i];
-    const did = availableDIDs[i % availableDIDs.length];
+async function processCampaign(campaignId, dids, agent, userId) {
+  /**
+   * Get next pending contact from DB atomically (findOneAndUpdate)
+   * so multiple channels don't pick the same contact.
+   */
+  async function getNextPending() {
+    const campaign = await Campaign.findOneAndUpdate(
+      {
+        _id: campaignId,
+        "contacts.status": "pending",
+      },
+      {
+        $set: { "contacts.$.status": "calling" },
+      },
+      { new: true }
+    );
 
-    try {
-      // Extract DID digits
-      let didDigits = did.number;
-      if (didDigits.startsWith("91") && didDigits.length > 10) {
-        didDigits = didDigits.slice(2);
+    if (!campaign) return null;
+
+    // Find the contact we just set to "calling"
+    return campaign.contacts.find((c) => c.status === "calling" && !c.calledAt);
+  }
+
+  /**
+   * Worker for a single channel/DID.
+   * Picks contacts one by one until none are left.
+   */
+  async function channelWorker(did) {
+    let didDigits = did.number;
+    if (didDigits.startsWith("91") && didDigits.length > 10) {
+      didDigits = didDigits.slice(2);
+    }
+
+    while (true) {
+      // Pick next pending contact
+      const contact = await getNextPending();
+      if (!contact) break; // No more pending contacts
+
+      try {
+        // Update calledAt timestamp
+        await Campaign.updateOne(
+          { _id: campaignId, "contacts._id": contact._id },
+          { $set: { "contacts.$.calledAt": new Date() } }
+        );
+
+        // Originate the call via Asterisk AMI
+        const { uuid } = await asteriskAMI.originate(didDigits, contact.phone);
+
+        // Register so AudioSocket routes to correct agent
+        audioSocketServer.registerPendingCall(uuid, did.number);
+
+        // Create call record in DB
+        await Call.create({
+          callId: uuid,
+          executionId: uuid.substring(0, 8),
+          agentId: agent._id,
+          userId: userId,
+          calledNumber: did.number,
+          callerNumber: contact.phone,
+          userNumber: contact.phone,
+          status: "initiated",
+          startedAt: new Date(),
+          hangupBy: "system",
+          conversationType: "campaign outbound",
+          provider: "Asterisk",
+          batch: `campaign-${campaignId}`,
+        });
+
+        // Mark contact as completed (call originated successfully)
+        await Campaign.updateOne(
+          { _id: campaignId, "contacts._id": contact._id },
+          {
+            $set: {
+              "contacts.$.callId": uuid,
+              "contacts.$.status": "completed",
+            },
+            $inc: {
+              "progress.completed": 1,
+              "progress.pending": -1,
+            },
+          }
+        );
+
+        console.log(
+          `📞 Campaign call [${did.displayNumber}]: ${uuid} → ${contact.phone} (${contact.name || "unnamed"})`
+        );
+
+        // Small delay before next call on this channel to avoid overwhelming Asterisk
+        await new Promise((r) => setTimeout(r, 1000));
+      } catch (err) {
+        console.error(`Campaign call failed for ${contact.phone} on ${did.displayNumber}:`, err.message);
+
+        // Mark contact as failed
+        await Campaign.updateOne(
+          { _id: campaignId, "contacts._id": contact._id },
+          {
+            $set: {
+              "contacts.$.status": "failed",
+              "contacts.$.error": err.message,
+            },
+            $inc: {
+              "progress.failed": 1,
+              "progress.pending": -1,
+            },
+          }
+        );
+
+        // Small delay before retrying next contact on this channel
+        await new Promise((r) => setTimeout(r, 500));
       }
-
-      // Mark contact as calling
-      await Campaign.updateOne(
-        { _id: campaignId, "contacts._id": contact._id },
-        {
-          $set: {
-            "contacts.$.status": "calling",
-            "contacts.$.calledAt": new Date(),
-          },
-        }
-      );
-
-      // Originate call
-      const { uuid } = await asteriskAMI.originate(didDigits, contact.phone);
-
-      // Register pending call
-      audioSocketServer.registerPendingCall(uuid, did.number);
-
-      // Create call record
-      await Call.create({
-        callId: uuid,
-        executionId: uuid.substring(0, 8),
-        agentId: agent._id,
-        userId: userId,
-        calledNumber: did.number,
-        callerNumber: contact.phone,
-        userNumber: contact.phone,
-        status: "initiated",
-        startedAt: new Date(),
-        hangupBy: "system",
-        conversationType: "campaign outbound",
-        provider: "Asterisk",
-        batch: `campaign-${campaignId}`,
-      });
-
-      // Update contact with callId
-      await Campaign.updateOne(
-        { _id: campaignId, "contacts._id": contact._id },
-        {
-          $set: {
-            "contacts.$.callId": uuid,
-            "contacts.$.status": "completed",
-          },
-          $inc: {
-            "progress.completed": 1,
-            "progress.pending": -1,
-          },
-        }
-      );
-
-      console.log(
-        `📞 Campaign call initiated: ${uuid} → ${contact.phone} (${contact.name || "unnamed"})`
-      );
-
-      // Small delay between calls to avoid overwhelming Asterisk
-      await new Promise((r) => setTimeout(r, 500));
-    } catch (err) {
-      console.error(`Campaign call failed for ${contact.phone}:`, err.message);
-
-      // Mark contact as failed
-      await Campaign.updateOne(
-        { _id: campaignId, "contacts._id": contact._id },
-        {
-          $set: {
-            "contacts.$.status": "failed",
-            "contacts.$.error": err.message,
-          },
-          $inc: {
-            "progress.failed": 1,
-            "progress.pending": -1,
-          },
-        }
-      );
     }
   }
 
-  // Check if all contacts have been processed
-  const campaign = await Campaign.findById(campaignId);
-  const stillPending = campaign.contacts.filter((c) => c.status === "pending");
+  // Launch all channel workers concurrently
+  const workers = dids.map((did) => channelWorker(did));
+  await Promise.all(workers);
 
-  if (stillPending.length > 0) {
-    // Process next batch
-    const nextBatch = stillPending.slice(0, availableDIDs.length);
-    await processCampaignBatch(campaignId, nextBatch, availableDIDs, campaign.agentId, userId);
-  } else {
-    // Mark campaign as completed
-    await Campaign.updateOne(
-      { _id: campaignId },
-      {
-        $set: {
-          status: "completed",
-          completedAt: new Date(),
-        },
-      }
-    );
-    console.log(`✅ Campaign ${campaignId} completed!`);
-  }
+  // Mark campaign as completed
+  await Campaign.updateOne(
+    { _id: campaignId },
+    {
+      $set: {
+        status: "completed",
+        completedAt: new Date(),
+      },
+    }
+  );
+  console.log(`✅ Campaign ${campaignId} completed!`);
 }
 
 /**
