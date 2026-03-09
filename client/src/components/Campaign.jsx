@@ -293,8 +293,8 @@ function NewCampaignModal({ onClose, onSave, agents, availableChannels }) {
               <Icon d={ICONS.signal} size={18} className="text-white" />
             </div>
             <div>
-              <div className="text-lg font-bold text-blue-900">{availableChannels} channels available</div>
-              <div className="text-xs text-slate-400">Max simultaneous calls you can make</div>
+              <div className="text-lg font-bold text-blue-900">{availableChannels} agent-linked channel{availableChannels !== 1 ? 's' : ''}</div>
+              <div className="text-xs text-slate-400">Calls use the DID linked to the selected agent</div>
             </div>
           </div>
 
@@ -313,21 +313,7 @@ function NewCampaignModal({ onClose, onSave, agents, availableChannels }) {
             </select>
           </div>
 
-          {/* Channels to use */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-              Simultaneous Channels
-              <span className="text-slate-300 font-normal ml-1">(max {availableChannels})</span>
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={availableChannels || 1}
-              className={fieldBase}
-              value={channelCount}
-              onChange={e => setChannelCount(Math.max(1, Math.min(availableChannels || 1, parseInt(e.target.value) || 1)))}
-            />
-          </div>
+
 
           {/* File Upload */}
           <div>
@@ -431,13 +417,12 @@ function NewCampaignModal({ onClose, onSave, agents, availableChannels }) {
 }
 
 // ── Start Campaign Modal ──────────────────────────────────────────────────────
-function StartCampaignModal({ campaign, availableChannels, onClose, onConfirm }) {
-  const [channelCount, setChannelCount] = useState(Math.min(availableChannels, 5))
+function StartCampaignModal({ campaign, onClose, onConfirm }) {
   const [starting, setStarting] = useState(false)
 
   const handleStart = async () => {
     setStarting(true)
-    await onConfirm(campaign._id, channelCount)
+    await onConfirm(campaign._id)
     setStarting(false)
   }
 
@@ -460,27 +445,19 @@ function StartCampaignModal({ campaign, availableChannels, onClose, onConfirm })
             <span className="font-bold text-slate-700">{campaign.totalContacts}</span>
           </div>
           <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-500">Available channels</span>
-            <span className="font-bold text-blue-600">{availableChannels}</span>
+            <span className="text-slate-500">Agent</span>
+            <span className="font-bold text-blue-600">{campaign.agentName}</span>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-              Channels to use <span className="text-slate-300 font-normal">(1-{availableChannels})</span>
-            </label>
-            <input
-              type="number" min={1} max={availableChannels || 1}
-              className="w-full px-3.5 py-2.5 border border-blue-100 rounded-xl text-sm text-slate-700 bg-white outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-              value={channelCount}
-              onChange={e => setChannelCount(Math.max(1, Math.min(availableChannels || 1, parseInt(e.target.value) || 1)))}
-            />
-          </div>
+          <p className="text-xs text-slate-400 pt-1 border-t border-slate-100">
+            Calls will be placed using the DID linked to this agent. Each contact will be called one after another.
+          </p>
         </div>
 
         <div className="flex items-center gap-3 justify-end">
           <button onClick={onClose} disabled={starting} className="px-4 py-2 rounded-xl border border-blue-100 text-slate-500 text-sm font-medium hover:border-blue-300 transition-all disabled:opacity-50">
             Cancel
           </button>
-          <button onClick={handleStart} disabled={starting || availableChannels === 0}
+          <button onClick={handleStart} disabled={starting}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white text-sm font-semibold shadow-lg shadow-emerald-500/25 hover:shadow-xl transition-all disabled:opacity-60">
             {starting
               ? <><div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Starting…</>
@@ -575,9 +552,9 @@ export default function Campaign() {
     }
   }
 
-  const handleStartCampaign = async (id, channelCount) => {
+  const handleStartCampaign = async (id) => {
     try {
-      const { data } = await api.post(`/api/campaigns/${id}/start`, { channelCount })
+      const { data } = await api.post(`/api/campaigns/${id}/start`)
       if (data.success) {
         setCampaigns(prev => prev.map(c =>
           c._id === id ? { ...c, status: 'running', channelsUsed: data.channelsUsed } : c
@@ -633,7 +610,7 @@ export default function Campaign() {
           icon="signal"
           label="Available Channels"
           value={channelInfo.availableChannels}
-          sub={`${channelInfo.linkedToAgents} linked · ${channelInfo.totalOwned} total`}
+          sub={`${channelInfo.unlinked || 0} unlinked · ${channelInfo.totalOwned} total`}
           color="bg-amber-50 text-amber-500"
         />
       </div>
@@ -721,7 +698,6 @@ export default function Campaign() {
       {startModal && (
         <StartCampaignModal
           campaign={startModal}
-          availableChannels={channelInfo.availableChannels}
           onClose={() => setStartModal(null)}
           onConfirm={handleStartCampaign}
         />

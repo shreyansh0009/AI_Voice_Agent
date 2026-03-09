@@ -74,44 +74,44 @@ function parseContactsFile(filePath) {
 /**
  * GET /api/campaigns/available-channels
  *
- * Returns DID numbers owned by the user that are NOT linked to any agent
- * (i.e., available for campaign outbound calling).
- * Uses the same data source as MyNumbers page (/api/phone-numbers).
+ * Returns DID numbers owned by the user that ARE linked to agents.
+ * For campaigns, we MUST use agent-linked DIDs so the AudioSocket bridge
+ * correctly routes the call to the AI agent.
+ * Each linked DID = 1 available channel for campaign calls.
  */
 export const getAvailableChannels = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Same query as getAllPhoneNumbers in phoneNumberController — get user's numbers
+    // Get all user's numbers
     const allNumbers = await PhoneNumber.find({
-      $or: [
-        { ownerId: userId },
-        { status: "available" },
-      ],
+      ownerId: userId,
+      status: { $in: ["owned", "linked"] },
     })
-      .sort({ status: 1, displayNumber: 1 })
+      .populate("linkedAgentId", "name")
+      .sort({ displayNumber: 1 })
       .lean();
 
-    // "My Numbers" = owned + linked  (same filter as MyNumbers.jsx line 451)
-    const myNumbers = allNumbers.filter(
-      (p) => p.status === "linked" || p.status === "owned"
+    // Linked DIDs = channels available for campaigns (agent will respond)
+    const linkedDIDs = allNumbers.filter(
+      (p) => p.status === "linked" && p.linkedAgentId
     );
 
-    // Available for campaign = owned but NOT linked to any agent
-    const availableDIDs = myNumbers.filter((p) => p.status === "owned");
-
-    // Linked to agents (occupied for inbound)
-    const linkedDIDs = myNumbers.filter((p) => p.status === "linked");
+    // Unlinked (owned but no agent) — can't use for campaigns since no AI agent mapped
+    const unlinkedDIDs = allNumbers.filter((p) => p.status === "owned");
 
     res.json({
       success: true,
-      availableChannels: availableDIDs.length,
-      totalOwned: myNumbers.length,
+      availableChannels: linkedDIDs.length,
+      totalOwned: allNumbers.length,
       linkedToAgents: linkedDIDs.length,
-      channels: availableDIDs.map((d) => ({
+      unlinked: unlinkedDIDs.length,
+      channels: linkedDIDs.map((d) => ({
         _id: d._id,
         number: d.number,
         displayNumber: d.displayNumber,
+        agentId: d.linkedAgentId?._id || d.linkedAgentId,
+        agentName: d.linkedAgentId?.name || "Unknown",
       })),
     });
   } catch (error) {
@@ -258,13 +258,13 @@ export const uploadCampaign = async (req, res) => {
  * POST /api/campaigns/:id/start
  *
  * Start a campaign — initiate batch outbound calls.
- * Body: { channelCount } — how many simultaneous channels to use
+ * Uses the DID linked to the campaign's selected agent so the AI agent responds.
+ * For now: 1 agent = 1 linked DID = 1 channel.
  */
 export const startCampaign = async (req, res) => {
   try {
     const userId = req.user.id;
     const { id } = req.params;
-    const { channelCount = 1 } = req.body;
 
     // Find campaign
     const campaign = await Campaign.findOne({ _id: id, userId });
@@ -280,19 +280,17 @@ export const startCampaign = async (req, res) => {
       return res.status(400).json({ success: false, error: "Campaign is already completed" });
     }
 
-    // Get available channels — same query as getAvailableChannels
-    const allNumbers = await PhoneNumber.find({
-      $or: [{ ownerId: userId }, { status: "available" }],
+    // Find the DID linked to the campaign's agent
+    const agentDID = await PhoneNumber.findOne({
+      ownerId: userId,
+      linkedAgentId: campaign.agentId,
+      status: "linked",
     }).lean();
 
-    const availableDIDs = allNumbers.filter(
-      (p) => p.status === "owned"
-    );
-
-    if (availableDIDs.length === 0) {
+    if (!agentDID) {
       return res.status(400).json({
         success: false,
-        error: "No available channels. All your DID numbers are linked to agents.",
+        error: "The selected agent has no phone number linked. Please link a DID to this agent first.",
       });
     }
 
@@ -310,8 +308,8 @@ export const startCampaign = async (req, res) => {
       });
     }
 
-    // Cap channels: min(requested, available DIDs, pending contacts)
-    const actualChannels = Math.min(channelCount, availableDIDs.length, pendingContacts.length);
+    // For now: 1 agent = 1 DID = 1 channel
+    const actualChannels = 1;
 
     // Update campaign status
     campaign.status = "running";
@@ -322,18 +320,18 @@ export const startCampaign = async (req, res) => {
     const agent = await Agent.findById(campaign.agentId);
 
     console.log(
-      `📞 Campaign ${campaign.name}: Starting with ${actualChannels} channels, ` +
-        `${pendingContacts.length} pending contacts, ${availableDIDs.length} DIDs available`
+      `📞 Campaign ${campaign.name}: Starting with agent "${agent?.name}", ` +
+        `DID ${agentDID.displayNumber}, ${pendingContacts.length} pending contacts`
     );
 
     // Fire campaign processing in background (non-blocking)
-    processCampaign(campaign._id, availableDIDs.slice(0, actualChannels), agent, userId).catch(
+    processCampaign(campaign._id, [agentDID], agent, userId).catch(
       (err) => console.error("Campaign processing error:", err)
     );
 
     res.json({
       success: true,
-      message: `Campaign started with ${actualChannels} simultaneous channels`,
+      message: `Campaign started using agent "${agent?.name}" (DID: ${agentDID.displayNumber})`,
       channelsUsed: actualChannels,
       pendingContacts: pendingContacts.length,
       campaignId: campaign._id,
