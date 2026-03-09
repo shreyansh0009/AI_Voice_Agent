@@ -17,6 +17,7 @@ import callRoutes from "./callRoutes.js";
 import paymentRoutes from "./paymentRoutes.js";
 import trialRoutes from "./trialRoutes.js";
 import spyRoutes from "./spyRoutes.js";
+import campaignRoutes from "./campaignRoutes.js";
 import demoRoutes from "./demoRoutes.js";
 import demoFastRoutes from "./demoFastRoutes.js";
 import ExchangeRate from "../models/ExchangeRate.js";
@@ -110,6 +111,9 @@ router.use("/payments", authenticate, paymentRoutes);
 
 // Spy / live-call monitoring routes
 router.use("/spy", authenticate, spyRoutes);
+
+// Campaign routes
+router.use("/campaigns", authenticate, campaignRoutes);
 
 // Public demo routes (no auth — rate-limited by IP)
 router.use("/demo", demoRoutes);
