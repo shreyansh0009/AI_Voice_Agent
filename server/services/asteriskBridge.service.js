@@ -397,6 +397,24 @@ class CallSession {
     return segments;
   }
 
+  resolveElevenLabsModel() {
+    const configuredModel = this.voiceModel || "eleven_multilingual_v2";
+    const isTurboModel = configuredModel.startsWith("eleven_turbo");
+    const isNonEnglish = this.language && this.language !== "en";
+
+    if (isTurboModel && isNonEnglish) {
+      console.log(`[${this.uuid}] ElevenLabs model override`, {
+        reason: "multilingual_phone_quality",
+        configuredModel,
+        resolvedModel: "eleven_multilingual_v2",
+        language: this.language,
+      });
+      return "eleven_multilingual_v2";
+    }
+
+    return configuredModel;
+  }
+
   async waitForSocketDrain() {
     if (!this.socket?.writable) return;
 
@@ -1031,9 +1049,14 @@ class CallSession {
    * Convert text to speech and stream to Asterisk
    */
   async speakResponse(text, token = this.currentSpeechToken) {
+    const resolvedVoiceModel =
+      this.voiceProvider === "ElevenLabs"
+        ? this.resolveElevenLabsModel()
+        : this.voiceModel;
+
     console.log(`[${this.uuid}] TTS requested`, {
       provider: this.voiceProvider,
-      model: this.voiceModel,
+      model: resolvedVoiceModel,
       textLength: text.length,
       preview: text.substring(0, 50),
     });
@@ -1048,7 +1071,7 @@ class CallSession {
         audioBuffer = await ttsService.speakWithElevenLabs(
           text,
           this.voice, // ElevenLabs voice ID
-          this.voiceModel || "eleven_multilingual_v2",
+          resolvedVoiceModel || "eleven_multilingual_v2",
         );
         inputFormat = {
           rawFormat: "s16le",
@@ -1086,7 +1109,7 @@ class CallSession {
         token,
         text,
         provider: this.voiceProvider,
-        model: this.voiceModel,
+        model: resolvedVoiceModel,
         inputFormat,
       });
     } catch (error) {
