@@ -25,8 +25,8 @@ cloudinary.config({
 });
 
 // Constants
-const SAMPLE_RATE = 16000;
-const BYTES_PER_MS = (SAMPLE_RATE * 2) / 1000; // 32 bytes per ms at 16kHz 16-bit
+const SAMPLE_RATE = 8000;
+const BYTES_PER_MS = (SAMPLE_RATE * 2) / 1000; // 16 bytes per ms at 8kHz 16-bit
 
 /**
  * Recording Manager - handles audio capture and processing for a single call
@@ -183,7 +183,7 @@ class CallRecording {
                         "-ac 1",
                     ])
                     .audioCodec("libmp3lame")
-                    .audioBitrate("96k")
+                    .audioBitrate("64k")
                     .output(mp3Path)
                     .on("end", resolve)
                     .on("error", reject)

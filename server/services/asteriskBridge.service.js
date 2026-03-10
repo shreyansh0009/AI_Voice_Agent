@@ -27,9 +27,9 @@ const AUDIOSOCKET_PORT = parseInt(process.env.AUDIOSOCKET_PORT || "9092", 10);
 const AUDIOSOCKET_HOST = process.env.AUDIOSOCKET_HOST || "0.0.0.0";
 const DEFAULT_AGENT_ID = process.env.DEFAULT_PHONE_AGENT_ID || null;
 
-// Audio settings for wideband telephony
-const SAMPLE_RATE = 16000; // 16kHz for G.722 / wideband telephony
-const FRAME_SIZE = 640; // 20ms at 16kHz slin16 (640 bytes = 320 samples × 2 bytes)
+// Audio settings for AudioSocket telephony
+const SAMPLE_RATE = 8000; // AudioSocket() app expects 8kHz PCM
+const FRAME_SIZE = 320; // 20ms at 8kHz slin16 (320 bytes = 160 samples × 2 bytes)
 const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
 const FRAME_DURATION_MS = 20;
 const ECHO_GUARD_MS = 1500;
@@ -605,7 +605,7 @@ class CallSession {
     try {
       const deepgram = createClient(apiKey);
 
-      // Deepgram settings for 16kHz wideband telephony
+      // Deepgram settings for AudioSocket telephony
       this.deepgramConnection = deepgram.listen.live({
         model: "nova-2",
         language: this.language === "hi" ? "hi" : "en-IN",
@@ -1124,7 +1124,7 @@ class CallSession {
   }
 
   /**
-   * Convert provider audio to slin16 16kHz using ffmpeg
+   * Convert provider audio to slin16 8kHz using ffmpeg
    * @param {Buffer} inputBuffer - Input audio buffer
    * @returns {Promise<Buffer>} - Raw signed 16-bit PCM data
    */
@@ -1147,7 +1147,7 @@ class CallSession {
         "-i",
         "pipe:0", // Input from stdin
         "-ar",
-        String(SAMPLE_RATE), // Resample to wideband telephony
+        String(SAMPLE_RATE), // Resample to AudioSocket telephony rate
         "-ac",
         "1", // Mono
         "-acodec",
@@ -1215,7 +1215,7 @@ class CallSession {
 
   /**
    * Stream audio back to Asterisk via AudioSocket
-   * Uses ffmpeg to convert provider audio → slin16 16kHz
+   * Uses ffmpeg to convert provider audio → slin16 8kHz
    * REAL-TIME pacing: 20ms per frame (matches telephony clocking)
    * ⚡ Phase 4: Supports barge-in cancellation via token
    */

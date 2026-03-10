@@ -90,12 +90,12 @@ export function createAudioFrame(audioData, sampleRate = 8000) {
 }
 
 /**
- * Create silence frame (20ms at 16kHz = 320 samples = 640 bytes)
+ * Create silence frame (20ms at 8kHz = 160 samples = 320 bytes)
  * @param {number} durationMs - Duration in milliseconds
- * @param {number} sampleRate - Sample rate (default 16000)
+ * @param {number} sampleRate - Sample rate (default 8000)
  * @returns {Buffer}
  */
-export function createSilenceFrame(durationMs = 20, sampleRate = 16000) {
+export function createSilenceFrame(durationMs = 20, sampleRate = 8000) {
   const samples = Math.floor((sampleRate * durationMs) / 1000);
   const bytes = samples * 2; // 16-bit = 2 bytes per sample
   const silence = Buffer.alloc(bytes, 0);
@@ -163,10 +163,10 @@ export function resample(pcmBuffer, fromRate, toRate) {
 /**
  * Split audio buffer into chunks for streaming
  * @param {Buffer} audioBuffer - Full audio buffer
- * @param {number} chunkSize - Size per chunk in bytes (default 640 = 20ms @ 16kHz)
+ * @param {number} chunkSize - Size per chunk in bytes (default 320 = 20ms @ 8kHz)
  * @returns {Buffer[]}
  */
-export function splitIntoChunks(audioBuffer, chunkSize = 640) {
+export function splitIntoChunks(audioBuffer, chunkSize = 320) {
   const chunks = [];
   for (let i = 0; i < audioBuffer.length; i += chunkSize) {
     chunks.push(audioBuffer.slice(i, i + chunkSize));
