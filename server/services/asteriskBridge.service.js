@@ -3,6 +3,7 @@ import fs from "fs";
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { createClient } from "@deepgram/sdk";
+import ffmpegPath from "@ffmpeg-installer/ffmpeg";
 import aiAgentService from "./aiAgent.service.js";
 import stateEngine from "./stateEngine.js";
 import Conversation from "../models/Conversation.js";
@@ -30,6 +31,13 @@ const DEFAULT_AGENT_ID = process.env.DEFAULT_PHONE_AGENT_ID || null;
 const SAMPLE_RATE = 8000; // 8kHz for telephony
 const FRAME_SIZE = 320; // 20ms at 8kHz slin16 (320 bytes = 160 samples × 2 bytes)
 const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
+const FRAME_DURATION_MS = 20;
+const ECHO_GUARD_MS = 1500;
+const BARGE_IN_CONFIRM_WINDOW_MS = 500;
+const MIN_BARGE_IN_CHARS = 8;
+const MIN_STREAMING_CHUNK_CHARS = 40;
+const STREAMING_CLAUSE_THRESHOLD = 180;
+const STREAMING_HARD_LIMIT = 220;
 
 /**
  * Detect language from response text (same as streamChatController)
@@ -58,6 +66,41 @@ function detectResponseLanguage(text) {
   }
 
   return "en";
+}
+
+function normalizeSpeechText(text = "") {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function countNormalizedWords(text = "") {
+  if (!text) return 0;
+  return text.split(" ").filter(Boolean).length;
+}
+
+function hasPrefixOverlap(agentText = "", transcriptText = "") {
+  if (!agentText || !transcriptText) return false;
+
+  const agentWords = agentText.split(" ").filter(Boolean);
+  const transcriptWords = transcriptText.split(" ").filter(Boolean);
+
+  if (transcriptWords.length < 2) return false;
+
+  const prefixWordCount = Math.min(
+    agentWords.length,
+    Math.max(transcriptWords.length + 1, 4),
+  );
+  const agentPrefix = agentWords.slice(0, prefixWordCount).join(" ");
+  const transcript = transcriptWords.join(" ");
+
+  return (
+    agentPrefix.startsWith(transcript) ||
+    transcript.startsWith(agentPrefix) ||
+    agentPrefix.includes(transcript)
+  );
 }
 
 // Initialize OpenAI client for summary generation
@@ -172,6 +215,10 @@ class CallSession {
     // ⚡ Phase 4: Barge-in detection (speech cancellation token)
     this.currentSpeechToken = 0;
     this.userIsSpeaking = false; // Set true when Deepgram detects actual speech
+    this.currentSpeechText = "";
+    this.speechStartedAt = null;
+    this.pendingBargeIn = null;
+    this.lastPlaybackEndedAt = 0;
 
     //Call tracking for database
     this.callDbId = null; // MongoDB _id for this call
@@ -214,6 +261,168 @@ class CallSession {
         this.spyListeners.delete(ws);
       }
     }
+  }
+
+  clearPendingBargeIn() {
+    this.pendingBargeIn = null;
+  }
+
+  resetPlaybackTracking() {
+    this.currentSpeechText = "";
+    this.speechStartedAt = null;
+    this.lastPlaybackEndedAt = Date.now();
+    this.clearPendingBargeIn();
+  }
+
+  evaluateBargeIn(transcript, isFinal) {
+    const normalizedTranscript = normalizeSpeechText(transcript);
+    if (!normalizedTranscript || !this.isSpeaking) {
+      return { confirmed: false, reason: null };
+    }
+
+    const playbackAgeMs = this.speechStartedAt
+      ? Date.now() - this.speechStartedAt
+      : Number.POSITIVE_INFINITY;
+    const normalizedAgentText = normalizeSpeechText(this.currentSpeechText);
+
+    if (
+      playbackAgeMs <= ECHO_GUARD_MS &&
+      hasPrefixOverlap(normalizedAgentText, normalizedTranscript)
+    ) {
+      this.clearPendingBargeIn();
+      return { confirmed: false, reason: "ignored_echo" };
+    }
+
+    const compactLength = normalizedTranscript.replace(/\s+/g, "").length;
+    const wordCount = countNormalizedWords(normalizedTranscript);
+
+    if (isFinal) {
+      this.clearPendingBargeIn();
+      if (wordCount >= 2 || compactLength >= MIN_BARGE_IN_CHARS) {
+        return { confirmed: true, reason: "confirmed_barge_in" };
+      }
+
+      return { confirmed: false, reason: "ignored_short_interim" };
+    }
+
+    if (compactLength < MIN_BARGE_IN_CHARS) {
+      this.pendingBargeIn = {
+        normalizedText: normalizedTranscript,
+        seenAt: Date.now(),
+      };
+      return { confirmed: false, reason: "ignored_short_interim" };
+    }
+
+    const now = Date.now();
+    const previous = this.pendingBargeIn;
+    const isGrowing =
+      previous &&
+      now - previous.seenAt <= BARGE_IN_CONFIRM_WINDOW_MS &&
+      normalizedTranscript.length > previous.normalizedText.length &&
+      normalizedTranscript.startsWith(previous.normalizedText);
+
+    this.pendingBargeIn = {
+      normalizedText: normalizedTranscript,
+      seenAt: now,
+    };
+
+    if (isGrowing) {
+      return { confirmed: true, reason: "confirmed_barge_in" };
+    }
+
+    return { confirmed: false, reason: "ignored_short_interim" };
+  }
+
+  extractStreamingChunk(text, isFinal = false) {
+    const buffer = text.trim();
+    if (!buffer) return null;
+
+    const sentenceMatch = buffer.match(/^(.*?[.!?।])(?:\s+|$)/s);
+    if (sentenceMatch) {
+      return {
+        chunk: sentenceMatch[1].trim(),
+        remainder: buffer.slice(sentenceMatch[0].length).trimStart(),
+      };
+    }
+
+    if (buffer.length >= STREAMING_CLAUSE_THRESHOLD) {
+      const uptoClause = buffer.slice(0, STREAMING_HARD_LIMIT);
+      const clauseMatches = [...uptoClause.matchAll(/[,;:](?=\s|$)/g)];
+      const lastClause = clauseMatches.at(-1);
+      if (lastClause && lastClause.index + 1 >= MIN_STREAMING_CHUNK_CHARS) {
+        return {
+          chunk: buffer.slice(0, lastClause.index + 1).trim(),
+          remainder: buffer.slice(lastClause.index + 1).trimStart(),
+        };
+      }
+    }
+
+    if (buffer.length >= STREAMING_HARD_LIMIT) {
+      const splitAt = buffer.lastIndexOf(" ", STREAMING_HARD_LIMIT);
+      const safeSplitAt =
+        splitAt >= MIN_STREAMING_CHUNK_CHARS ? splitAt : STREAMING_HARD_LIMIT;
+      return {
+        chunk: buffer.slice(0, safeSplitAt).trim(),
+        remainder: buffer.slice(safeSplitAt).trimStart(),
+      };
+    }
+
+    if (isFinal) {
+      return { chunk: buffer, remainder: "" };
+    }
+
+    return null;
+  }
+
+  splitSpeechForQueue(text) {
+    const normalized = text?.trim();
+    if (!normalized) return [];
+
+    const segments = [];
+    let remainder = normalized;
+
+    while (remainder.length > STREAMING_HARD_LIMIT) {
+      const next = this.extractStreamingChunk(remainder, false);
+      if (!next || !next.chunk) {
+        break;
+      }
+      segments.push(next.chunk);
+      remainder = next.remainder;
+    }
+
+    if (remainder.trim()) {
+      segments.push(remainder.trim());
+    }
+
+    return segments;
+  }
+
+  async waitForSocketDrain() {
+    if (!this.socket?.writable) return;
+
+    await new Promise((resolve, reject) => {
+      const onDrain = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = (error) => {
+        cleanup();
+        reject(error);
+      };
+      const onClose = () => {
+        cleanup();
+        resolve();
+      };
+      const cleanup = () => {
+        this.socket.off("drain", onDrain);
+        this.socket.off("error", onError);
+        this.socket.off("close", onClose);
+      };
+
+      this.socket.once("drain", onDrain);
+      this.socket.once("error", onError);
+      this.socket.once("close", onClose);
+    });
   }
 
   /**
@@ -403,14 +612,32 @@ class CallSession {
           const isRealSpeech =
             transcript.length >= 3 && /[a-zA-Z\u0900-\u097F]/.test(transcript);
 
-          // Trigger barge-in only on confirmed real speech
           if (isRealSpeech && this.isSpeaking && !this.userIsSpeaking) {
-            this.userIsSpeaking = true;
-            this.currentSpeechToken++;
-            this.audioQueue.length = 0; // Clear pending speech
-            console.log(
-              `[${this.uuid}] Barge-in confirmed (real speech), stopping agent`,
-            );
+            const bargeInDecision = this.evaluateBargeIn(transcript, isFinal);
+            if (bargeInDecision.reason && !bargeInDecision.confirmed) {
+              console.log(
+                `[${this.uuid}] ${bargeInDecision.reason}`,
+                {
+                  provider: this.voiceProvider,
+                  model: this.voiceModel,
+                  transcript,
+                },
+              );
+            }
+
+            if (bargeInDecision.confirmed) {
+              this.userIsSpeaking = true;
+              this.currentSpeechToken++;
+              this.audioQueue.length = 0;
+              console.log(
+                `[${this.uuid}] confirmed_barge_in`,
+                {
+                  provider: this.voiceProvider,
+                  model: this.voiceModel,
+                  transcript,
+                },
+              );
+            }
           }
 
           if (isFinal) {
@@ -438,6 +665,7 @@ class CallSession {
       this.deepgramConnection.on("UtteranceEnd", async () => {
         console.log(`🔇 [${this.uuid}] Utterance ended`);
         this.userIsSpeaking = false; //Phase 4: Reset speech flag
+        this.clearPendingBargeIn();
         clearTimeout(this.silenceTimer); // Clear any pending early trigger
         if (this.transcript && !this.isProcessing) {
           await this.processUserInput();
@@ -482,7 +710,8 @@ class CallSession {
   async enqueueSpeech(text) {
     if (!text || !text.trim()) return;
 
-    this.audioQueue.push(text.trim());
+    const segments = this.splitSpeechForQueue(text);
+    this.audioQueue.push(...segments);
 
     // Single consumer guarantee - only one speech at a time
     if (this.isSpeaking) return;
@@ -687,11 +916,6 @@ class CallSession {
       let firstContentLogged = false;
       let flowTextSpoken = false; // Guard: prevent LLM repeating flow text
 
-      // Speak after 140 chars OR sentence boundary (reduces ElevenLabs calls)
-      const shouldFlush = (text) => {
-        return text.length >= 140 || /[.!?।]\s*$/.test(text);
-      };
-
       for await (const chunk of stream) {
         // FAST PATH: Speak flow text immediately (no LLM wait)
         if (chunk.type === "flow_text") {
@@ -724,15 +948,15 @@ class CallSession {
           fullResponse += chunk.content;
           ttsBuffer += chunk.content;
 
-          // Speak when threshold reached
-          if (shouldFlush(ttsBuffer)) {
-            const sentence = ttsBuffer.trim();
-            ttsBuffer = "";
+          let flushResult = this.extractStreamingChunk(ttsBuffer, false);
+          while (flushResult?.chunk) {
+            ttsBuffer = flushResult.remainder;
 
             console.log(
-              `[${this.uuid}] Streaming chunk: "${sentence.substring(0, 50)}..."`,
+              `[${this.uuid}] Streaming chunk: "${flushResult.chunk.substring(0, 50)}..."`,
             );
-            this.enqueueSpeech(sentence); // ⚡ DO NOT await - AI keeps generating while audio plays
+            this.enqueueSpeech(flushResult.chunk);
+            flushResult = this.extractStreamingChunk(ttsBuffer, false);
           }
         }
 
@@ -742,12 +966,12 @@ class CallSession {
       }
 
       // Flush any remaining text that didn't end with a sentence boundary
-      const remaining = ttsBuffer.trim();
-      if (remaining.length > 0) {
+      const remainingChunk = this.extractStreamingChunk(ttsBuffer, true);
+      if (remainingChunk?.chunk) {
         console.log(
-          `[${this.uuid}] Final sentence: "${remaining.substring(0, 50)}..."`,
+          `[${this.uuid}] Final sentence: "${remainingChunk.chunk.substring(0, 50)}..."`,
         );
-        this.enqueueSpeech(remaining);
+        this.enqueueSpeech(remainingChunk.chunk);
       }
 
       // Get AI response for logging and history
@@ -807,9 +1031,12 @@ class CallSession {
    * Convert text to speech and stream to Asterisk
    */
   async speakResponse(text, token = this.currentSpeechToken) {
-    console.log(
-      `[${this.uuid}] TTS: "${text.substring(0, 50)}..." (Provider: ${this.voiceProvider})`,
-    );
+    console.log(`[${this.uuid}] TTS requested`, {
+      provider: this.voiceProvider,
+      model: this.voiceModel,
+      textLength: text.length,
+      preview: text.substring(0, 50),
+    });
 
     try {
       let audioBuffer;
@@ -849,8 +1076,12 @@ class CallSession {
         return;
       }
 
-      // Send audio buffer to Asterisk (with cancellation token)
-      await this.streamAudioToAsterisk(audioBuffer, token);
+      await this.streamAudioToAsterisk(audioBuffer, {
+        token,
+        text,
+        provider: this.voiceProvider,
+        model: this.voiceModel,
+      });
     } catch (error) {
       console.error(
         ` [${this.uuid}] TTS error (${this.voiceProvider}):`,
@@ -863,15 +1094,18 @@ class CallSession {
   }
 
   /**
-   * Convert WAV to slin16 8kHz using ffmpeg
-   * @param {Buffer} wavBuffer - Input WAV audio
+   * Convert provider audio to slin16 8kHz using ffmpeg
+   * @param {Buffer} inputBuffer - Input audio buffer
    * @returns {Promise<Buffer>} - Raw signed 16-bit PCM data
    */
-  async convertToSlin16(wavBuffer) {
+  async convertToSlin16(inputBuffer) {
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn(
-        "ffmpeg",
+        ffmpegPath.path,
         [
+          "-hide_banner",
+          "-loglevel",
+          "error",
           "-i",
           "pipe:0", // Input from stdin
           "-ar",
@@ -908,18 +1142,18 @@ class CallSession {
         reject(err);
       });
 
-      // Write WAV data to ffmpeg stdin
-      ffmpeg.stdin.write(wavBuffer);
+      // Write provider audio to ffmpeg stdin
+      ffmpeg.stdin.write(inputBuffer);
       ffmpeg.stdin.end();
     });
   }
 
   /**
-   * Send µ-law silence frames
+   * Send slin16 silence frames
    * @param {number} ms - Duration in milliseconds
    */
   sendSilence(ms = 200) {
-    const frames = Math.ceil(ms / 20);
+    const frames = Math.ceil(ms / FRAME_DURATION_MS);
     const silenceFrame = Buffer.alloc(FRAME_SIZE, 0x00); // 0x00 is slin16 silence
 
     for (let i = 0; i < frames; i++) {
@@ -935,30 +1169,74 @@ class CallSession {
    * REAL-TIME pacing: 20ms per frame (matches telephony clocking)
    * ⚡ Phase 4: Supports barge-in cancellation via token
    */
-  async streamAudioToAsterisk(audioBuffer, token = this.currentSpeechToken) {
+  async streamAudioToAsterisk(audioBuffer, playbackContext = {}) {
+    const {
+      token = this.currentSpeechToken,
+      text = "",
+      provider = this.voiceProvider,
+      model = this.voiceModel,
+    } = playbackContext;
+
     try {
+      const conversionStart = Date.now();
       const slinData = await this.convertToSlin16(audioBuffer);
-      const chunks = splitIntoChunks(slinData, FRAME_SIZE);
+      const chunks = splitIntoChunks(slinData, FRAME_SIZE).map((chunk) =>
+        chunk.length === FRAME_SIZE
+          ? chunk
+          : Buffer.concat([chunk, Buffer.alloc(FRAME_SIZE - chunk.length, 0)]),
+      );
+      const estimatedDurationMs = chunks.length * FRAME_DURATION_MS;
+
+      console.log(`[${this.uuid}] conversion finished`, {
+        provider,
+        model,
+        inputBytes: audioBuffer.length,
+        outputBytes: slinData.length,
+        frameCount: chunks.length,
+        estimatedDurationMs,
+        conversionMs: Date.now() - conversionStart,
+      });
 
       // Mark when AI speech starts for timeline-based recording
       if (this.recording) {
         this.recording.markAISpeechStart();
       }
 
+      this.currentSpeechText = text;
+      this.clearPendingBargeIn();
+      const playbackStart = Date.now();
+      this.speechStartedAt = playbackStart;
+      console.log(`[${this.uuid}] playback started`, {
+        provider,
+        model,
+        frameCount: chunks.length,
+      });
+
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
+        const targetAt = playbackStart + i * FRAME_DURATION_MS;
+        const waitMs = targetAt - Date.now();
+
+        if (waitMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        }
 
         // Phase 4: Stop immediately if barge-in occurred
         if (token !== this.currentSpeechToken) {
           console.log(
-            ` [${this.uuid}] Speech cancelled mid-playback (barge-in)`,
+            `[${this.uuid}] playback cancelled`,
+            {
+              reason: "confirmed_barge_in",
+              provider,
+              model,
+            },
           );
           break;
         }
 
         if (!this.socket.writable) break;
 
-        this.socket.write(createAudioFrame(chunk));
+        const canContinue = this.socket.write(createAudioFrame(chunk));
 
         // 🔊 Broadcast AI audio to spy listeners
         this.broadcastToSpies(chunk, 'agent');
@@ -968,19 +1246,25 @@ class CallSession {
           this.recording.addAIAudio(chunk, i);
         }
 
-        // REAL-TIME pacing: 20ms per frame
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        if (!canContinue) {
+          await this.waitForSocketDrain();
+        }
       }
 
       // Only log completion if not cancelled
       if (token === this.currentSpeechToken) {
-        console.log(
-          `[${this.uuid}] Audio stream complete (${chunks.length} frames)`,
-        );
+        console.log(`[${this.uuid}] playback completed`, {
+          provider,
+          model,
+          frameCount: chunks.length,
+          estimatedDurationMs,
+        });
       }
     } catch (error) {
       console.error(` [${this.uuid}] Audio streaming failed:`, error.message);
       this.sendSilence(200);
+    } finally {
+      this.resetPlaybackTracking();
     }
   }
 

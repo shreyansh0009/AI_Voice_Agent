@@ -47,6 +47,10 @@ class TTSService {
   // Sarvam v3 supported voices (limited set per user request)
   v3Voices = new Set(["simran", "shruti", "rahul", "aditya"]);
 
+  logProviderResult(provider, details) {
+    console.log(`🔊 ${provider} TTS ready`, details);
+  }
+
   // Valid Sarvam v2 voices: anushka, abhilash, manisha, vidya, arya, karun, hitesh
   async speak(text, language = "en", voice = "manisha", model = null) {
     if (!text || text.trim() === "") return null;
@@ -106,6 +110,12 @@ class TTSService {
 
       // Return the raw base64 audio
       const base64Audio = response.data.audios[0];
+      this.logProviderResult("Sarvam", {
+        model: resolvedModel,
+        voice: speaker,
+        format: isV3 ? "wav_base64_8khz" : "base64_provider_default",
+        bytes: Buffer.byteLength(base64Audio || "", "base64"),
+      });
 
       return base64Audio;
     } catch (err) {
@@ -164,23 +174,25 @@ class TTSService {
         },
       );
 
-      const bufferSize = response.data.byteLength || response.data.length;
-      console.log("✅ Tabbly TTS generated successfully", {
-        bufferSize,
+      const audioBuffer = Buffer.from(response.data);
+      const bufferSize = audioBuffer.length;
+      this.logProviderResult("Tabbly", {
+        model,
+        voice,
         contentType: response.headers["content-type"],
-        status: response.status,
-        statusText: response.statusText,
+        format: "wav_or_pcm_stream",
+        bytes: bufferSize,
       });
 
       // If buffer is suspiciously small, log it as text to see if it's an error
       if (bufferSize < 1000) {
         console.warn("⚠️ Suspicious small audio buffer, converting to text:");
-        const textResponse = Buffer.from(response.data).toString("utf8");
+        const textResponse = audioBuffer.toString("utf8");
         console.warn(textResponse);
       }
 
       // Return the audio buffer
-      return response.data;
+      return audioBuffer;
     } catch (err) {
       console.error("❌ Tabbly TTS Error:", err.response?.data || err.message);
       throw new Error(
@@ -194,7 +206,7 @@ class TTSService {
    * @param {string} text - Text to convert to speech
    * @param {string} voiceId - ElevenLabs Voice ID
    * @param {string} modelId - Model ID (eleven_multilingual_v2, eleven_turbo_v2, etc.)
-   * @returns {Buffer} Audio buffer (MP3 format)
+   * @returns {Buffer} Audio buffer (PCM format)
    */
   async speakWithElevenLabs(
     text,
@@ -219,7 +231,7 @@ class TTSService {
         {
           text: text,
           modelId: modelId,
-          outputFormat: "mp3_44100_128",
+          outputFormat: "pcm_16000",
         },
       );
 
@@ -238,9 +250,11 @@ class TTSService {
         chunks.map((chunk) => Buffer.from(chunk)),
       );
 
-      console.log("✅ ElevenLabs TTS generated successfully", {
-        bufferSize: audioBuffer.length,
-        format: "mp3_44100_128",
+      this.logProviderResult("ElevenLabs", {
+        model: modelId,
+        voice: voiceId,
+        format: "pcm_16000",
+        bytes: audioBuffer.length,
       });
 
       return audioBuffer;
