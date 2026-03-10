@@ -75,14 +75,14 @@ class TTSService {
       const requestBody = isV3
         ? {
           // v3 format: text as string, temperature-based controls
-          // Using 8kHz WAV to match telephony pipeline (avoids MP3 distortion + resampling)
+          // Using 16kHz WAV to match the wideband telephony pipeline
           text: text.trim(),
           target_language_code: targetLang,
           speaker,
           model: resolvedModel,
           pace: 1.0,
           temperature: 0.5,
-          speech_sample_rate: "8000",
+          speech_sample_rate: "16000",
           output_audio_codec: "wav",
         }
         : {
@@ -113,7 +113,7 @@ class TTSService {
       this.logProviderResult("Sarvam", {
         model: resolvedModel,
         voice: speaker,
-        format: isV3 ? "wav_base64_8khz" : "base64_provider_default",
+        format: isV3 ? "wav_base64_16khz" : "base64_provider_default",
         bytes: Buffer.byteLength(base64Audio || "", "base64"),
       });
 

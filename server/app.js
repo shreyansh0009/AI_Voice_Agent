@@ -197,7 +197,7 @@ if (config.env !== "production") {
       // Send initial metadata
       ws.send(JSON.stringify({
         type: 'init',
-        sampleRate: 8000,
+        sampleRate: 16000,
         encoding: 'slin16',
         callerNumber: session.callerNumber,
         calledNumber: session.calledNumber,
