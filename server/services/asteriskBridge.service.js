@@ -1208,7 +1208,7 @@ class CallSession {
 
     for (let i = 0; i < frames; i++) {
       if (this.socket.writable) {
-        this.socket.write(createAudioFrame(silenceFrame));
+        this.socket.write(createAudioFrame(silenceFrame, SAMPLE_RATE));
       }
     }
   }
@@ -1287,7 +1287,9 @@ class CallSession {
 
         if (!this.socket.writable) break;
 
-        const canContinue = this.socket.write(createAudioFrame(chunk));
+        const canContinue = this.socket.write(
+          createAudioFrame(chunk, SAMPLE_RATE),
+        );
 
         // 🔊 Broadcast AI audio to spy listeners
         this.broadcastToSpies(chunk, 'agent');
@@ -1781,6 +1783,14 @@ class AudioSocketServer {
             break;
 
           case MESSAGE_TYPES.AUDIO:
+          case MESSAGE_TYPES.SLIN_12K:
+          case MESSAGE_TYPES.SLIN_16K:
+          case MESSAGE_TYPES.SLIN_24K:
+          case MESSAGE_TYPES.SLIN_32K:
+          case MESSAGE_TYPES.SLIN_44K:
+          case MESSAGE_TYPES.SLIN_48K:
+          case MESSAGE_TYPES.SLIN_96K:
+          case MESSAGE_TYPES.SLIN_192K:
             // Audio frame from caller
             if (session) {
               session.handleAudio(frame.data);

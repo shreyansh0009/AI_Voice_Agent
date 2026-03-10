@@ -18,8 +18,37 @@ export const MESSAGE_TYPES = {
   UUID: 0x01, // First message with call UUID
   ERROR: 0x02, // Error occurred
   SILENCE: 0x03, // Silence indicator
-  AUDIO: 0x10, // 16 decimal - Audio frames
+  SLIN_8K: 0x10,
+  SLIN_12K: 0x11,
+  SLIN_16K: 0x12,
+  SLIN_24K: 0x13,
+  SLIN_32K: 0x14,
+  SLIN_44K: 0x15,
+  SLIN_48K: 0x16,
+  SLIN_96K: 0x17,
+  SLIN_192K: 0x18,
+  AUDIO: 0x10, // Backward-compatible alias for 8kHz
 };
+
+const SAMPLE_RATE_TO_TYPE = {
+  8000: MESSAGE_TYPES.SLIN_8K,
+  12000: MESSAGE_TYPES.SLIN_12K,
+  16000: MESSAGE_TYPES.SLIN_16K,
+  24000: MESSAGE_TYPES.SLIN_24K,
+  32000: MESSAGE_TYPES.SLIN_32K,
+  44100: MESSAGE_TYPES.SLIN_44K,
+  48000: MESSAGE_TYPES.SLIN_48K,
+  96000: MESSAGE_TYPES.SLIN_96K,
+  192000: MESSAGE_TYPES.SLIN_192K,
+};
+
+export function getAudioMessageType(sampleRate = 8000) {
+  return SAMPLE_RATE_TO_TYPE[sampleRate] || MESSAGE_TYPES.SLIN_8K;
+}
+
+export function isAudioMessageType(type) {
+  return Object.values(SAMPLE_RATE_TO_TYPE).includes(type);
+}
 
 /**
  * Parse an AudioSocket frame from buffer
@@ -50,11 +79,12 @@ export function parseFrame(buffer) {
 /**
  * Create an AudioSocket audio frame
  * @param {Buffer} audioData - PCM audio data
+ * @param {number} sampleRate - PCM sample rate
  * @returns {Buffer}
  */
-export function createAudioFrame(audioData) {
+export function createAudioFrame(audioData, sampleRate = 8000) {
   const header = Buffer.alloc(3);
-  header.writeUInt8(MESSAGE_TYPES.AUDIO, 0);
+  header.writeUInt8(getAudioMessageType(sampleRate), 0);
   header.writeUInt16BE(audioData.length, 1);
   return Buffer.concat([header, audioData]);
 }
@@ -146,6 +176,8 @@ export function splitIntoChunks(audioBuffer, chunkSize = 640) {
 
 export default {
   MESSAGE_TYPES,
+  getAudioMessageType,
+  isAudioMessageType,
   parseFrame,
   createAudioFrame,
   createSilenceFrame,
