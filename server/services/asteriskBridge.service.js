@@ -1040,6 +1040,7 @@ class CallSession {
 
     try {
       let audioBuffer;
+      let inputFormat = null;
 
       // Route to appropriate TTS provider based on agent configuration
       if (this.voiceProvider === "ElevenLabs") {
@@ -1049,6 +1050,11 @@ class CallSession {
           this.voice, // ElevenLabs voice ID
           this.voiceModel || "eleven_multilingual_v2",
         );
+        inputFormat = {
+          rawFormat: "s16le",
+          sampleRate: 16000,
+          channels: 1,
+        };
       } else if (this.voiceProvider === "Tabbly") {
         // Use Tabbly TTS
         audioBuffer = await ttsService.speakWithTabbly(
@@ -1081,6 +1087,7 @@ class CallSession {
         text,
         provider: this.voiceProvider,
         model: this.voiceModel,
+        inputFormat,
       });
     } catch (error) {
       console.error(
@@ -1098,43 +1105,63 @@ class CallSession {
    * @param {Buffer} inputBuffer - Input audio buffer
    * @returns {Promise<Buffer>} - Raw signed 16-bit PCM data
    */
-  async convertToSlin16(inputBuffer) {
+  async convertToSlin16(inputBuffer, inputFormat = null) {
     return new Promise((resolve, reject) => {
+      const ffmpegArgs = ["-hide_banner", "-loglevel", "error"];
+
+      if (inputFormat?.rawFormat) {
+        ffmpegArgs.push(
+          "-f",
+          inputFormat.rawFormat,
+          "-ar",
+          String(inputFormat.sampleRate || 16000),
+          "-ac",
+          String(inputFormat.channels || 1),
+        );
+      }
+
+      ffmpegArgs.push(
+        "-i",
+        "pipe:0", // Input from stdin
+        "-ar",
+        "8000", // Resamplze to 8kH for telephony
+        "-ac",
+        "1", // Mono
+        "-acodec",
+        "pcm_s16le", // Signed 16-bit little-endian (slin16)
+        "-f",
+        "s16le", // Raw s16le output (no container)
+        "pipe:1", // Output to stdout
+      );
+
       const ffmpeg = spawn(
         ffmpegPath.path,
-        [
-          "-hide_banner",
-          "-loglevel",
-          "error",
-          "-i",
-          "pipe:0", // Input from stdin
-          "-ar",
-          "8000", // Resamplze to 8kH for telephony
-          "-ac",
-          "1", // Mono
-          "-acodec",
-          "pcm_s16le", // Signed 16-bit little-endian (slin16)
-          "-f",
-          "s16le", // Raw s16le output (no container)
-          "pipe:1", // Output to stdout
-        ],
+        ffmpegArgs,
         {
           stdio: ["pipe", "pipe", "pipe"],
         },
       );
 
       const chunks = [];
+      const stderrChunks = [];
 
       ffmpeg.stdout.on("data", (chunk) => chunks.push(chunk));
       ffmpeg.stderr.on("data", (data) => {
-        // FFmpeg logs to stderr, ignore unless error
+        stderrChunks.push(data.toString());
       });
 
       ffmpeg.on("close", (code) => {
         if (code === 0) {
           resolve(Buffer.concat(chunks));
         } else {
-          reject(new Error(`FFmpeg exited with code ${code}`));
+          const stderr = stderrChunks.join("").trim();
+          reject(
+            new Error(
+              stderr
+                ? `FFmpeg exited with code ${code}: ${stderr}`
+                : `FFmpeg exited with code ${code}`,
+            ),
+          );
         }
       });
 
@@ -1175,11 +1202,12 @@ class CallSession {
       text = "",
       provider = this.voiceProvider,
       model = this.voiceModel,
+      inputFormat = null,
     } = playbackContext;
 
     try {
       const conversionStart = Date.now();
-      const slinData = await this.convertToSlin16(audioBuffer);
+      const slinData = await this.convertToSlin16(audioBuffer, inputFormat);
       const chunks = splitIntoChunks(slinData, FRAME_SIZE).map((chunk) =>
         chunk.length === FRAME_SIZE
           ? chunk
