@@ -26,9 +26,9 @@ const AUDIOSOCKET_PORT = parseInt(process.env.AUDIOSOCKET_PORT || "9092", 10);
 const AUDIOSOCKET_HOST = process.env.AUDIOSOCKET_HOST || "0.0.0.0";
 const DEFAULT_AGENT_ID = process.env.DEFAULT_PHONE_AGENT_ID || null;
 
-// Audio settings for 8kHz telephony (standard)
-const SAMPLE_RATE = 8000; // 8kHz for telephony
-const FRAME_SIZE = 320; // 20ms at 8kHz slin16 (320 bytes = 160 samples × 2 bytes)
+// Audio settings — configurable for wideband G.722 (16kHz) or narrowband G.711 (8kHz)
+const SAMPLE_RATE = parseInt(process.env.AUDIOSOCKET_SAMPLE_RATE || "8000", 10);
+const FRAME_SIZE = (SAMPLE_RATE / 1000) * 20 * 2; // 20ms frame: 320 bytes @8kHz, 640 bytes @16kHz
 const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
 
 /**
@@ -378,12 +378,12 @@ class CallSession {
     try {
       const deepgram = createClient(apiKey);
 
-      // Deepgram settings for 8kHz telephony
+      // Deepgram settings — sample rate matches AudioSocket (8kHz or 16kHz)
       this.deepgramConnection = deepgram.listen.live({
         model: "nova-2",
         language: this.language === "hi" ? "hi" : "en-IN",
         encoding: "linear16",
-        sample_rate: 8000, // 8kHz for standard telephony
+        sample_rate: SAMPLE_RATE, // Matches AudioSocket rate (8kHz G.711 or 16kHz G.722)
         channels: 1,
         smart_format: true,
         punctuate: true,
@@ -863,26 +863,29 @@ class CallSession {
   }
 
   /**
-   * Convert WAV to slin16 8kHz using ffmpeg
-   * @param {Buffer} wavBuffer - Input WAV audio
-   * @returns {Promise<Buffer>} - Raw signed 16-bit PCM data
+   * Convert audio to slin16 PCM using ffmpeg with high-quality resampling
+   * Uses SoX resampler (soxr) for superior downsampling quality + loudness normalization
+   * @param {Buffer} audioBuffer - Input audio (WAV, MP3, or raw PCM)
+   * @returns {Promise<Buffer>} - Raw signed 16-bit PCM data at SAMPLE_RATE
    */
-  async convertToSlin16(wavBuffer) {
+  async convertToSlin16(audioBuffer) {
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn(
         "ffmpeg",
         [
           "-i",
-          "pipe:0", // Input from stdin
+          "pipe:0",                     // Input from stdin
+          "-af",
+          "loudnorm=I=-16:TP=-1.5:LRA=11,aresample=resampler=soxr:precision=28:dither_method=triangular",
           "-ar",
-          "8000", // Resamplze to 8kH for telephony
+          String(SAMPLE_RATE),            // Resample to configured rate (8kHz or 16kHz)
           "-ac",
-          "1", // Mono
+          "1",                            // Mono
           "-acodec",
-          "pcm_s16le", // Signed 16-bit little-endian (slin16)
+          "pcm_s16le",                    // Signed 16-bit little-endian (slin16)
           "-f",
-          "s16le", // Raw s16le output (no container)
-          "pipe:1", // Output to stdout
+          "s16le",                        // Raw output (no container)
+          "pipe:1",                       // Output to stdout
         ],
         {
           stdio: ["pipe", "pipe", "pipe"],
@@ -908,8 +911,8 @@ class CallSession {
         reject(err);
       });
 
-      // Write WAV data to ffmpeg stdin
-      ffmpeg.stdin.write(wavBuffer);
+      // Write audio data to ffmpeg stdin
+      ffmpeg.stdin.write(audioBuffer);
       ffmpeg.stdin.end();
     });
   }
@@ -931,8 +934,8 @@ class CallSession {
 
   /**
    * Stream audio back to Asterisk via AudioSocket
-   * Uses ffmpeg to convert WAV → slin16 8kHz
-   * REAL-TIME pacing: 20ms per frame (matches telephony clocking)
+   * Uses ffmpeg to convert audio → slin16 at SAMPLE_RATE
+   * HIGH-PRECISION pacing: hrtime-based 20ms frames (eliminates jitter)
    * ⚡ Phase 4: Supports barge-in cancellation via token
    */
   async streamAudioToAsterisk(audioBuffer, token = this.currentSpeechToken) {
@@ -944,6 +947,8 @@ class CallSession {
       if (this.recording) {
         this.recording.markAISpeechStart();
       }
+
+      const startTime = process.hrtime.bigint();
 
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
@@ -968,14 +973,19 @@ class CallSession {
           this.recording.addAIAudio(chunk, i);
         }
 
-        // REAL-TIME pacing: 20ms per frame
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        // HIGH-PRECISION pacing: hrtime-based 20ms per frame (reduces jitter/clicks)
+        const elapsedMs = Number(process.hrtime.bigint() - startTime) / 1_000_000;
+        const targetMs = (i + 1) * 20;
+        const sleepMs = Math.max(0, targetMs - elapsedMs);
+        if (sleepMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, sleepMs));
+        }
       }
 
       // Only log completion if not cancelled
       if (token === this.currentSpeechToken) {
         console.log(
-          `[${this.uuid}] Audio stream complete (${chunks.length} frames)`,
+          `[${this.uuid}] Audio stream complete (${chunks.length} frames @ ${SAMPLE_RATE}Hz)`,
         );
       }
     } catch (error) {

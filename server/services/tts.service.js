@@ -91,6 +91,8 @@ class TTSService {
           pace: 1.0,
           pitch: 0,
           loudness: 1.5,
+          speech_sample_rate: 8000,      // Native 8kHz for telephony (skip resampling)
+          output_audio_codec: "wav",     // WAV instead of MP3 (avoids lossy decode)
         };
 
       const response = await axios.post(
@@ -219,7 +221,7 @@ class TTSService {
         {
           text: text,
           modelId: modelId,
-          outputFormat: "mp3_44100_128",
+          outputFormat: "pcm_16000",  // Raw PCM 16kHz — avoids MP3 decode artifacts
         },
       );
 
@@ -240,7 +242,7 @@ class TTSService {
 
       console.log("✅ ElevenLabs TTS generated successfully", {
         bufferSize: audioBuffer.length,
-        format: "mp3_44100_128",
+        format: "pcm_16000",
       });
 
       return audioBuffer;
