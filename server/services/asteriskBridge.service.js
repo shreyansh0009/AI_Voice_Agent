@@ -1125,8 +1125,16 @@ class CallSession {
 
   /**
    * Convert provider audio to slin16 8kHz using ffmpeg
-   * @param {Buffer} inputBuffer - Input audio buffer
-   * @returns {Promise<Buffer>} - Raw signed 16-bit PCM data
+   *
+   * Telephony-optimized resampling pipeline for improved PSTN voice quality:
+   *   - highpass=200   → removes low-frequency rumble / hum
+   *   - lowpass=3400   → matches PSTN narrowband bandwidth (300-3400 Hz)
+   *   - soxr resampler → high-quality downsampling (precision=28 ≈ 24-bit)
+   * This produces noticeably cleaner and crisper voice on phone calls.
+   *
+   * @param {Buffer} inputBuffer - Input audio buffer (TTS output, typically 16kHz+)
+   * @param {Object|null} inputFormat - Optional raw format descriptor
+   * @returns {Promise<Buffer>} - Raw signed 16-bit PCM data at 8kHz mono
    */
   async convertToSlin16(inputBuffer, inputFormat = null) {
     return new Promise((resolve, reject) => {
@@ -1146,8 +1154,11 @@ class CallSession {
       ffmpegArgs.push(
         "-i",
         "pipe:0", // Input from stdin
+        // Speech-optimized filter chain for PSTN telephony clarity
+        "-af",
+        "highpass=f=200, lowpass=f=3400, aresample=resampler=soxr:precision=28",
         "-ar",
-        String(SAMPLE_RATE), // Resample to AudioSocket telephony rate
+        String(SAMPLE_RATE), // Resample to AudioSocket telephony rate (8kHz)
         "-ac",
         "1", // Mono
         "-acodec",
