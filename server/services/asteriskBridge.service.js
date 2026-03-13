@@ -1127,10 +1127,12 @@ class CallSession {
    * Convert provider audio to slin16 8kHz using ffmpeg
    *
    * Telephony-optimized resampling pipeline for improved PSTN voice quality:
-   *   - highpass=200   → removes low-frequency rumble / hum
-   *   - lowpass=3400   → matches PSTN narrowband bandwidth (300-3400 Hz)
-   *   - soxr resampler → high-quality downsampling (precision=28 ≈ 24-bit)
-   * This produces noticeably cleaner and crisper voice on phone calls.
+   *   - highpass=200        → removes low-frequency rumble / hum
+   *   - lowpass=3400        → matches PSTN narrowband bandwidth (300-3400 Hz)
+   *   - equalizer=f=2000:g=3 → +3dB speech presence boost for intelligibility
+   *   - dynaudnorm           → dynamic audio normalization for consistent volume
+   *   - soxr resampler       → high-quality downsampling (precision=28 ≈ 24-bit)
+   * This produces noticeably cleaner, crisper, and more intelligible voice on phone calls.
    *
    * @param {Buffer} inputBuffer - Input audio buffer (TTS output, typically 16kHz+)
    * @param {Object|null} inputFormat - Optional raw format descriptor
@@ -1156,7 +1158,7 @@ class CallSession {
         "pipe:0", // Input from stdin
         // Speech-optimized filter chain for PSTN telephony clarity
         "-af",
-        "highpass=f=200, lowpass=f=3400, aresample=resampler=soxr:precision=28",
+        "highpass=f=200, lowpass=f=3400, equalizer=f=2000:t=q:w=1:g=3, dynaudnorm, aresample=resampler=soxr:precision=28",
         "-ar",
         String(SAMPLE_RATE), // Resample to AudioSocket telephony rate (8kHz)
         "-ac",
