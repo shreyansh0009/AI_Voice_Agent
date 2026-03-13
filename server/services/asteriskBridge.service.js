@@ -615,7 +615,7 @@ class CallSession {
         smart_format: true,
         punctuate: true,
         interim_results: true,
-        utterance_end_ms: 800, // Triggers UtteranceEnd event
+        utterance_end_ms: 1200, // Triggers UtteranceEnd event
         vad_events: true,
         endpointing: 200,
       });
