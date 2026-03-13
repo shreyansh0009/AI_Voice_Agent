@@ -607,7 +607,7 @@ class CallSession {
 
       // Deepgram settings for AudioSocket telephony
       this.deepgramConnection = deepgram.listen.live({
-        model: "nova-2",
+        model: "flux",
         language: this.language === "hi" ? "hi" : "en-IN",
         encoding: "linear16",
         sample_rate: SAMPLE_RATE,
@@ -615,7 +615,7 @@ class CallSession {
         smart_format: true,
         punctuate: true,
         interim_results: true,
-        utterance_end_ms: 1200, // Triggers UtteranceEnd event
+       // utterance_end_ms: 1200, // Triggers UtteranceEnd event
         vad_events: true,
         endpointing: 200,
       });
@@ -1507,7 +1507,7 @@ class CallSession {
           },
           incremental_delay: 200,
           synthesizer_model: this.voiceModel || "bulbul:v2",
-          transcriber_model: "nova-2",
+          transcriber_model: "flux",
           llm_usage_breakdown: {
             conversation: {
               input: estimatedInputTokens,
