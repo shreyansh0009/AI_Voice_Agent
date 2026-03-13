@@ -607,7 +607,7 @@ class CallSession {
 
       // Deepgram settings for AudioSocket telephony
       this.deepgramConnection = deepgram.listen.live({
-        model: "flux",
+        model: "nova-2",
         language: this.language === "hi" ? "hi" : "en-IN",
         encoding: "linear16",
         sample_rate: SAMPLE_RATE,
@@ -1507,7 +1507,7 @@ class CallSession {
           },
           incremental_delay: 200,
           synthesizer_model: this.voiceModel || "bulbul:v2",
-          transcriber_model: "flux",
+          transcriber_model: "nova-2",
           llm_usage_breakdown: {
             conversation: {
               input: estimatedInputTokens,
