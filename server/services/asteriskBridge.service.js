@@ -36,8 +36,8 @@ const ECHO_GUARD_MS = 1500;
 const BARGE_IN_CONFIRM_WINDOW_MS = 500;
 const MIN_BARGE_IN_CHARS = 8;
 const MIN_STREAMING_CHUNK_CHARS = 40;
-const STREAMING_CLAUSE_THRESHOLD = 80;
-const STREAMING_HARD_LIMIT = 100;
+const STREAMING_CLAUSE_THRESHOLD = 180;
+const STREAMING_HARD_LIMIT = 220;
 
 /**
  * Detect language from response text (same as streamChatController)
@@ -615,9 +615,9 @@ class CallSession {
         smart_format: true,
         punctuate: true,
         interim_results: true,
-        utterance_end_ms: 600, // Triggers UtteranceEnd event
+        utterance_end_ms: 1200, // Triggers UtteranceEnd event
         vad_events: true,
-        endpointing: 200,
+        endpointing: 400,
       });
 
       // Handle transcription results
