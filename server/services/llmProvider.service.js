@@ -7,6 +7,10 @@ const DEFAULT_MODELS = {
   grok: "grok-4.20-beta-latest-non-reasoning",
 };
 
+function isGrokModel(model) {
+  return typeof model === "string" && /^grok[-_]/i.test(model.trim());
+}
+
 function normalizeMessageContent(content) {
   if (typeof content === "string") {
     return content;
@@ -77,9 +81,22 @@ class LLMProviderService {
 
   resolveSelection(provider, model) {
     const normalizedProvider = this.normalizeProvider(provider);
+    let resolvedProvider = normalizedProvider;
+
+    if (isGrokModel(model)) {
+      resolvedProvider = "grok";
+    }
+
+    if (resolvedProvider === "grok" && model && !isGrokModel(model)) {
+      return {
+        provider: resolvedProvider,
+        model: this.getDefaultModel(resolvedProvider),
+      };
+    }
+
     return {
-      provider: normalizedProvider,
-      model: model || this.getDefaultModel(normalizedProvider),
+      provider: resolvedProvider,
+      model: model || this.getDefaultModel(resolvedProvider),
     };
   }
 
@@ -106,6 +123,9 @@ class LLMProviderService {
     frequencyPenalty,
   }) {
     const resolved = this.resolveSelection(provider, model);
+    console.log(
+      `🤖 LLM generateText routing: ${provider || "default"} / ${model || "default"} -> ${resolved.provider} / ${resolved.model}`,
+    );
     this.ensureConfigured(resolved.provider);
 
     const normalizedMessages = normalizeMessages(messages);
@@ -148,6 +168,9 @@ class LLMProviderService {
 
   async *streamText({ provider, model, messages, temperature, maxTokens }) {
     const resolved = this.resolveSelection(provider, model);
+    console.log(
+      `🤖 LLM streamText routing: ${provider || "default"} / ${model || "default"} -> ${resolved.provider} / ${resolved.model}`,
+    );
     this.ensureConfigured(resolved.provider);
 
     const normalizedMessages = normalizeMessages(messages);
