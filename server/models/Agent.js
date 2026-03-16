@@ -87,7 +87,7 @@ const agentSchema = new mongoose.Schema(
     // ============================================
     llmProvider: {
       type: String,
-      enum: ["Openai", "Agentforce"],
+      enum: ["Openai", "Grok", "Agentforce"],
       default: "Openai",
     },
     llmModel: {

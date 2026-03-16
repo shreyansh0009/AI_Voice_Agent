@@ -1,10 +1,10 @@
-import OpenAI from "openai";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import path from "path";
 import ragService from "./ragService.js";
 import translationService from "./translationService.js";
 import agentforceService from "./agentforce.service.js";
+import llmProviderService from "./llmProvider.service.js";
 
 // ============================================================================
 // NEW ARCHITECTURE IMPORTS (Refactored for clarity)
@@ -177,15 +177,61 @@ class AIAgentService {
   _slotCache = new Map();
 
   constructor() {
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-
-    this.isConfigured = !!process.env.OPENAI_API_KEY;
+    this.openai = llmProviderService.openai;
+    this.isConfigured = !!(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY);
 
     if (!this.isConfigured) {
-      console.warn("⚠️  OpenAI not configured. Add OPENAI_API_KEY to .env");
+      console.warn(
+        "⚠️  No LLM provider configured. Add OPENAI_API_KEY or XAI_API_KEY to .env",
+      );
     }
+  }
+
+  resolveProviderSelection(options = {}, agent = null) {
+    const requestedProvider =
+      options.provider || options.llmProvider || agent?.llmProvider || "Openai";
+    const requestedModel = options.model || options.llmModel || agent?.llmModel;
+    const resolved = llmProviderService.resolveSelection(
+      requestedProvider,
+      requestedModel,
+    );
+
+    return {
+      provider: resolved.provider,
+      model: resolved.model,
+    };
+  }
+
+  async generateLLMText({
+    provider,
+    model,
+    messages,
+    temperature,
+    maxTokens,
+    responseFormat,
+    presencePenalty,
+    frequencyPenalty,
+  }) {
+    return llmProviderService.generateText({
+      provider,
+      model,
+      messages,
+      temperature,
+      maxTokens,
+      responseFormat,
+      presencePenalty,
+      frequencyPenalty,
+    });
+  }
+
+  streamLLMText({ provider, model, messages, temperature, maxTokens }) {
+    return llmProviderService.streamText({
+      provider,
+      model,
+      messages,
+      temperature,
+      maxTokens,
+    });
   }
 
   // ============================================================================
@@ -436,18 +482,24 @@ class AIAgentService {
    * @param {boolean} isRetry - Is this a retry?
    * @returns {Promise<string>} Contract-validated text
    */
-  async callLLMWithContract(instruction, isRetry = false) {
+  async callLLMWithContract(
+    instruction,
+    isRetry = false,
+    provider = "Openai",
+    model = AI_CONFIG.MODEL,
+  ) {
     const prompt = responseContract.buildContractPrompt(instruction, isRetry);
 
-    const response = await this.openai.chat.completions.create({
-      model: AI_CONFIG.MODEL,
+    const response = await this.generateLLMText({
+      provider,
+      model,
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
-      max_tokens: 100,
-      response_format: { type: "json_object" },
+      maxTokens: 100,
+      responseFormat: { type: "json_object" },
     });
 
-    const rawOutput = response.choices[0].message.content;
+    const rawOutput = response.text;
     const extracted = responseContract.extractResponse(rawOutput);
 
     if (extracted.success) {
@@ -457,7 +509,12 @@ class AIAgentService {
     // Retry with stricter prompt
     if (!isRetry) {
       console.log(`⚠️ Contract failed, retrying with strict prompt...`);
-      return await this.callLLMWithContract(instruction, true);
+      return await this.callLLMWithContract(
+        instruction,
+        true,
+        provider,
+        model,
+      );
     }
 
     // Return the instruction as fallback
@@ -478,7 +535,11 @@ class AIAgentService {
    * @returns {Promise<object>} Validated response { type, text }
    * @throws {Error} After max retries exceeded
    */
-  async getLLMResponseWithRetry(prompt) {
+  async getLLMResponseWithRetry(
+    prompt,
+    provider = "Openai",
+    model = AI_CONFIG.MODEL,
+  ) {
     const MAX_RETRIES = 2;
     let lastError = null;
 
@@ -487,15 +548,16 @@ class AIAgentService {
         console.log(`🤖 LLM attempt ${attempt}/${MAX_RETRIES}`);
 
         // Call LLM
-        const response = await this.openai.chat.completions.create({
-          model: AI_CONFIG.MODEL,
+        const response = await this.generateLLMText({
+          provider,
+          model,
           messages: [{ role: "user", content: prompt }],
           temperature: 0,
-          max_tokens: 100,
-          response_format: { type: "json_object" },
+          maxTokens: 100,
+          responseFormat: { type: "json_object" },
         });
 
-        const rawOutput = response.choices[0].message.content;
+        const rawOutput = response.text;
 
         // Parse (throws on failure)
         const parsed = outputParser.parseLLMOutput(rawOutput);
@@ -532,11 +594,19 @@ class AIAgentService {
    * @param {string} stepText - The text the agent should speak
    * @returns {Promise<string>} Validated spoken text
    */
-  async getStepResponse(stepText) {
+  async getStepResponse(
+    stepText,
+    provider = "Openai",
+    model = AI_CONFIG.MODEL,
+  ) {
     const prompt = promptBuilder.buildStepPromptV2(stepText);
 
     try {
-      const response = await this.getLLMResponseWithRetry(prompt);
+      const response = await this.getLLMResponseWithRetry(
+        prompt,
+        provider,
+        model,
+      );
       return response.text;
     } catch (error) {
       // On complete failure, return the original step text
@@ -910,6 +980,7 @@ class AIAgentService {
         language = "en",
         temperature = 0.3,
         maxTokens = 100,
+        provider = "Openai",
         model = AI_CONFIG.MODEL,
       } = options;
 
@@ -1152,15 +1223,16 @@ class AIAgentService {
       // STEP 10: Call LLM with JSON output format
       // LLM MUST return: {"spoken_text": "...", "language": "..."}
       // ========================================
-      const response = await this.openai.chat.completions.create({
+      const response = await this.generateLLMText({
+        provider,
         model,
         messages: promptConfig.messages,
         temperature,
-        max_tokens: maxTokens,
-        response_format: { type: "json_object" }, // Force JSON output
+        maxTokens,
+        responseFormat: { type: "json_object" }, // Force JSON output
       });
 
-      const rawResponse = response.choices[0].message.content;
+      const rawResponse = response.text;
       console.log(`🤖 Raw LLM output: ${rawResponse.substring(0, 100)}...`);
 
       // ========================================
@@ -1321,7 +1393,8 @@ class AIAgentService {
         systemPrompt = "You are a helpful AI assistant for a CRM system.",
         temperature = 0.4,
         maxTokens = 150,
-        provider = "openai", // 'openai' or 'agentforce'
+        provider = "Openai",
+        model = null,
         isRetry = false, // Flag to indicate if this is a retry after no/unclear response
         lastQuestion = null, // The last question that was asked
       } = options;
@@ -1330,10 +1403,11 @@ class AIAgentService {
       // LOAD AGENT SLOTS FOR DYNAMIC EXTRACTION (NEW - Hybrid Approach)
       // ============================================================================
       let agentSlots = [];
+      let agent = null;
       if (agentId && agentId !== "default") {
         try {
           const Agent = (await import("../models/Agent.js")).default;
-          const agent = await Agent.findById(agentId);
+          agent = await Agent.findById(agentId);
           if (agent && agent.requiredSlots && agent.requiredSlots.length > 0) {
             agentSlots = agent.requiredSlots;
             console.log(
@@ -1347,6 +1421,13 @@ class AIAgentService {
           );
         }
       }
+
+      const llmSelection = this.resolveProviderSelection(
+        { provider, model },
+        agent,
+      );
+      const selectedProvider = llmSelection.provider;
+      const selectedModel = llmSelection.model;
 
       // Handle empty/unclear user input (silence, distortion, STT failure)
       // Note: Accept Unicode for multi-language support (Hindi, Tamil, etc.)
@@ -1381,12 +1462,14 @@ class AIAgentService {
       }
 
       // If Agentforce is selected, route there (with translation wrapper)
-      if (provider === "agentforce") {
+      if (selectedProvider === "agentforce") {
         // Extract customer info even for Agentforce
         const updatedContext = await this.extractCustomerInfo(
           userMessage,
           customerContext,
           agentSlots, // Pass dynamic slots
+          "Openai",
+          AI_CONFIG.EXTRACTION_MODEL,
         );
 
         const agentforceResponse = await this.getAgentforceResponse(
@@ -1414,6 +1497,8 @@ class AIAgentService {
         userMessage,
         customerContext,
         agentSlots, // Pass dynamic slots
+        selectedProvider,
+        selectedModel,
       );
 
       // Preserve originalQuery and conversationIntent if they already exist
@@ -1553,7 +1638,13 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
             userMessage,
             conversationHistory,
             enhancedSystemPrompt,
-            { temperature, maxTokens, agentId },
+            {
+              temperature,
+              maxTokens,
+              agentId,
+              provider: selectedProvider,
+              model: selectedModel,
+            },
           );
 
           if (ragResponse) {
@@ -1571,20 +1662,26 @@ CRITICAL: You MUST complete the current step before proceeding. Follow your numb
               customerContext: updatedContext, // Include updated context
             };
           }
-        } catch (ragError) {
-          console.warn(
-            "⚠️  RAG failed, falling back to standard OpenAI:",
+          } catch (ragError) {
+            console.warn(
+            "⚠️  RAG failed, falling back to standard LLM response:",
             ragError.message,
           );
         }
       }
 
-      // Standard OpenAI response (fallback or when RAG disabled)
+      // Standard LLM response (fallback or when RAG disabled)
       const aiResponse = await this.getStandardResponse(
         userMessage,
         conversationHistory,
         enhancedSystemPrompt,
-        { temperature, maxTokens, languageNames: LANGUAGE_CODES },
+        {
+          temperature,
+          maxTokens,
+          languageNames: LANGUAGE_CODES,
+          provider: selectedProvider,
+          model: selectedModel,
+        },
       );
 
       return {
@@ -1920,7 +2017,37 @@ CRITICAL RULES:
     }
 
     try {
-      const { temperature, maxTokens, agentId } = options || {};
+      const { temperature, maxTokens, agentId, provider, model } = options || {};
+
+      if (llmProviderService.normalizeProvider(provider) !== "openai") {
+        const filter = agentId ? { agentId } : {};
+        const retrieval = await ragService.retrieveContext(
+          query,
+          15,
+          filter,
+        );
+
+        if (!retrieval.success || !retrieval.context) {
+          return null;
+        }
+
+        const contextSection = `\n\n--- KNOWLEDGE BASE REFERENCE ---\n${retrieval.context}\n--- END KNOWLEDGE BASE ---\n\n`;
+        const ragSystemPrompt = `${systemPrompt}${contextSection}Use the knowledge base above as your primary source. Keep responses short and conversational for voice.`;
+        const ragResponse = await this.getStandardResponse(
+          query,
+          conversationHistory,
+          ragSystemPrompt,
+          {
+            temperature,
+            maxTokens,
+            languageNames: LANGUAGE_CODES,
+            provider,
+            model,
+          },
+        );
+
+        return ragResponse.response;
+      }
 
       const response = await ragService.chat(
         query,
@@ -1941,7 +2068,7 @@ CRITICAL RULES:
   }
 
   /**
-   * Get standard OpenAI response
+   * Get standard LLM response
    */
   async getStandardResponse(
     userMessage,
@@ -1949,11 +2076,13 @@ CRITICAL RULES:
     systemPrompt,
     options,
   ) {
-    const { temperature, maxTokens, languageNames, model } = options;
+    const { temperature, maxTokens, languageNames, model, provider } = options;
 
     // Use model from options, fallback to config
-    const selectedModel = model || AI_CONFIG.MODEL;
-    console.log(`🤖 Using LLM model: ${selectedModel}`);
+    const llmSelection = this.resolveProviderSelection({ provider, model });
+    const selectedProvider = llmSelection.provider;
+    const selectedModel = llmSelection.model;
+    console.log(`🤖 Using LLM provider/model: ${selectedProvider}/${selectedModel}`);
 
     // Build messages array with FULL conversation history for better context
     const recentHistory = conversationHistory.slice(
@@ -1971,17 +2100,18 @@ CRITICAL RULES:
       },
     ];
 
-    // Call OpenAI API with stricter parameters to follow script
-    const response = await this.openai.chat.completions.create({
+    // Call the selected LLM with stricter parameters to follow script
+    const response = await this.generateLLMText({
+      provider: selectedProvider,
       model: selectedModel,
       messages: messages,
       temperature: temperature || AI_CONFIG.DEFAULT_TEMPERATURE,
-      max_tokens: maxTokens || AI_CONFIG.DEFAULT_MAX_TOKENS,
-      presence_penalty: AI_CONFIG.PRESENCE_PENALTY,
-      frequency_penalty: AI_CONFIG.FREQUENCY_PENALTY,
+      maxTokens: maxTokens || AI_CONFIG.DEFAULT_MAX_TOKENS,
+      presencePenalty: AI_CONFIG.PRESENCE_PENALTY,
+      frequencyPenalty: AI_CONFIG.FREQUENCY_PENALTY,
     });
 
-    let aiResponse = response.choices[0].message.content;
+    let aiResponse = response.text;
 
     // Remove numbered lists for voice output (but AI keeps them mentally)
     aiResponse = this.removeNumberedLists(aiResponse);
@@ -2578,7 +2708,13 @@ CRITICAL RULES:
    * Extract customer information from text using AI
    * Much more reliable than regex patterns
    */
-  async extractCustomerInfo(text, existingContext = {}, agentSlots = []) {
+  async extractCustomerInfo(
+    text,
+    existingContext = {},
+    agentSlots = [],
+    provider = "Openai",
+    model = AI_CONFIG.EXTRACTION_MODEL,
+  ) {
     try {
       console.log("🔍 Extracting customer info from:", text);
 
@@ -2601,8 +2737,9 @@ CRITICAL RULES:
         console.log("📋 Using UNIVERSAL extraction (no agent slots detected)");
       }
 
-      const response = await this.openai.chat.completions.create({
-        model: AI_CONFIG.EXTRACTION_MODEL,
+      const response = await this.generateLLMText({
+        provider,
+        model,
         messages: [
           {
             role: "system",
@@ -2614,9 +2751,9 @@ CRITICAL RULES:
           },
         ],
         temperature: 0,
-        max_tokens: AI_CONFIG.EXTRACTION_MAX_TOKENS,
+        maxTokens: AI_CONFIG.EXTRACTION_MAX_TOKENS,
       });
-      const jsonStr = response.choices[0].message.content.trim();
+      const jsonStr = response.text.trim();
       console.log("🤖 AI extraction raw response:", jsonStr);
 
       // Handle markdown code blocks if AI returns them
@@ -2802,18 +2939,16 @@ CRITICAL RULES:
         systemPrompt = "You are a helpful AI assistant.",
         temperature = 0.3,
         maxTokens = 200, // Default for streaming - enough for complete responses
-        provider = "openai",
-        model = AI_CONFIG.MODEL, // Add model selection
+        provider = "Openai",
+        model = null,
       } = options;
-
-      // Log selected model
-      console.log(`🤖 Streaming with model: ${model}`);
 
       // ============================================================================
       // LOAD AGENT SLOTS FOR DYNAMIC EXTRACTION (NEW - Hybrid Approach)
       // ============================================================================
       // LATENCY OPT: Use cached slots — skip Agent.findById after first call
       let agentSlots = [];
+      let agent = null;
       if (agentId && agentId !== "default") {
         if (this._slotCache.has(agentId)) {
           agentSlots = this._slotCache.get(agentId);
@@ -2821,7 +2956,7 @@ CRITICAL RULES:
         } else {
           try {
             const Agent = (await import("../models/Agent.js")).default;
-            const agent = await Agent.findById(agentId);
+            agent = await Agent.findById(agentId);
             if (agent && agent.requiredSlots && agent.requiredSlots.length > 0) {
               agentSlots = agent.requiredSlots;
               this._slotCache.set(agentId, agentSlots);
@@ -2836,6 +2971,32 @@ CRITICAL RULES:
             );
           }
         }
+      }
+
+      if (!agent && agentId && agentId !== "default") {
+        try {
+          const Agent = (await import("../models/Agent.js")).default;
+          agent = await Agent.findById(agentId);
+        } catch (error) {
+          console.warn("⚠️  Could not load agent for LLM selection:", error.message);
+        }
+      }
+
+      const llmSelection = this.resolveProviderSelection(
+        { provider, model },
+        agent,
+      );
+      const selectedProvider = llmSelection.provider;
+      const selectedModel = llmSelection.model;
+      const streamingProvider =
+        selectedProvider === "agentforce" ? "openai" : selectedProvider;
+      console.log(
+        `🤖 Streaming with provider/model: ${selectedProvider}/${selectedModel}`,
+      );
+      if (selectedProvider === "agentforce") {
+        console.warn(
+          "⚠️ Agentforce is not supported in streaming mode. Falling back to OpenAI for stream generation.",
+        );
       }
 
       // Quick validation
@@ -2862,7 +3023,7 @@ CRITICAL RULES:
       const memoryBlock = buildMemoryBlock(updatedContext);
 
       // ========================================================================
-      // 🚀 LATENCY OPTIMIZATION 1: OPENAI PROMPT CACHING
+      // 🚀 LATENCY OPTIMIZATION 1: PROMPT CACHING
       // Split system prompt into STATIC (cached) and DYNAMIC (never cached) parts.
       // This reduces TTFT (First Token Latency) from ~9s to ~3s on subsequent turns!
       // ========================================================================
@@ -2908,28 +3069,19 @@ Respond in ${currentLanguageName}`;
         { role: "user", content: userMessage },
       ];
 
-      // Stream from OpenAI with selected model
-      const stream = await this.openai.chat.completions.create({
-        model: model,
-        messages: messages,
-        temperature: temperature,
-        max_tokens: 150, // Voice responses are short
-        stream: true,
-        stream_options: { include_usage: true }, // Send usage data to log cache hits!
+      // Stream from the selected LLM
+      const stream = this.streamLLMText({
+        provider: streamingProvider,
+        model: selectedModel,
+        messages,
+        temperature,
+        maxTokens: 150, // Voice responses are short
       });
 
       let fullResponse = "";
       let detectedLanguageSwitch = null;
 
-      for await (const chunk of stream) {
-        // Log cache hits if usage info is available (usually in the last chunk)
-        if (chunk.usage) {
-          const cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens || 0;
-          const totalPromptTokens = chunk.usage.prompt_tokens || 0;
-          console.log(`📊 OpenAI Usage: ${totalPromptTokens} prompt tokens (cached: ${cachedTokens})`);
-        }
-
-        const content = chunk.choices[0]?.delta?.content;
+      for await (const content of stream) {
         if (content) {
           fullResponse += content;
 
@@ -2960,7 +3112,7 @@ Respond in ${currentLanguageName}`;
 
       // ========================================================================
       // 🚀 LATENCY OPTIMIZATION 3: BACKGROUND EXTRACTION
-      // Check if user said anything extractable before calling OpenAI again
+      // Check if user said anything extractable before calling the LLM again
       // ========================================================================
       const hasExtractableData = /\d{3,}/.test(userMessage)          // numbers
         || /@/.test(userMessage)                                      // email
@@ -2970,7 +3122,13 @@ Respond in ${currentLanguageName}`;
       if (hasExtractableData) {
         console.log(`🔍 Triggering background extraction (predicts data exists)`);
         // We DO NOT await this here anymore!
-        this._pendingExtraction = this.extractCustomerInfo(userMessage, customerContext, agentSlots)
+        this._pendingExtraction = this.extractCustomerInfo(
+          userMessage,
+          customerContext,
+          agentSlots,
+          streamingProvider,
+          selectedModel,
+        )
           .then((ctx) => {
             updatedContext = ctx;
             return ctx; // asteriskBridge will pick this up on next turn

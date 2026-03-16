@@ -11,6 +11,10 @@ export const PRICING_CONFIG = {
             "gpt-4.1-mini": { inr: 0.08 },     // $0.40/1M input, $1.60/1M output
             "gpt-3.5-turbo": { inr: 0.02 },    // Legacy model
         },
+        Grok: {
+            "grok-4.20-beta-latest-non-reasoning": { inr: 0.08 },
+            default: { inr: 0.08 },
+        },
         Agentforce: {
             default: { inr: 0.05 },
         },

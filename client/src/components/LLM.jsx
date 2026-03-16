@@ -74,6 +74,7 @@ export default function LLM({
 
   const providerOptions = [
     { value: "Openai", label: "OpenAI" },
+    { value: "Grok", label: "Grok" },
     { value: "Agentforce", label: "Agentforce" },
   ];
 
@@ -83,6 +84,15 @@ export default function LLM({
         { value: "gpt-4o-mini", label: "gpt-4o-mini" },
         { value: "gpt-4.1-mini", label: "gpt-4.1-mini" },
         { value: "gpt-3.5-turbo", label: "gpt-3.5-turbo" },
+      ],
+      showModelSelector: true
+    },
+    Grok: {
+      models: [
+        {
+          value: "grok-4.20-beta-latest-non-reasoning",
+          label: "grok-4.20-beta-latest-non-reasoning",
+        },
       ],
       showModelSelector: true
     },
