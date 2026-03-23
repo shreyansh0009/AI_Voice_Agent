@@ -617,7 +617,7 @@ class CallSession {
         interim_results: true,
         utterance_end_ms: 1000, // Triggers UtteranceEnd event
         vad_events: true,
-        endpointing: 300,
+        endpointing: 150,
       });
 
       // Handle transcription results
@@ -671,7 +671,7 @@ class CallSession {
                   console.log(`⚡ [${this.uuid}] Early trigger (isFinal)`);
                   this.processUserInput();
                 }
-              }, 300); //300ms instead of waiting for UtteranceEnd
+              }, 150); // 150ms instead of waiting for UtteranceEnd
             }
           } else {
             console.log(`🎤 [${this.uuid}] Interim: "${transcript}"`);
@@ -1096,6 +1096,15 @@ class CallSession {
         if (audioBase64) {
           audioBuffer = Buffer.from(audioBase64, "base64");
         }
+
+        // Sarvam v3 outputs 8kHz WAV directly — tell ffmpeg to skip resampling
+        if (this.voiceModel?.includes("v3")) {
+          inputFormat = {
+            rawFormat: "wav",
+            sampleRate: 8000,
+            channels: 1,
+          };
+        }
       }
 
       if (!audioBuffer) {
@@ -1153,12 +1162,17 @@ class CallSession {
         );
       }
 
+      const isAlready8kHz = inputFormat?.sampleRate === SAMPLE_RATE;
+
       ffmpegArgs.push(
         "-i",
         "pipe:0", // Input from stdin
-        // Speech-optimized filter chain for PSTN telephony clarity
+        // For 8kHz inputs, use minimal filter chain (skip expensive resampling)
+        // For higher sample rates, use full PSTN-optimized filter chain
         "-af",
-        "highpass=f=200, lowpass=f=3400, equalizer=f=2000:t=q:w=1:g=3, dynaudnorm, aresample=resampler=soxr:precision=28",
+        isAlready8kHz
+          ? "highpass=f=200, lowpass=f=3400"
+          : "highpass=f=200, lowpass=f=3400, equalizer=f=2000:t=q:w=1:g=3, dynaudnorm, aresample=resampler=soxr:precision=28",
         "-ar",
         String(SAMPLE_RATE), // Resample to AudioSocket telephony rate (8kHz)
         "-ac",

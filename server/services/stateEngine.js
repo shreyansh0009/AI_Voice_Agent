@@ -212,7 +212,7 @@ function handleInputStep(flow, conversation, step, userInput) {
       console.log(`🚨 Max retries exceeded - escalating`);
       return {
         success: false,
-        nextStepId: "escalate",
+        nextStepId: step.onFailure || "escalate",
         retryCount: newRetryCount,
         status: "escalated",
       };
@@ -233,7 +233,7 @@ function handleInputStep(flow, conversation, step, userInput) {
   return {
     success: true,
     dataPatch: { [field]: validation.value }, // ONLY the new slot
-    nextStepId: step.next,
+    nextStepId: step.onSuccess || step.next,
     retryCount: 0,
   };
 }
@@ -330,6 +330,48 @@ function handleConfirmStep(flow, conversation, step, userInput) {
         : "I didn't understand. Please say yes or no.",
     retryCount: newRetryCount,
     stepId: conversation.currentStepId,
+  };
+}
+
+/**
+ * Handle choice step — matches user input against step.options
+ *
+ * Routes to step.next[matchedOption] or step.defaultNext if no match.
+ * Always succeeds (choice steps just route, they don't retry).
+ *
+ * @param {object} flow - Flow definition
+ * @param {object} conversation - MongoDB Conversation document
+ * @param {object} step - Current step definition
+ * @param {string} userInput - User's input
+ * @returns {object} Result
+ */
+function handleChoiceStep(flow, conversation, step, userInput) {
+  const inputLower = (userInput || "").toLowerCase().trim();
+  const options = step.options || [];
+  const nextMap = step.next || {};
+
+  // Try to match user input against each option (substring match)
+  for (const option of options) {
+    if (inputLower.includes(option.toLowerCase())) {
+      const nextStepId = nextMap[option] || step.defaultNext || null;
+      console.log(`🎯 Choice matched: "${option}" → ${nextStepId}`);
+      return {
+        success: true,
+        nextStepId,
+        retryCount: 0,
+        dataPatch: step.field ? { [step.field]: option } : {},
+      };
+    }
+  }
+
+  // No match — use defaultNext if available
+  const fallback = step.defaultNext || null;
+  console.log(`❓ Choice no match, using defaultNext: ${fallback}`);
+  return {
+    success: true,
+    nextStepId: fallback,
+    retryCount: 0,
+    dataPatch: {},
   };
 }
 
@@ -483,6 +525,11 @@ export function processTurn({ conversation, userInput, flow }) {
           retryCount: 0,
           dataPatch: extractedSlots,
         };
+        break;
+
+      case "choice":
+        result = handleChoiceStep(flow, conversation, currentStep, userInput);
+        result.dataPatch = { ...extractedSlots, ...result.dataPatch };
         break;
 
       case "input":
