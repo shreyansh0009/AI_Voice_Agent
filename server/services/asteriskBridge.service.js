@@ -5,7 +5,6 @@ import { fileURLToPath } from "url";
 import { createClient } from "@deepgram/sdk";
 import ffmpegPath from "@ffmpeg-installer/ffmpeg";
 import aiAgentService from "./aiAgent.service.js";
-import stateEngine from "./stateEngine.js";
 import Conversation from "../models/Conversation.js";
 import Call from "../models/Call.js";
 import Agent from "../models/Agent.js";
@@ -840,74 +839,8 @@ class CallSession {
       }
 
       // ========================================================================
-      // 🚀 STATE ENGINE BYPASS — Try scripted response BEFORE hitting LLM
-      // If state engine returns text, speak it instantly (0ms LLM latency!)
-      // Only falls back to the slow 25K-token LLM for off-script responses
-      // ========================================================================
-      if (this.flow && this.currentStepId) {
-        try {
-          // Build a conversation-like object from session state
-          const conversation = {
-            currentStepId: this.currentStepId,
-            language: this.language,
-            collectedData: this.collectedData || {},
-            retryCount: this.retryCount || 0,
-            maxRetries: 2,
-            status: 'active',
-            flowId: this.flowId,
-            agentConfig: this.agentConfig || {},
-          };
-
-          const turnResult = stateEngine.processTurn({
-            conversation,
-            userInput: userMessage,
-            flow: this.flow,
-          });
-
-          if (turnResult && turnResult.text) {
-            console.log(`⚡ [${this.uuid}] STATE ENGINE HIT: "${turnResult.text.substring(0, 60)}..."`);
-            console.log(`➡️ [${this.uuid}] Step: ${this.currentStepId} → ${turnResult.nextStepId || 'END'}`);
-
-            // Update session state
-            if (turnResult.nextStepId) {
-              this.currentStepId = turnResult.nextStepId;
-            }
-            if (turnResult.dataPatch && Object.keys(turnResult.dataPatch).length > 0) {
-              this.collectedData = { ...this.collectedData, ...turnResult.dataPatch };
-              this.customerContext = { ...this.customerContext, ...turnResult.dataPatch };
-              console.log(`📦 [${this.uuid}] Collected:`, turnResult.dataPatch);
-            }
-            this.retryCount = turnResult.retryCount || 0;
-
-            // Speak the scripted response immediately — NO LLM needed!
-            this.enqueueSpeech(turnResult.text);
-
-            // Add to conversation history
-            this.conversationHistory.push({
-              role: 'assistant',
-              content: turnResult.text,
-            });
-            this.fullTranscript.push({
-              role: 'assistant',
-              content: turnResult.text,
-              timestamp: new Date(),
-            });
-
-            // Check if flow is complete
-            if (turnResult.isEnd || turnResult.status === 'complete') {
-              console.log(`✅ [${this.uuid}] Flow complete!`);
-            }
-
-            this.isProcessing = false;
-            return; // 🚀 SKIP LLM ENTIRELY!
-          }
-        } catch (stateError) {
-          console.warn(`⚠️ [${this.uuid}] State engine failed, falling back to LLM: ${stateError.message}`);
-        }
-      }
-
-      // ========================================================================
-      // LLM FALLBACK — Only reached for off-script / free-form responses
+      // Process through AI Agent Service - USE STREAMING
+      // The user's script (agent.prompt) is the system prompt — it is the law.
       // ========================================================================
 
       // Start timer BEFORE stream call to measure full latency
@@ -927,22 +860,13 @@ class CallSession {
         },
       );
 
-      // ⚡ PHASE 3.5: True streaming TTS - with character threshold
+      // True streaming TTS - with character threshold
       let fullResponse = "";
       let updatedContext = null;
       let ttsBuffer = "";
       let firstContentLogged = false;
-      let flowTextSpoken = false; // Guard: prevent LLM repeating flow text
 
       for await (const chunk of stream) {
-        // FAST PATH: Speak flow text immediately (no LLM wait)
-        if (chunk.type === "flow_text") {
-          console.log(`⚡ [${this.uuid}] Speaking flow text immediately`);
-          flowTextSpoken = true;
-          this.enqueueSpeech(chunk.content);
-          continue;
-        }
-
         if (chunk.type === "context") {
           updatedContext = chunk.customerContext;
           continue;
@@ -955,12 +879,6 @@ class CallSession {
               `[${this.uuid}] First LLM content after ${Date.now() - t0}ms`,
             );
             firstContentLogged = true;
-          }
-
-          // Skip early LLM content if flow text already spoken (prevent repetition)
-          if (flowTextSpoken && fullResponse.length < 10) {
-            fullResponse += chunk.content;
-            continue;
           }
 
           fullResponse += chunk.content;
