@@ -1,4 +1,5 @@
 import stateEngine from "../services/stateEngine.js";
+import flowLoader from "../services/flowLoader.js";
 import Conversation from "../models/Conversation.js";
 import Agent from "../models/Agent.js";
 import fs from "fs";
@@ -24,28 +25,39 @@ const flowCache = new Map();
 
 /**
  * Load flow definition (with caching)
- * Uses fs.readFileSync for Vercel compatibility (dynamic import fails in serverless)
+ * Priority: agent.flowData → static file → generate from prompt
  */
-function loadFlow(flowId) {
+async function loadFlow(flowId, agent = null) {
+  const cacheKey = flowId || agent?._id?.toString();
+
+  // If agent provided, try flowLoader first (handles flowData, static files, and generation)
+  if (agent) {
+    if (flowCache.has(cacheKey)) {
+      console.log(`📦 Flow cache hit: ${cacheKey}`);
+      return flowCache.get(cacheKey);
+    }
+
+    const flow = await flowLoader.getFlowForAgent(agent);
+    flowCache.set(cacheKey, flow);
+    return flow;
+  }
+
+  // Fallback: load static file by flowId
   if (flowCache.has(flowId)) {
     console.log(`📦 Flow cache hit: ${flowId}`);
     return flowCache.get(flowId);
   }
 
   try {
-    // Use fs.readFileSync for reliable loading in serverless environments
     const flowPath = path.resolve(__dirname, `../flows/${flowId}.json`);
     console.log(`📂 Loading flow from: ${flowPath}`);
-
     const flowContent = fs.readFileSync(flowPath, "utf-8");
     const flow = JSON.parse(flowContent);
-
     flowCache.set(flowId, flow);
     console.log(`✅ Flow loaded successfully: ${flowId}`);
     return flow;
   } catch (error) {
     console.error(`❌ Failed to load flow: ${flowId}`, error.message);
-    console.error(`❌ Full error:`, error);
     throw new Error(`Flow not found: ${flowId}`);
   }
 }
@@ -85,7 +97,7 @@ export async function streamChatV5(req, res) {
 
     // Load flow (controller provides, not stateEngine)
     const flowId = agent.flowId || "automotive_sales";
-    const flow = await loadFlow(flowId);
+    const flow = await loadFlow(flowId, agent);
 
     if (!conversation) {
       // Create new conversation with initial state from flow
@@ -159,12 +171,14 @@ export async function streamChatV5(req, res) {
           ...conversation.collectedData, // Keep existing data
           ...result.dataPatch, // Add new data
         };
+        conversation.markModified("collectedData"); // Required for Mixed type
         console.log(`✅ Data merged:`, conversation.collectedData);
       }
 
       // Handle field clearing (only specific field, not all)
       if (result.shouldClearData && result.fieldToClear) {
         delete conversation.collectedData[result.fieldToClear];
+        conversation.markModified("collectedData"); // Required for Mixed type
         console.log(`🗑️ Cleared field: ${result.fieldToClear}`);
       }
 
@@ -294,7 +308,7 @@ export async function chatV5(req, res) {
 
     // Load flow
     const flowId = agent.flowId || "automotive_sales";
-    const flow = await loadFlow(flowId);
+    const flow = await loadFlow(flowId, agent);
 
     if (!conversation) {
       conversation = new Conversation({
@@ -345,11 +359,13 @@ export async function chatV5(req, res) {
           ...conversation.collectedData,
           ...result.dataPatch,
         };
+        conversation.markModified("collectedData");
       }
 
       // Handle field clearing
       if (result.shouldClearData && result.fieldToClear) {
         delete conversation.collectedData[result.fieldToClear];
+        conversation.markModified("collectedData");
       }
 
       if (result.retryCount !== undefined) {

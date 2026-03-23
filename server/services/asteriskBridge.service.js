@@ -1,10 +1,11 @@
 import net from "net";
 import fs from "fs";
 import { spawn } from "child_process";
-import { fileURLToPath } from "url";
 import { createClient } from "@deepgram/sdk";
 import ffmpegPath from "@ffmpeg-installer/ffmpeg";
 import aiAgentService from "./aiAgent.service.js";
+import flowLoader from "./flowLoader.js";
+import stateEngine from "./stateEngine.js";
 import Conversation from "../models/Conversation.js";
 import Call from "../models/Call.js";
 import Agent from "../models/Agent.js";
@@ -483,18 +484,11 @@ class CallSession {
       this.agentName = agent.name;
       console.log(`[${this.uuid}] Loaded agent: ${agent.name} (${agentId})`);
 
-      // 3. Load flow using fs.readFileSync (same as chatV5Controller)
-      const __filename = fileURLToPath(import.meta.url);
-      const __dirname = import("path").then((p) => p.dirname(__filename));
-      const flowPath = new URL(
-        `../flows/${agent.flowId}.json`,
-        import.meta.url,
-      );
-      const flowContent = fs.readFileSync(flowPath, "utf-8");
-      const flow = JSON.parse(flowContent);
+      // 3. Load flow using flowLoader (handles flowData, static files, and generation)
+      const flow = await flowLoader.getFlowForAgent(agent);
 
       if (!flow || !flow.startStep) {
-        throw new Error(`Invalid flow: ${agent.flowId}`);
+        throw new Error(`Invalid flow for agent: ${agentId}`);
       }
 
       // 4. Store agent configuration and flow
@@ -844,9 +838,73 @@ class CallSession {
       }
 
       // ========================================================================
-      // Process through AI Agent Service
-      // The user's script (agent.prompt) is the system prompt — it is the law.
-      // Collect full response first, then send to TTS once (prevents word skipping).
+      // STATE ENGINE — Try scripted response BEFORE hitting LLM
+      // The flow (generated from user's script) is the LAW.
+      // If state engine returns text, speak it instantly (0ms LLM latency!)
+      // Falls back to LLM only when flow is complete (dynamic queries).
+      // ========================================================================
+      if (this.flow && this.currentStepId) {
+        try {
+          const conversation = {
+            currentStepId: this.currentStepId,
+            language: this.language,
+            collectedData: this.collectedData || {},
+            retryCount: this.retryCount || 0,
+            maxRetries: 2,
+            status: 'active',
+            flowId: this.flowId,
+            agentConfig: this.agentConfig || {},
+          };
+
+          const turnResult = stateEngine.processTurn({
+            conversation,
+            userInput: userMessage,
+            flow: this.flow,
+          });
+
+          if (turnResult && turnResult.text) {
+            console.log(`⚡ [${this.uuid}] STATE ENGINE HIT: "${turnResult.text.substring(0, 60)}..."`);
+            console.log(`➡️ [${this.uuid}] Step: ${this.currentStepId} → ${turnResult.nextStepId || 'END'}`);
+
+            // Update session state
+            if (turnResult.nextStepId) {
+              this.currentStepId = turnResult.nextStepId;
+            }
+            if (turnResult.dataPatch && Object.keys(turnResult.dataPatch).length > 0) {
+              this.collectedData = { ...this.collectedData, ...turnResult.dataPatch };
+              this.customerContext = { ...this.customerContext, ...turnResult.dataPatch };
+              console.log(`📦 [${this.uuid}] Collected:`, turnResult.dataPatch);
+            }
+            this.retryCount = turnResult.retryCount || 0;
+
+            // Speak the scripted response — NO LLM needed!
+            await this.enqueueSpeech(turnResult.text);
+
+            // Add to conversation history
+            this.conversationHistory.push({
+              role: 'assistant',
+              content: turnResult.text,
+            });
+            this.fullTranscript.push({
+              role: 'assistant',
+              content: turnResult.text,
+              timestamp: new Date(),
+            });
+
+            if (turnResult.isEnd || turnResult.status === 'complete') {
+              console.log(`✅ [${this.uuid}] Flow complete!`);
+            }
+
+            this.isProcessing = false;
+            return;
+          }
+        } catch (stateError) {
+          console.warn(`⚠️ [${this.uuid}] State engine failed, falling back to LLM: ${stateError.message}`);
+        }
+      }
+
+      // ========================================================================
+      // LLM FALLBACK — Only for off-script / flow-complete dynamic queries
       // ========================================================================
 
       // Start timer to measure full latency
