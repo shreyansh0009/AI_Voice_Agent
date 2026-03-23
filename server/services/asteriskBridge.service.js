@@ -740,6 +740,11 @@ class CallSession {
         const nextChunk = this.audioQueue.shift();
         const token = this.currentSpeechToken; // ⚡ Phase 4: Read token (increment only on barge-in)
         await this.speakResponse(nextChunk, token);
+
+        // Brief pause between segments for natural pacing (prevents "speaks fast" issue)
+        if (this.audioQueue.length > 0 && token === this.currentSpeechToken) {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
       }
     } finally {
       this.isSpeaking = false;
@@ -902,12 +907,20 @@ class CallSession {
       }
 
       // Flush any remaining text that didn't end with a sentence boundary
-      const remainingChunk = this.extractStreamingChunk(ttsBuffer, true);
-      if (remainingChunk?.chunk) {
-        console.log(
-          `[${this.uuid}] Final sentence: "${remainingChunk.chunk.substring(0, 50)}..."`,
-        );
-        this.enqueueSpeech(remainingChunk.chunk);
+      if (ttsBuffer.trim()) {
+        const remainingChunk = this.extractStreamingChunk(ttsBuffer, true);
+        if (remainingChunk?.chunk) {
+          console.log(
+            `[${this.uuid}] Final sentence: "${remainingChunk.chunk.substring(0, 50)}..."`,
+          );
+          this.enqueueSpeech(remainingChunk.chunk);
+        } else {
+          // Safety net: if extractStreamingChunk returned null, send the raw buffer
+          console.log(
+            `[${this.uuid}] Flushing remaining buffer: "${ttsBuffer.trim().substring(0, 50)}..."`,
+          );
+          this.enqueueSpeech(ttsBuffer.trim());
+        }
       }
 
       // Get AI response for logging and history
