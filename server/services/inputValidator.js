@@ -224,7 +224,8 @@ export function extractName(input) {
 
   // Remove anything after common suffixes
   cleaned = cleaned
-    .replace(/\s+(here|speaking|calling|from|है|हूँ|बोल रहा|बोल रही).*$/i, "")
+    .replace(/\s+(here|speaking|calling|from|है|हूँ|हैं|बोल रहा|बोल रही|ji|jee|sir|madam).*$/i, "")
+    .replace(/[।.]+$/, "")  // Remove trailing Hindi/English punctuation
     .trim();
 
   // Must be 2+ characters and contain at least one letter

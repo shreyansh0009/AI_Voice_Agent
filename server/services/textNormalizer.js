@@ -398,6 +398,25 @@ export function normalizeForTTS(text, language = "en") {
 
   let normalized = text;
 
+  // Step 0: Normalize phone numbers — read digit-by-digit (NOT as large integers)
+  // Matches 10-digit sequences (phone numbers), with optional trailing punctuation
+  normalized = normalized.replace(/\b(\d{10})\.?\b/g, (match, digits) => {
+    if (language === "hi") {
+      return digits.split("").map(d => ONES_HI[parseInt(d)] || "शून्य").join(" ");
+    } else {
+      return digits.split("").map(d => ONES_EN[parseInt(d)] || "zero").join(" ");
+    }
+  });
+
+  // Also handle 6-digit pincodes digit-by-digit
+  normalized = normalized.replace(/\b(\d{6})\b/g, (match, digits) => {
+    if (language === "hi") {
+      return digits.split("").map(d => ONES_HI[parseInt(d)] || "शून्य").join(" ");
+    } else {
+      return digits.split("").map(d => ONES_EN[parseInt(d)] || "zero").join(" ");
+    }
+  });
+
   // Step 1: Normalize currency amounts
   normalized = normalizeCurrency(normalized, language);
 

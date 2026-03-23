@@ -869,8 +869,15 @@ class CallSession {
                 ? "धन्यवाद! आपका दिन शुभ हो।"
                 : "Thank you! Have a great day.");
 
-            console.log(`⚡ [${this.uuid}] STATE ENGINE: "${responseText.substring(0, 60)}..."`);
+            console.log(`⚡ [${this.uuid}] STATE ENGINE HIT: "${responseText.substring(0, 60)}..."`);
             console.log(`➡️ [${this.uuid}] Step: ${this.currentStepId} → ${turnResult.nextStepId || 'END'}`);
+
+            // If flow is complete, clear currentStepId so subsequent messages
+            // go directly to LLM (prevents re-entering dead state engine)
+            if (turnResult.isEnd || turnResult.status === 'complete') {
+              console.log(`✅ [${this.uuid}] Flow complete! Collected data:`, this.collectedData);
+              this.currentStepId = null;
+            }
 
             // Speak the scripted response — NO LLM needed!
             await this.enqueueSpeech(responseText);
@@ -878,23 +885,20 @@ class CallSession {
             // Add to conversation history
             this.conversationHistory.push({
               role: 'assistant',
-              content: turnResult.text,
+              content: responseText,
             });
             this.fullTranscript.push({
               role: 'assistant',
-              content: turnResult.text,
+              content: responseText,
               timestamp: new Date(),
             });
-
-            if (turnResult.isEnd || turnResult.status === 'complete') {
-              console.log(`✅ [${this.uuid}] Flow complete!`);
-            }
 
             this.isProcessing = false;
             return;
           }
         } catch (stateError) {
           console.warn(`⚠️ [${this.uuid}] State engine failed, falling back to LLM: ${stateError.message}`);
+          console.warn(`⚠️ [${this.uuid}] State engine stack:`, stateError.stack);
         }
       }
 

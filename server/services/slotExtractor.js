@@ -76,7 +76,7 @@ const EXTRACTION_PATTERNS = {
   // Name
   [SLOTS.NAME]: {
     patterns: [
-      /(?:my name is|i am|this is|mera naam|naam|नाम|मेरा नाम)\s*(?:is|hai|h|:|है)?\s*(\p{L}[\p{L}\s]{0,30})/iu,
+      /(?:my name is|i am|this is|mera naam|मेरा नाम है|मेरा नाम|naam|नाम)\s*(?:is|hai|h|:|है)?\s*(\p{L}[\p{L}\s]{0,30})/iu,
       /(?:i'm|im)\s+(\p{L}[\p{L}\s]{0,30})/iu,
       /^(\p{L}[\p{L}\s]{1,30})$/iu, // Just a name (nothing else)
     ],

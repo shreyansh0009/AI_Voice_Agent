@@ -626,10 +626,35 @@ function replacePlaceholders(text, data) {
   if (!text || !data) return text;
 
   let result = text;
+
+  // Pass 1: Handle {{key}} placeholders (standard format)
   for (const [key, value] of Object.entries(data)) {
     const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, "gi");
     result = result.replace(placeholder, value || "");
   }
+
+  // Pass 2: Handle [Bracket Style] placeholders from LLM-generated flows
+  // Maps common bracket phrases to collected data keys
+  const bracketMap = {
+    name: ['customer name', 'name', 'naam', 'नाम', 'ग्राहक का नाम'],
+    mobile: ['mobile number', 'mobile', 'phone number', 'phone', 'contact number', 'मोबाइल नंबर', 'फोन नंबर', 'नंबर'],
+    pincode: ['pincode', 'pin code', 'zip', 'पिनकोड', 'पिन कोड'],
+    email: ['email', 'email address', 'ईमेल'],
+    address: ['address', 'location', 'पता', 'एड्रेस'],
+    registration: ['vehicle registration', 'registration number', 'vehicle number', 'गाड़ी नंबर', 'रजिस्ट्रेशन नंबर', 'वाहन नंबर'],
+    model: ['model', 'product', 'vehicle model', 'मॉडल'],
+  };
+
+  result = result.replace(/\[([^\]]+)\]/g, (match, inner) => {
+    const innerLower = inner.toLowerCase().trim();
+    for (const [field, aliases] of Object.entries(bracketMap)) {
+      if (aliases.some(a => innerLower.includes(a)) && data[field]) {
+        return data[field];
+      }
+    }
+    return match; // No match found, keep original bracket text
+  });
+
   return result;
 }
 
