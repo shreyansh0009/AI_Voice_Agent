@@ -576,8 +576,10 @@ export function processTurn({ conversation, userInput, flow }) {
 
     let text = result.text;
     if (!text && nextStepId && nextStepId !== "escalate") {
-      // Get next step's text
-      const tempConv = { ...conversation, currentStepId: nextStepId };
+      // Merge dataPatch into collectedData BEFORE getting next step text
+      // Otherwise placeholders like {{name}} won't be filled
+      const mergedData = { ...conversation.collectedData, ...result.dataPatch };
+      const tempConv = { ...conversation, currentStepId: nextStepId, collectedData: mergedData };
       text = getCurrentStepText(flow, tempConv);
     }
 

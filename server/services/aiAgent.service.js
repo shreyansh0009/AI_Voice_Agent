@@ -3132,36 +3132,8 @@ Respond in ${currentLanguageName}`;
         }
       }
 
-      // ========================================================================
-      // 🚀 LATENCY OPTIMIZATION 3: BACKGROUND EXTRACTION
-      // Check if user said anything extractable before calling the LLM again
-      // ========================================================================
-      const hasExtractableData = /\d{3,}/.test(userMessage)          // numbers
-        || /@/.test(userMessage)                                      // email
-        || /\b(my name|i am|i'm|mera naam|main)\b/i.test(userMessage) // names
-        || /[A-Z]{2}\d{2}[A-Z]{1,2}\d{4}/i.test(userMessage);        // vehicle ID
-
-      if (hasExtractableData) {
-        console.log(`🔍 Triggering background extraction (predicts data exists)`);
-        // We DO NOT await this here anymore!
-        this._pendingExtraction = this.extractCustomerInfo(
-          userMessage,
-          customerContext,
-          agentSlots,
-          streamingProvider,
-          selectedModel,
-        )
-          .then((ctx) => {
-            updatedContext = ctx;
-            return ctx; // asteriskBridge will pick this up on next turn
-          })
-          .catch((err) => {
-            console.error("Slot extraction failed:", err.message);
-            return customerContext;
-          });
-      } else {
-        console.log(`⏭️ Skipping extraction (no data detected)`);
-      }
+      // Extraction is handled by the state engine (slotExtractor).
+      // No background LLM extraction needed — avoids API contention.
 
       yield { type: "context", customerContext: updatedContext };
       yield { type: "done" };

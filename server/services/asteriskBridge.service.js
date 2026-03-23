@@ -797,17 +797,6 @@ class CallSession {
     console.log(`[${this.uuid}] Processing: "${userMessage}"`);
 
     try {
-      // 🚀 LATENCY OPT: Resolve any pending background extraction from previous turn.
-      // Because we no longer await it in aiAgent, we pick up the result here.
-      // Usually instant because it ran in the background while the user was listening/speaking.
-      if (aiAgentService._pendingExtraction) {
-        const prevCtx = await aiAgentService._pendingExtraction;
-        if (prevCtx && typeof prevCtx === 'object') {
-          this.customerContext = { ...this.customerContext, ...prevCtx };
-        }
-        aiAgentService._pendingExtraction = null;
-      }
-
       // Check for "check-in" phrases (hello? are you there? etc.)
       // These should get a quick acknowledgment, not restart the flow
       if (this.isCheckInPhrase(userMessage)) {
