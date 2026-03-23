@@ -95,6 +95,17 @@ export const createAgent = async (req, res) => {
     const newAgent = new Agent(agentData);
     const savedAgent = await newAgent.save();
 
+    // Generate flow from script (async — don't block the response)
+    if (savedAgent.prompt) {
+      try {
+        const flowGenerator = (await import("../services/flowGenerator.js")).default;
+        await flowGenerator.generateAndSaveFlow(savedAgent);
+        console.log(`📋 Flow generated for agent: ${savedAgent.name}`);
+      } catch (flowError) {
+        console.warn("⚠️  Flow generation failed (agent still created):", flowError.message);
+      }
+    }
+
     console.log(
       "✅ Agent created successfully:",
       savedAgent.name,
@@ -245,6 +256,17 @@ export const updateAgent = async (req, res) => {
 
     if (!updatedAgent) {
       return res.status(404).json({ message: "Agent not found" });
+    }
+
+    // Regenerate flow if prompt was updated
+    if (prompt !== undefined && updatedAgent.prompt) {
+      try {
+        const flowGenerator = (await import("../services/flowGenerator.js")).default;
+        await flowGenerator.regenerateFlow(updatedAgent);
+        console.log(`📋 Flow regenerated for updated agent: ${updatedAgent.name}`);
+      } catch (flowError) {
+        console.warn("⚠️  Flow regeneration failed (agent still updated):", flowError.message);
+      }
     }
 
     console.log(

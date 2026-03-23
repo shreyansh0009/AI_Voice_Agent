@@ -1,10 +1,13 @@
 /**
  * Flow Generator Service
  *
- * PURPOSE: Automatically generate JSON flows from agent prompts
+ * PURPOSE: Automatically generate JSON flows from agent prompts/scripts
  *
  * This allows users to create 100s of agents without manually writing flows.
  * The LLM converts their script/prompt into a structured flow.
+ *
+ * CRITICAL: The generated flow MUST include EVERY step from the script.
+ * No step can be skipped, merged, or reordered.
  */
 
 import OpenAI from "openai";
@@ -20,15 +23,38 @@ const openai = new OpenAI({
  * @returns {object} Generated flow JSON
  */
 export async function generateFlowFromPrompt(agent) {
-  const systemPrompt = `You are a conversation flow designer.
+  const systemPrompt = `You are a conversation flow architect. Your job is to convert an agent's script into a structured JSON flow for a state engine.
 
-Convert the user's agent script/prompt into a structured JSON flow.
+CRITICAL RULES (VIOLATION = FAILURE):
+1. EVERY sentence in the script becomes a step. NEVER skip, merge, or reorder any sentence.
+2. Each question the agent asks = one step. NEVER combine multiple questions into one step.
+3. Each piece of information to collect = one "input" step.
+4. Each confirmation/checkpoint = one "confirm" step.
+5. The flow must follow the EXACT order of the script — line by line.
+6. Preserve the EXACT wording from the script in the "text" field. Do NOT paraphrase or rewrite.
+7. If the script mentions "ask name, then ask phone, then ask pincode" → create 3 separate input steps.
 
-RULES:
-1. Extract what information the agent needs to collect
-2. Determine the sequence of questions
-3. Identify confirmation points
-4. Create proper flow structure
+STEP TYPES:
+- "message": Agent speaks, no user input expected. Use for greetings, explanations, transitions.
+- "input": Collect a specific piece of data. Requires "field" (the data field name) and "validation".
+- "choice": User picks from a list of options. Requires "options" array and "next" map.
+- "confirm": Yes/No question. Requires "confirmNext" and "denyNext".
+- "handoff": Transfer to human agent.
+- "end": Conversation complete. Mark with "isEnd": true.
+
+VALIDATION TYPES for input steps:
+- "name" → for person names
+- "mobile" → for 10-digit phone numbers
+- "email" → for email addresses
+- "pincode" → for 6-digit pincodes
+- "text" → for any free text
+- "number" → for numeric values
+
+TRANSITION RULES:
+- message steps: use "next" field → string
+- input steps: use "onSuccess" → next step ID, "onFailure" → handoff step ID
+- choice steps: use "next" → object mapping options to step IDs, "defaultNext" → fallback
+- confirm steps: use "confirmNext" → if yes, "denyNext" → if no
 
 OUTPUT FORMAT (strict JSON):
 {
@@ -38,66 +64,76 @@ OUTPUT FORMAT (strict JSON):
     "greeting": {
       "type": "message",
       "text": {
-        "en": "...",
-        "hi": "..."
+        "en": "Exact greeting text from script",
+        "hi": "Hindi translation of greeting"
       },
       "next": "next_step_id"
     },
-    "step_id": {
-      "type": "input|choice|confirm|message",
-      "field": "fieldName",
-      "validation": "name|mobile|email|text",
-      "text": { "en": "...", "hi": "..." },
-      "onSuccess": "next_step",
+    "collect_name": {
+      "type": "input",
+      "field": "name",
+      "validation": "name",
+      "text": {
+        "en": "Exact question from script for name",
+        "hi": "Hindi translation"
+      },
+      "retryText": {
+        "en": "I didn't catch that. Could you tell me your name?",
+        "hi": "मुझे समझ नहीं आया। कृपया अपना नाम बताइए।"
+      },
+      "onSuccess": "next_step_id",
       "onFailure": "handoff"
     }
   }
 }
 
-STEP TYPES (only use these):
-- message: Agent speaks, no input needed
-- input: Collect data (name, phone, email, etc.)
-- choice: User picks from options
-- confirm: Yes/No question
-- handoff: Transfer to human
-- end: Conversation complete
+ALWAYS include these system steps:
+- "handoff" step (type: handoff)
+- "end" step (type: end, isEnd: true)
 
-VALIDATION TYPES:
-- name, mobile, email, pincode, text, number
-
-Always include:
-- greeting step
-- handoff step (for escalation)
-- end step
-- Both English and Hindi text`;
+ALWAYS provide BOTH English ("en") and Hindi ("hi") text for every step.
+If the script is in English, translate to Hindi. If in Hindi, translate to English.`;
 
   const userPrompt = `Agent Name: ${agent.name}
 Domain: ${agent.domain || "general"}
+Agent Brand: ${agent.agentConfig?.brand || ""}
+Agent Tone: ${agent.agentConfig?.tone || "friendly"}
 
-Agent Script/Prompt:
+=== AGENT SCRIPT (CONVERT LINE BY LINE — DO NOT SKIP ANY LINE) ===
 ${agent.prompt || agent.personaPrompt}
+=== END OF SCRIPT ===
 
-Generate a complete conversation flow that:
-1. Greets the user
-2. Collects necessary information
-3. Confirms details
-4. Completes the task
-5. Has error handling
+Instructions:
+1. Read the script above carefully, line by line
+2. Create ONE step for EACH line/sentence/question in the script
+3. Preserve the EXACT wording from the script
+4. Set the correct step type for each line
+5. Set proper transitions between steps
+6. Add handoff and end steps at the bottom
 
-Make it conversational and match the agent's tone.`;
+Output the complete flow as JSON.`;
 
   try {
+    console.log(`🤖 Generating flow from script (${(agent.prompt || agent.personaPrompt || "").length} chars)...`);
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.3,
+      temperature: 0.1, // Very low temperature for deterministic output
       response_format: { type: "json_object" },
+      max_tokens: 4000,
     });
 
     const generatedFlow = JSON.parse(response.choices[0].message.content);
+
+    // Validate the generated flow
+    if (!generatedFlow.steps || Object.keys(generatedFlow.steps).length < 2) {
+      console.error("❌ Generated flow has too few steps:", Object.keys(generatedFlow.steps || {}));
+      throw new Error("Generated flow is too short — script may not have been parsed correctly");
+    }
 
     // Add metadata
     generatedFlow.flowId = `custom_flow_${agent._id}`;
@@ -110,7 +146,7 @@ Make it conversational and match the agent's tone.`;
       style: agent.agentConfig?.style || "concise",
     };
 
-    // Ensure required steps exist
+    // Ensure required system steps exist
     if (!generatedFlow.steps.handoff) {
       generatedFlow.steps.handoff = {
         type: "handoff",
@@ -133,10 +169,14 @@ Make it conversational and match the agent's tone.`;
       };
     }
 
+    // Log the generated steps for debugging
+    const stepIds = Object.keys(generatedFlow.steps);
+    console.log(`✅ Generated flow with ${stepIds.length} steps:`, stepIds);
+
     return generatedFlow;
   } catch (error) {
-    console.error("❌ Flow generation error:", error);
-    throw new Error("Failed to generate flow from prompt");
+    console.error("❌ Flow generation error:", error.message);
+    throw new Error(`Failed to generate flow from prompt: ${error.message}`);
   }
 }
 
@@ -149,12 +189,12 @@ Make it conversational and match the agent's tone.`;
 export async function generateAndSaveFlow(agent) {
   const flow = await generateFlowFromPrompt(agent);
 
-  // Store in agent's flowData field (or save to file)
   agent.flowData = flow;
   agent.flowId = flow.flowId;
+  agent.markModified("flowData"); // Required for Mixed type
   await agent.save();
 
-  console.log(`✅ Generated flow for agent: ${agent.name}`);
+  console.log(`✅ Generated and saved flow for agent: ${agent.name}`);
 
   return {
     flowId: flow.flowId,
@@ -171,6 +211,7 @@ export async function generateAndSaveFlow(agent) {
 export async function getOrGenerateFlow(agent) {
   // If flow already exists in agent.flowData, use it
   if (agent.flowData && Object.keys(agent.flowData).length > 0) {
+    console.log(`📋 Using stored flow for: ${agent.name}`);
     return agent.flowData;
   }
 
@@ -180,6 +221,7 @@ export async function getOrGenerateFlow(agent) {
       const flow = await import(`../flows/${agent.flowId}.json`, {
         assert: { type: "json" },
       });
+      console.log(`📋 Using static flow: ${agent.flowId}`);
       return flow.default;
     } catch (err) {
       console.warn(`⚠️ Static flow not found: ${agent.flowId}`);
@@ -205,6 +247,7 @@ export async function regenerateFlow(agent) {
 
   agent.flowData = flow;
   agent.flowId = flow.flowId;
+  agent.markModified("flowData"); // Required for Mixed type
   await agent.save();
 
   console.log(`✅ Flow regenerated for agent: ${agent.name}`);

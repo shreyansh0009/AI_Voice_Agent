@@ -41,6 +41,12 @@ const agentSchema = new mongoose.Schema(
       default: "v1",
     },
 
+    // Dynamically generated flow from user's script (stored in DB)
+    flowData: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+
     // PERSONA PROMPT (replaces complex prompt for flow logic)
     // This is ONLY for agent personality, NOT flow logic
     personaPrompt: {
