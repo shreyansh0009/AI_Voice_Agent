@@ -399,12 +399,15 @@ class CallSession {
 
   resolveElevenLabsModel() {
     const configuredModel = this.voiceModel || "eleven_multilingual_v2";
-    const isTurboModel = configuredModel.startsWith("eleven_turbo");
+
+    // eleven_turbo_v2_5 supports multilingual — no override needed
+    // Only override the old eleven_turbo_v2 (which is English-only) for non-English
+    const isOldTurbo = configuredModel === "eleven_turbo_v2";
     const isNonEnglish = this.language && this.language !== "en";
 
-    if (isTurboModel && isNonEnglish) {
+    if (isOldTurbo && isNonEnglish) {
       console.log(`[${this.uuid}] ElevenLabs model override`, {
-        reason: "multilingual_phone_quality",
+        reason: "eleven_turbo_v2_english_only",
         configuredModel,
         resolvedModel: "eleven_multilingual_v2",
         language: this.language,
