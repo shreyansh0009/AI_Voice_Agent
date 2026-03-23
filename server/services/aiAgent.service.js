@@ -148,22 +148,32 @@ Be flexible - extract whatever information is relevant to the user's identity or
  * @returns {string} Formatted memory block or empty string
  */
 function buildMemoryBlock(collectedData) {
-  if (!collectedData || Object.keys(collectedData).length === 0) {
-    return "";
+  const collectedKeys = collectedData ? Object.keys(collectedData) : [];
+
+  if (collectedKeys.length === 0) {
+    return `CONVERSATION STATE: This is the START of the conversation.
+- No information collected yet.
+- Follow the script from the VERY FIRST step.
+- Ask the FIRST question only.`;
   }
 
-  const lines = Object.entries(collectedData).map(
-    ([key, value]) => `- ${key}: ${value}`,
+  const collectedLines = collectedKeys.map(
+    (key) => `- ${key}: ${collectedData[key]}`,
   );
 
   return `
-COLLECTED INFORMATION (Authoritative – DO NOT ASK AGAIN):
-${lines.join("\n")}
+CONVERSATION PROGRESS TRACKER:
 
-Rules:
-- These values are CONFIRMED
-- Never ask for them again
-- If user repeats them, acknowledge briefly and continue
+✅ ALREADY COLLECTED (DO NOT ask again):
+${collectedLines.join("\n")}
+
+⛔ STRICT RULES:
+- You have ${collectedKeys.length} piece(s) of information.
+- Ask for ONLY the NEXT missing piece from the script.
+- NEVER combine questions. ONE question per turn.
+- NEVER ask about: ${collectedKeys.join(", ")} — these are CONFIRMED.
+- If user repeats confirmed info, acknowledge briefly ("Got it") and ask the NEXT question from the script.
+- Follow the script step by step — do NOT skip steps.
 `;
 }
 
@@ -3038,14 +3048,14 @@ VOICE OUTPUT RULES:
 - Speak naturally without bullet points
 
 CRITICAL SCRIPT RULES (MOST IMPORTANT):
+- The script above is YOUR LAW. Follow it EXACTLY, step by step, line by line.
+- NEVER skip any step. NEVER jump ahead. NEVER combine steps.
 - Ask EXACTLY ONE question per response — NEVER combine multiple questions
 - NEVER ask for name, phone, pincode, address, or any two fields in the same turn
-- Follow the script step by step — do NOT skip ahead or jump between steps
-- If the script says "Ask for name" then ONLY ask for name, nothing else
-- If the script says "Ask for pincode" then ONLY ask for pincode
-- Collect one piece of information at a time, confirm it, then move to the next
-- Example WRONG: "What is your name, phone number, and pincode?"
-- Example RIGHT: "May I know your name please?"
+- Collect one piece of information at a time, then move to the next step
+- When the user provides information, acknowledge it in ONE short sentence, then ask the NEXT question from the script — nothing more
+- Example WRONG: "Thank you Rahul! Now can I get your phone number and your pincode?"
+- Example RIGHT: "Thank you Rahul! What's your phone number?"
 - When confirming details, speak SLOWLY and CLEARLY — pause between each detail
 - Separate confirmed details with commas and brief pauses: "Name: Rahul, Mobile: 9876543210, Pincode: 305001"
 
@@ -3072,8 +3082,8 @@ CRITICAL LANGUAGE INSTRUCTION:
 Respond in ${currentLanguageName}`;
 
       // Build messages
-      // LATENCY OPTIMIZATION 2: Reduced History (faster compute)
-      const recentHistory = conversationHistory.slice(-6);
+      // Keep only last 4 messages (2 exchanges) — prevents LLM from pattern-matching and skipping steps
+      const recentHistory = conversationHistory.slice(-4);
       const messages = [
         { role: "system", content: this._cachedStaticPrompt }, // Matches OpenAI cache
         { role: "system", content: dynamicSystemPrompt },      // Variable per turn

@@ -844,14 +844,15 @@ class CallSession {
       }
 
       // ========================================================================
-      // Process through AI Agent Service - USE STREAMING
+      // Process through AI Agent Service
       // The user's script (agent.prompt) is the system prompt — it is the law.
+      // Collect full response first, then send to TTS once (prevents word skipping).
       // ========================================================================
 
-      // Start timer BEFORE stream call to measure full latency
+      // Start timer to measure full latency
       const t0 = Date.now();
 
-      // Process through AI Agent Service - USE STREAMING
+      // Process through AI Agent Service - USE STREAMING to collect full response
       const stream = await aiAgentService.processMessageStream(
         userMessage,
         this.agentId,
@@ -865,11 +866,9 @@ class CallSession {
         },
       );
 
-      // True streaming TTS - with character threshold
+      // Collect FULL response from stream (no partial TTS)
       let fullResponse = "";
       let updatedContext = null;
-      let ttsBuffer = "";
-      let firstContentLogged = false;
 
       for await (const chunk of stream) {
         if (chunk.type === "context") {
@@ -878,27 +877,12 @@ class CallSession {
         }
 
         if (chunk.type === "content") {
-          // Log first content arrival time
-          if (!firstContentLogged) {
+          if (!fullResponse) {
             console.log(
               `[${this.uuid}] First LLM content after ${Date.now() - t0}ms`,
             );
-            firstContentLogged = true;
           }
-
           fullResponse += chunk.content;
-          ttsBuffer += chunk.content;
-
-          let flushResult = this.extractStreamingChunk(ttsBuffer, false);
-          while (flushResult?.chunk) {
-            ttsBuffer = flushResult.remainder;
-
-            console.log(
-              `[${this.uuid}] Streaming chunk: "${flushResult.chunk.substring(0, 50)}..."`,
-            );
-            this.enqueueSpeech(flushResult.chunk);
-            flushResult = this.extractStreamingChunk(ttsBuffer, false);
-          }
         }
 
         if (chunk.type === "done" || chunk.type === "error") {
@@ -906,30 +890,15 @@ class CallSession {
         }
       }
 
-      // Flush any remaining text that didn't end with a sentence boundary
-      if (ttsBuffer.trim()) {
-        const remainingChunk = this.extractStreamingChunk(ttsBuffer, true);
-        if (remainingChunk?.chunk) {
-          console.log(
-            `[${this.uuid}] Final sentence: "${remainingChunk.chunk.substring(0, 50)}..."`,
-          );
-          this.enqueueSpeech(remainingChunk.chunk);
-        } else {
-          // Safety net: if extractStreamingChunk returned null, send the raw buffer
-          console.log(
-            `[${this.uuid}] Flushing remaining buffer: "${ttsBuffer.trim().substring(0, 50)}..."`,
-          );
-          this.enqueueSpeech(ttsBuffer.trim());
-        }
-      }
-
-      // Get AI response for logging and history
       const aiResponse =
         fullResponse || "I couldn't process that. Please try again.";
 
       console.log(
-        `[${this.uuid}] AI Response: "${aiResponse.substring(0, 100)}..."`,
+        `[${this.uuid}] Full response (${Date.now() - t0}ms): "${aiResponse.substring(0, 100)}..."`,
       );
+
+      // Send complete response to TTS in one call — no word skipping
+      await this.enqueueSpeech(aiResponse);
 
       // Update customer context if returned
       if (updatedContext) {
