@@ -76,9 +76,9 @@ const EXTRACTION_PATTERNS = {
   // Name
   [SLOTS.NAME]: {
     patterns: [
-      /(?:my name is|i am|this is|mera naam|naam|नाम)\s*(?:is|hai|h|:)?\s*([A-Za-z\s]+)/i,
-      /(?:i'm|im)\s+([A-Za-z\s]+)/i,
-      /^([A-Za-z\s]{2,30})$/i, // Just a name (nothing else)
+      /(?:my name is|i am|this is|mera naam|naam|नाम|मेरा नाम)\s*(?:is|hai|h|:|है)?\s*(\p{L}[\p{L}\s]{0,30})/iu,
+      /(?:i'm|im)\s+(\p{L}[\p{L}\s]{0,30})/iu,
+      /^(\p{L}[\p{L}\s]{1,30})$/iu, // Just a name (nothing else)
     ],
     validator: "name",
     aliases: [],
@@ -208,7 +208,17 @@ export function extractSlot(slotType, userInput) {
   if (directValidation.valid) {
     return {
       found: true,
-      value: directValidation.value,
+      value: directValidation.value, // Cleaned by validator (strips punctuation, etc.)
+      raw: userInput,
+    };
+  }
+
+  // Last resort: try without validator config (unknown slot type)
+  const fallbackValidation = inputValidator.validateField(slotType, userInput);
+  if (fallbackValidation.valid) {
+    return {
+      found: true,
+      value: fallbackValidation.value || userInput,
       raw: userInput,
     };
   }

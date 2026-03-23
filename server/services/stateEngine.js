@@ -193,7 +193,10 @@ export function advanceState(flow, conversation, slots = {}) {
  */
 function handleInputStep(flow, conversation, step, userInput) {
   const field = step.field;
-  const validationType = step.validation;
+
+  // Normalize validation type (flow generator might use "mobile" but validator expects "phone")
+  const validationTypeMap = { mobile: "phone", contact: "phone", number: "phone" };
+  const validationType = validationTypeMap[step.validation] || step.validation;
 
   // Validate input
   const validation = inputValidator.validateField(validationType, userInput);

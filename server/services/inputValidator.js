@@ -219,7 +219,7 @@ export function extractName(input) {
   // Remove common prefixes
   let cleaned = input
     .replace(/^(my name is|i am|this is|i'm|hello|hi|hey)\s*/i, "")
-    .replace(/^(मेरा नाम है|मैं हूँ|मैं|नमस्ते)\s*/i, "")
+    .replace(/^(मेरा नाम है|मेरा नाम|मैं हूँ|मैं|नमस्ते)\s*/i, "")
     .trim();
 
   // Remove anything after common suffixes

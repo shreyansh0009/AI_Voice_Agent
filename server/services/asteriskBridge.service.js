@@ -851,10 +851,7 @@ class CallSession {
             flow: this.flow,
           });
 
-          if (turnResult && turnResult.text) {
-            console.log(`⚡ [${this.uuid}] STATE ENGINE HIT: "${turnResult.text.substring(0, 60)}..."`);
-            console.log(`➡️ [${this.uuid}] Step: ${this.currentStepId} → ${turnResult.nextStepId || 'END'}`);
-
+          if (turnResult) {
             // Update session state
             if (turnResult.nextStepId) {
               this.currentStepId = turnResult.nextStepId;
@@ -866,8 +863,17 @@ class CallSession {
             }
             this.retryCount = turnResult.retryCount || 0;
 
+            // Use state engine text, or default closing if null (flow complete)
+            const responseText = turnResult.text ||
+              (this.language === "hi"
+                ? "धन्यवाद! आपका दिन शुभ हो।"
+                : "Thank you! Have a great day.");
+
+            console.log(`⚡ [${this.uuid}] STATE ENGINE: "${responseText.substring(0, 60)}..."`);
+            console.log(`➡️ [${this.uuid}] Step: ${this.currentStepId} → ${turnResult.nextStepId || 'END'}`);
+
             // Speak the scripted response — NO LLM needed!
-            await this.enqueueSpeech(turnResult.text);
+            await this.enqueueSpeech(responseText);
 
             // Add to conversation history
             this.conversationHistory.push({

@@ -56,6 +56,13 @@ TRANSITION RULES:
 - choice steps: use "next" → object mapping options to step IDs, "defaultNext" → fallback
 - confirm steps: use "confirmNext" → if yes, "denyNext" → if no
 
+PLACEHOLDER RULES (VERY IMPORTANT):
+- When the script says "Thank you [name]" or "Thanks {customer_name}", use {{fieldName}} format
+- Example: "Thank you {{name}} sir" NOT "Thank you [Customer Name] sir"
+- Example: "Your number {{mobile}} is confirmed" NOT "Your number [mobile number] is confirmed"
+- The placeholders MUST match the "field" name defined in input steps
+- Example: if an input step has "field": "name", use {{name}} in subsequent text
+
 OUTPUT FORMAT (strict JSON):
 {
   "flowId": "custom_flow_<agentId>",
