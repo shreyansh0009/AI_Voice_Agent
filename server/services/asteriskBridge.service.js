@@ -869,30 +869,9 @@ class CallSession {
       // If state engine returns text, speak it instantly (0ms LLM latency!)
       // Falls back to LLM only when flow is complete (dynamic queries).
       // ========================================================================
+      let fallingThroughFromFlow = false;
       if (this.flow && this.currentStepId) {
         try {
-          // ==============================================================
-          // PRE-EXTRACTION: Before state engine runs, opportunistically
-          // extract data for future input steps. Uses the step's own
-          // `validation` type (set by flow generator) — fully dynamic,
-          // no hardcoded field types. Only runs for specific validation
-          // types (phone, pincode, email, name) to avoid false positives.
-          // ==============================================================
-          const SPECIFIC_VALIDATIONS = ['phone', 'mobile', 'pincode', 'email', 'name'];
-          for (const [stepId, stepDef] of Object.entries(this.flow.steps || {})) {
-            const field = stepDef.field || stepDef.collect;
-            const validationType = stepDef.validation;
-            if (field && stepDef.type === 'input' && !this.collectedData[field]
-                && validationType && SPECIFIC_VALIDATIONS.includes(validationType)) {
-              const result = inputValidator.validateField(validationType, userMessage);
-              if (result.valid && result.value) {
-                this.collectedData[field] = result.value;
-                this.customerContext[field] = result.value;
-                console.log(`🔍 [${this.uuid}] Pre-extracted '${field}' (${validationType}) = ${result.value}`);
-              }
-            }
-          }
-
           const conversation = {
             currentStepId: this.currentStepId,
             language: this.language,
@@ -960,8 +939,9 @@ class CallSession {
                 this.fullTranscript.push({ role: 'assistant', content: turnResult.text, timestamp: new Date() });
               }
 
-              // Fall through to LLM for continuation
+              // Fall through to LLM for continuation (no thinking phrase needed)
               console.log(`[${this.uuid}] 🔄 Flow ended, falling through to LLM`);
+              fallingThroughFromFlow = true;
             } else {
               // ================================================================
               // MID-FLOW: Speak text, then AUTO-ADVANCE through message steps
@@ -1034,6 +1014,7 @@ class CallSession {
 
               // Otherwise currentStepId is null → fall through to LLM
               console.log(`[${this.uuid}] 🔄 Flow ended via auto-advance, falling through to LLM`);
+              fallingThroughFromFlow = true;
             }
           }
         } catch (stateError) {
@@ -1050,12 +1031,13 @@ class CallSession {
       // Start timer to measure full latency
       const t0 = Date.now();
 
-      // 🔊 PHASE 1: Play thinking phrase + start LLM stream CONCURRENTLY
-      // This way, LLM tokens arrive while the thinking phrase plays,
-      // so by the time the phrase finishes, we can flush sentences immediately.
-      const thinkingPhrase = this.getThinkingPhrase();
-      console.log(`[${this.uuid}] 💭 Thinking phrase: "${thinkingPhrase}"`);
-      const thinkingPromise = this.enqueueSpeech(thinkingPhrase);
+      // 🔊 Thinking phrase: Only play when user spoke and we go directly to LLM.
+      // Skip when falling through from state engine (agent just finished speaking).
+      if (!fallingThroughFromFlow) {
+        const thinkingPhrase = this.getThinkingPhrase();
+        console.log(`[${this.uuid}] 💭 Thinking phrase: "${thinkingPhrase}"`);
+        await this.enqueueSpeech(thinkingPhrase);
+      }
 
       // Process through AI Agent Service - start streaming IMMEDIATELY
       const stream = await aiAgentService.processMessageStream(
@@ -1071,16 +1053,11 @@ class CallSession {
         },
       );
 
-      // ⚡ PHASE 2: Buffer LLM tokens while thinking phrase plays,
-      // then flush accumulated sentences the instant it finishes.
+      // ⚡ Stream LLM → TTS sentence by sentence
       let fullResponse = "";
       let streamBuffer = "";
       let updatedContext = null;
       let firstChunkLogged = false;
-      let thinkingDone = false;
-
-      // Mark when thinking phrase finishes (non-blocking)
-      thinkingPromise.then(() => { thinkingDone = true; });
 
       for await (const chunk of stream) {
         if (chunk.type === "context") {
@@ -1098,9 +1075,7 @@ class CallSession {
           fullResponse += chunk.content;
           streamBuffer += chunk.content;
 
-          // Flush complete sentences to TTS
-          // If thinking phrase is still playing, only flush if we have a full sentence
-          // (sentences accumulate in audioQueue and play after thinking phrase)
+          // Flush complete sentences to TTS immediately
           let extracted = this.extractStreamingChunk(streamBuffer, false);
           while (extracted) {
             console.log(
@@ -1115,11 +1090,6 @@ class CallSession {
         if (chunk.type === "done" || chunk.type === "error") {
           break;
         }
-      }
-
-      // Wait for thinking phrase to finish if it hasn't yet
-      if (!thinkingDone) {
-        await thinkingPromise;
       }
 
       // Flush any remaining text in the buffer
