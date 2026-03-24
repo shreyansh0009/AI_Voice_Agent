@@ -828,14 +828,20 @@ class CallSession {
 
     try {
       // Check for "check-in" phrases (hello? are you there? etc.)
-      // These should get a quick acknowledgment, not restart the flow
+      // Mid-flow: quick acknowledgment. Post-flow: fall through to LLM.
       if (this.isCheckInPhrase(userMessage)) {
-        console.log(
-          `[${this.uuid}] Check-in phrase detected, quick response`,
-        );
-        await this.speakResponse("जी हाँ, मैं यहाँ हूँ। कृपया बताइए।");
-        this.isProcessing = false;
-        return;
+        if (this.currentStepId) {
+          // Mid-flow: quick ack and return (state engine will handle next turn)
+          console.log(`[${this.uuid}] Check-in phrase (mid-flow), quick ack`);
+          const ack = this.language === "hi"
+            ? "जी हाँ, मैं यहाँ हूँ। कृपया बताइए।"
+            : "Yes, I'm here. Please go ahead.";
+          await this.speakResponse(ack);
+          this.isProcessing = false;
+          return;
+        }
+        // Post-flow: don't short-circuit — let LLM handle with full context
+        console.log(`[${this.uuid}] Check-in phrase (post-flow), routing to LLM`);
       }
 
       // Add user message to conversation history
@@ -893,38 +899,41 @@ class CallSession {
             }
             this.retryCount = turnResult.retryCount || 0;
 
-            // Use state engine text, or default closing if null (flow complete)
-            const responseText = turnResult.text ||
-              (this.language === "hi"
-                ? "धन्यवाद! आपका दिन शुभ हो।"
-                : "Thank you! Have a great day.");
+            const isFlowEnding = turnResult.isEnd || turnResult.status === 'complete';
 
-            console.log(`⚡ [${this.uuid}] STATE ENGINE HIT: "${responseText.substring(0, 60)}..."`);
-            console.log(`➡️ [${this.uuid}] Step: ${this.currentStepId} → ${turnResult.nextStepId || 'END'}`);
-
-            // If flow is complete, clear currentStepId so subsequent messages
-            // go directly to LLM (prevents re-entering dead state engine)
-            if (turnResult.isEnd || turnResult.status === 'complete') {
+            // ================================================================
+            // FLOW COMPLETE → speak end text (if any), then FALL THROUGH to LLM
+            // so the agent can continue the conversation per the script
+            // ================================================================
+            if (isFlowEnding) {
               console.log(`✅ [${this.uuid}] Flow complete! Collected data:`, this.collectedData);
               this.currentStepId = null;
+
+              // Speak the end step text if it exists (e.g., "Your booking is confirmed!")
+              if (turnResult.text) {
+                console.log(`⚡ [${this.uuid}] END STEP TEXT: "${turnResult.text.substring(0, 60)}..."`);
+                await this.enqueueSpeech(turnResult.text);
+                this.conversationHistory.push({ role: 'assistant', content: turnResult.text });
+                this.fullTranscript.push({ role: 'assistant', content: turnResult.text, timestamp: new Date() });
+              }
+
+              // DON'T return — fall through to LLM so it can continue
+              // the conversation using the system prompt + collected data
+              console.log(`[${this.uuid}] 🔄 Flow ended, falling through to LLM for continuation`);
+            } else if (turnResult.text) {
+              // ================================================================
+              // NORMAL MID-FLOW STEP → speak scripted text and return
+              // ================================================================
+              console.log(`⚡ [${this.uuid}] STATE ENGINE HIT: "${turnResult.text.substring(0, 60)}..."`);
+              console.log(`➡️ [${this.uuid}] Step: ${this.currentStepId} → ${turnResult.nextStepId || 'END'}`);
+
+              await this.enqueueSpeech(turnResult.text);
+              this.conversationHistory.push({ role: 'assistant', content: turnResult.text });
+              this.fullTranscript.push({ role: 'assistant', content: turnResult.text, timestamp: new Date() });
+
+              this.isProcessing = false;
+              return;
             }
-
-            // Speak the scripted response — NO LLM needed!
-            await this.enqueueSpeech(responseText);
-
-            // Add to conversation history
-            this.conversationHistory.push({
-              role: 'assistant',
-              content: responseText,
-            });
-            this.fullTranscript.push({
-              role: 'assistant',
-              content: responseText,
-              timestamp: new Date(),
-            });
-
-            this.isProcessing = false;
-            return;
           }
         } catch (stateError) {
           console.warn(`⚠️ [${this.uuid}] State engine failed, falling back to LLM: ${stateError.message}`);
