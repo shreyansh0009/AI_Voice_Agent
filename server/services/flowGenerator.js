@@ -34,24 +34,39 @@ CRITICAL RULES (VIOLATION = FAILURE):
 6. Preserve the EXACT wording from the script in the "text" field. Do NOT paraphrase or rewrite.
 7. If the script mentions "ask name, then ask phone, then ask pincode" → create 3 separate input steps.
 
+STEP TEXT MUST MATCH STEP TYPE (CRITICAL — MOST COMMON ERROR):
+8.  A step's "text" MUST ONLY contain content relevant to THAT step's purpose.
+9.  confirm steps: text MUST be a yes/no question about ALREADY collected data. NEVER ask for NEW data in a confirm step.
+10. input steps: text MUST ask for the SPECIFIC field being collected. Do NOT include "thank you" or transition phrases — put those in a separate message step.
+11. message steps: text is for greetings, transitions, or acknowledgments. MUST have a "next" field pointing to the next step (never leave dangling).
+12. NEVER combine "thank you" + "please provide X" in the same step. Split into: message step ("thank you") → input step ("please provide X").
+
+WRONG EXAMPLE (VIOLATION):
+  "confirm_name": { "type": "confirm", "text": "Thank you, please tell your vehicle number" }
+  ↑ WRONG: confirm step asking for new data. Must split into message + input.
+
+CORRECT EXAMPLE:
+  "thank_name": { "type": "message", "text": "Thank you {{name}}", "next": "collect_vehicle" }
+  "collect_vehicle": { "type": "input", "field": "vehicle_registration", "validation": "text", "text": "Please tell your vehicle number", ... }
+
 STEP TYPES:
-- "message": Agent speaks, no user input expected. Use for greetings, explanations, transitions.
-- "input": Collect a specific piece of data. Requires "field" (the data field name) and "validation".
+- "message": Agent speaks, no user input expected. Use for greetings, explanations, transitions, acknowledgments. MUST have "next" field.
+- "input": Collect a specific piece of data. Requires "field" (the data field name) and "validation". Each input step collects EXACTLY ONE field.
 - "choice": User picks from a list of options. Requires "options" array and "next" map.
-- "confirm": Yes/No question. Requires "confirmNext" and "denyNext".
+- "confirm": Yes/No question ONLY about data already collected. Requires "confirmNext" and "denyNext".
 - "handoff": Transfer to human agent.
 - "end": Conversation complete. Mark with "isEnd": true.
 
 VALIDATION TYPES for input steps:
 - "name" → for person names
-- "mobile" → for 10-digit phone numbers
+- "phone" or "mobile" → for 10-digit phone numbers
 - "email" → for email addresses
 - "pincode" → for 6-digit pincodes
-- "text" → for any free text
+- "text" → for ANY free text (vehicle numbers, order IDs, addresses, descriptions, etc.)
 - "number" → for numeric values
 
 TRANSITION RULES:
-- message steps: use "next" field → string
+- message steps: use "next" field → string (REQUIRED — never omit)
 - input steps: use "onSuccess" → next step ID, "onFailure" → handoff step ID
 - choice steps: use "next" → object mapping options to step IDs, "defaultNext" → fallback
 - confirm steps: use "confirmNext" → if yes, "denyNext" → if no

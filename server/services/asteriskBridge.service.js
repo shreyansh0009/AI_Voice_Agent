@@ -6,6 +6,7 @@ import ffmpegPath from "@ffmpeg-installer/ffmpeg";
 import aiAgentService from "./aiAgent.service.js";
 import flowLoader from "./flowLoader.js";
 import stateEngine from "./stateEngine.js";
+import inputValidator from "./inputValidator.js";
 import Conversation from "../models/Conversation.js";
 import Call from "../models/Call.js";
 import Agent from "../models/Agent.js";
@@ -870,6 +871,28 @@ class CallSession {
       // ========================================================================
       if (this.flow && this.currentStepId) {
         try {
+          // ==============================================================
+          // PRE-EXTRACTION: Before state engine runs, opportunistically
+          // extract data for future input steps. Uses the step's own
+          // `validation` type (set by flow generator) — fully dynamic,
+          // no hardcoded field types. Only runs for specific validation
+          // types (phone, pincode, email, name) to avoid false positives.
+          // ==============================================================
+          const SPECIFIC_VALIDATIONS = ['phone', 'mobile', 'pincode', 'email', 'name'];
+          for (const [stepId, stepDef] of Object.entries(this.flow.steps || {})) {
+            const field = stepDef.field || stepDef.collect;
+            const validationType = stepDef.validation;
+            if (field && stepDef.type === 'input' && !this.collectedData[field]
+                && validationType && SPECIFIC_VALIDATIONS.includes(validationType)) {
+              const result = inputValidator.validateField(validationType, userMessage);
+              if (result.valid && result.value) {
+                this.collectedData[field] = result.value;
+                this.customerContext[field] = result.value;
+                console.log(`🔍 [${this.uuid}] Pre-extracted '${field}' (${validationType}) = ${result.value}`);
+              }
+            }
+          }
+
           const conversation = {
             currentStepId: this.currentStepId,
             language: this.language,
@@ -902,33 +925,34 @@ class CallSession {
             // ================================================================
             // AUTO-SKIP: If next step collects a field we already have,
             // keep advancing until we reach a step that needs new data.
-            // Fixes duplicate collection caused by messy generated flows.
+            // Also auto-advance through message steps (they don't need input).
             // ================================================================
-            let skipCount = 0;
-            while (this.currentStepId && this.flow.steps?.[this.currentStepId]) {
+            let advanceCount = 0;
+            while (this.currentStepId && this.flow.steps?.[this.currentStepId] && advanceCount < 10) {
               const nextStep = this.flow.steps[this.currentStepId];
               const nextField = nextStep.field || nextStep.collect;
+
+              // Skip input steps whose field is already collected
               if (nextField && nextStep.type === 'input' && this.collectedData[nextField]) {
-                console.log(`⏩ [${this.uuid}] Skipping step '${this.currentStepId}' — field '${nextField}' already collected: ${this.collectedData[nextField]}`);
+                console.log(`⏩ [${this.uuid}] Skipping '${this.currentStepId}' — '${nextField}' already collected`);
                 this.currentStepId = nextStep.onSuccess || nextStep.next || null;
-                skipCount++;
-                if (skipCount > 10) break; // Safety guard
-              } else {
-                break;
+                advanceCount++;
+                continue;
               }
+              break;
             }
 
-            const isFlowEnding = turnResult.isEnd || turnResult.status === 'complete';
+            // Recalculate after potential auto-skip
+            const isFlowEnding = turnResult.isEnd || turnResult.status === 'complete'
+              || !this.currentStepId;
 
             // ================================================================
             // FLOW COMPLETE → speak end text (if any), then FALL THROUGH to LLM
-            // so the agent can continue the conversation per the script
             // ================================================================
             if (isFlowEnding) {
               console.log(`✅ [${this.uuid}] Flow complete! Collected data:`, this.collectedData);
               this.currentStepId = null;
 
-              // Speak the end step text if it exists (e.g., "Your booking is confirmed!")
               if (turnResult.text) {
                 console.log(`⚡ [${this.uuid}] END STEP TEXT: "${turnResult.text.substring(0, 60)}..."`);
                 await this.enqueueSpeech(turnResult.text);
@@ -936,22 +960,80 @@ class CallSession {
                 this.fullTranscript.push({ role: 'assistant', content: turnResult.text, timestamp: new Date() });
               }
 
-              // DON'T return — fall through to LLM so it can continue
-              // the conversation using the system prompt + collected data
-              console.log(`[${this.uuid}] 🔄 Flow ended, falling through to LLM for continuation`);
-            } else if (turnResult.text) {
+              // Fall through to LLM for continuation
+              console.log(`[${this.uuid}] 🔄 Flow ended, falling through to LLM`);
+            } else {
               // ================================================================
-              // NORMAL MID-FLOW STEP → speak scripted text and return
+              // MID-FLOW: Speak text, then AUTO-ADVANCE through message steps
+              // Message steps don't need user input — keep going until we hit
+              // a step that requires input (input, confirm, choice, intent).
               // ================================================================
-              console.log(`⚡ [${this.uuid}] STATE ENGINE HIT: "${turnResult.text.substring(0, 60)}..."`);
-              console.log(`➡️ [${this.uuid}] Step: ${this.currentStepId} → ${turnResult.nextStepId || 'END'}`);
+              if (turnResult.text) {
+                console.log(`⚡ [${this.uuid}] STATE ENGINE HIT: "${turnResult.text.substring(0, 60)}..."`);
+                console.log(`➡️ [${this.uuid}] Step: ${this.currentStepId} → ${turnResult.nextStepId || 'END'}`);
 
-              await this.enqueueSpeech(turnResult.text);
-              this.conversationHistory.push({ role: 'assistant', content: turnResult.text });
-              this.fullTranscript.push({ role: 'assistant', content: turnResult.text, timestamp: new Date() });
+                await this.enqueueSpeech(turnResult.text);
+                this.conversationHistory.push({ role: 'assistant', content: turnResult.text });
+                this.fullTranscript.push({ role: 'assistant', content: turnResult.text, timestamp: new Date() });
+              }
 
-              this.isProcessing = false;
-              return;
+              // Auto-advance through message/action steps that don't need user input
+              let autoAdvanceCount = 0;
+              while (this.currentStepId && this.flow.steps?.[this.currentStepId] && autoAdvanceCount < 10) {
+                const step = this.flow.steps[this.currentStepId];
+
+                // Only auto-advance message and action steps
+                if (step.type !== 'message' && step.type !== 'action') {
+                  break;
+                }
+
+                // Check for end
+                if (step.isEnd || !step.next) {
+                  console.log(`✅ [${this.uuid}] Reached end step via auto-advance`);
+                  this.currentStepId = null;
+                  if (step.text) {
+                    const endText = typeof step.text === 'object'
+                      ? (step.text[this.language] || step.text.en || '')
+                      : step.text;
+                    if (endText) {
+                      await this.enqueueSpeech(endText);
+                      this.conversationHistory.push({ role: 'assistant', content: endText });
+                      this.fullTranscript.push({ role: 'assistant', content: endText, timestamp: new Date() });
+                    }
+                  }
+                  // Fall through to LLM
+                  console.log(`[${this.uuid}] 🔄 Auto-advance reached end, falling through to LLM`);
+                  break;
+                }
+
+                // Advance to next step
+                const nextId = step.next;
+                this.currentStepId = nextId;
+                autoAdvanceCount++;
+
+                // Get text for the new step and speak it
+                const newStep = this.flow.steps[nextId];
+                if (newStep) {
+                  const mergedData = { ...this.collectedData };
+                  const tempConv = { ...conversation, currentStepId: nextId, collectedData: mergedData };
+                  const stepText = stateEngine.getCurrentStepText(this.flow, tempConv);
+                  if (stepText) {
+                    console.log(`⚡ [${this.uuid}] AUTO-ADVANCE → '${nextId}': "${stepText.substring(0, 60)}..."`);
+                    await this.enqueueSpeech(stepText);
+                    this.conversationHistory.push({ role: 'assistant', content: stepText });
+                    this.fullTranscript.push({ role: 'assistant', content: stepText, timestamp: new Date() });
+                  }
+                }
+              }
+
+              // If we still have a currentStepId (waiting for user input), return
+              if (this.currentStepId) {
+                this.isProcessing = false;
+                return;
+              }
+
+              // Otherwise currentStepId is null → fall through to LLM
+              console.log(`[${this.uuid}] 🔄 Flow ended via auto-advance, falling through to LLM`);
             }
           }
         } catch (stateError) {
