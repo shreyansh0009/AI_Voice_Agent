@@ -899,6 +899,25 @@ class CallSession {
             }
             this.retryCount = turnResult.retryCount || 0;
 
+            // ================================================================
+            // AUTO-SKIP: If next step collects a field we already have,
+            // keep advancing until we reach a step that needs new data.
+            // Fixes duplicate collection caused by messy generated flows.
+            // ================================================================
+            let skipCount = 0;
+            while (this.currentStepId && this.flow.steps?.[this.currentStepId]) {
+              const nextStep = this.flow.steps[this.currentStepId];
+              const nextField = nextStep.field || nextStep.collect;
+              if (nextField && nextStep.type === 'input' && this.collectedData[nextField]) {
+                console.log(`⏩ [${this.uuid}] Skipping step '${this.currentStepId}' — field '${nextField}' already collected: ${this.collectedData[nextField]}`);
+                this.currentStepId = nextStep.onSuccess || nextStep.next || null;
+                skipCount++;
+                if (skipCount > 10) break; // Safety guard
+              } else {
+                break;
+              }
+            }
+
             const isFlowEnding = turnResult.isEnd || turnResult.status === 'complete';
 
             // ================================================================
@@ -949,12 +968,14 @@ class CallSession {
       // Start timer to measure full latency
       const t0 = Date.now();
 
-      // 🔊 PHASE 1: Play thinking phrase to fill silence while LLM processes
+      // 🔊 PHASE 1: Play thinking phrase + start LLM stream CONCURRENTLY
+      // This way, LLM tokens arrive while the thinking phrase plays,
+      // so by the time the phrase finishes, we can flush sentences immediately.
       const thinkingPhrase = this.getThinkingPhrase();
       console.log(`[${this.uuid}] 💭 Thinking phrase: "${thinkingPhrase}"`);
       const thinkingPromise = this.enqueueSpeech(thinkingPhrase);
 
-      // Process through AI Agent Service - USE STREAMING
+      // Process through AI Agent Service - start streaming IMMEDIATELY
       const stream = await aiAgentService.processMessageStream(
         userMessage,
         this.agentId,
@@ -968,14 +989,16 @@ class CallSession {
         },
       );
 
-      // Wait for thinking phrase to finish before streaming real response
-      await thinkingPromise;
-
-      // ⚡ PHASE 2: Stream LLM → TTS sentence by sentence
+      // ⚡ PHASE 2: Buffer LLM tokens while thinking phrase plays,
+      // then flush accumulated sentences the instant it finishes.
       let fullResponse = "";
       let streamBuffer = "";
       let updatedContext = null;
       let firstChunkLogged = false;
+      let thinkingDone = false;
+
+      // Mark when thinking phrase finishes (non-blocking)
+      thinkingPromise.then(() => { thinkingDone = true; });
 
       for await (const chunk of stream) {
         if (chunk.type === "context") {
@@ -993,7 +1016,9 @@ class CallSession {
           fullResponse += chunk.content;
           streamBuffer += chunk.content;
 
-          // Flush complete sentences to TTS immediately
+          // Flush complete sentences to TTS
+          // If thinking phrase is still playing, only flush if we have a full sentence
+          // (sentences accumulate in audioQueue and play after thinking phrase)
           let extracted = this.extractStreamingChunk(streamBuffer, false);
           while (extracted) {
             console.log(
@@ -1008,6 +1033,11 @@ class CallSession {
         if (chunk.type === "done" || chunk.type === "error") {
           break;
         }
+      }
+
+      // Wait for thinking phrase to finish if it hasn't yet
+      if (!thinkingDone) {
+        await thinkingPromise;
       }
 
       // Flush any remaining text in the buffer
