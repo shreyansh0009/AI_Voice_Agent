@@ -788,6 +788,33 @@ class CallSession {
   }
 
   /**
+   * Get a random thinking phrase to fill silence while LLM processes.
+   * Language-aware: returns Hindi phrases when agent language is Hindi.
+   */
+  getThinkingPhrase() {
+    const phrases = {
+      en: [
+        "Let me check that for you.",
+        "One moment please.",
+        "Sure, let me look into that.",
+        "Hmm, let me think about that.",
+        "Give me just a second.",
+        "Let me find that out for you.",
+      ],
+      hi: [
+        "एक मिनट, मैं देखती हूँ।",
+        "जी, एक सेकंड।",
+        "बिल्कुल, मैं चेक करती हूँ।",
+        "रुकिए, मैं देखती हूँ।",
+        "एक पल, मैं पता करती हूँ।",
+        "जी हाँ, एक सेकंड दीजिए।",
+      ],
+    };
+    const pool = phrases[this.language] || phrases.en;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  /**
    * Process user input through AI agent (SAME as web chat)
    */
   async processUserInput() {
@@ -907,12 +934,18 @@ class CallSession {
 
       // ========================================================================
       // LLM FALLBACK — Only for off-script / flow-complete dynamic queries
+      // ⚡ LATENCY OPT: Thinking phrase + sentence-level LLM→TTS streaming
       // ========================================================================
 
       // Start timer to measure full latency
       const t0 = Date.now();
 
-      // Process through AI Agent Service - USE STREAMING to collect full response
+      // 🔊 PHASE 1: Play thinking phrase to fill silence while LLM processes
+      const thinkingPhrase = this.getThinkingPhrase();
+      console.log(`[${this.uuid}] 💭 Thinking phrase: "${thinkingPhrase}"`);
+      const thinkingPromise = this.enqueueSpeech(thinkingPhrase);
+
+      // Process through AI Agent Service - USE STREAMING
       const stream = await aiAgentService.processMessageStream(
         userMessage,
         this.agentId,
@@ -926,9 +959,14 @@ class CallSession {
         },
       );
 
-      // Collect FULL response from stream (no partial TTS)
+      // Wait for thinking phrase to finish before streaming real response
+      await thinkingPromise;
+
+      // ⚡ PHASE 2: Stream LLM → TTS sentence by sentence
       let fullResponse = "";
+      let streamBuffer = "";
       let updatedContext = null;
+      let firstChunkLogged = false;
 
       for await (const chunk of stream) {
         if (chunk.type === "context") {
@@ -937,12 +975,25 @@ class CallSession {
         }
 
         if (chunk.type === "content") {
-          if (!fullResponse) {
+          if (!firstChunkLogged) {
             console.log(
-              `[${this.uuid}] First LLM content after ${Date.now() - t0}ms`,
+              `[${this.uuid}] ⚡ First LLM token after ${Date.now() - t0}ms`,
             );
+            firstChunkLogged = true;
           }
           fullResponse += chunk.content;
+          streamBuffer += chunk.content;
+
+          // Flush complete sentences to TTS immediately
+          let extracted = this.extractStreamingChunk(streamBuffer, false);
+          while (extracted) {
+            console.log(
+              `[${this.uuid}] 🔊 Streaming chunk to TTS (${Date.now() - t0}ms): "${extracted.chunk.substring(0, 60)}..."`,
+            );
+            await this.enqueueSpeech(extracted.chunk);
+            streamBuffer = extracted.remainder;
+            extracted = this.extractStreamingChunk(streamBuffer, false);
+          }
         }
 
         if (chunk.type === "done" || chunk.type === "error") {
@@ -950,15 +1001,20 @@ class CallSession {
         }
       }
 
+      // Flush any remaining text in the buffer
+      if (streamBuffer.trim()) {
+        console.log(
+          `[${this.uuid}] 🔊 Flushing remainder to TTS (${Date.now() - t0}ms): "${streamBuffer.trim().substring(0, 60)}..."`,
+        );
+        await this.enqueueSpeech(streamBuffer.trim());
+      }
+
       const aiResponse =
         fullResponse || "I couldn't process that. Please try again.";
 
       console.log(
-        `[${this.uuid}] Full response (${Date.now() - t0}ms): "${aiResponse.substring(0, 100)}..."`,
+        `[${this.uuid}] ✅ Full response (${Date.now() - t0}ms): "${aiResponse.substring(0, 100)}..."`,
       );
-
-      // Send complete response to TTS in one call — no word skipping
-      await this.enqueueSpeech(aiResponse);
 
       // Update customer context if returned
       if (updatedContext) {
