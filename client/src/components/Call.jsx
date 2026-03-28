@@ -19,6 +19,10 @@ export default function Call({
   );
   const [hangupMessage, setHangupMessage] = useState(callConfig.hangupMessage || "Call will now disconnect");
   const [terminationTime, setTerminationTime] = useState(callConfig.terminationTime || 400);
+  // Twilio Configuration
+  const [twilioAccountSid, setTwilioAccountSid] = useState(callConfig.twilioAccountSid || "");
+  const [twilioAuthToken, setTwilioAuthToken] = useState(callConfig.twilioAuthToken || "");
+  const [twilioPhoneNumber, setTwilioPhoneNumber] = useState(callConfig.twilioPhoneNumber || "");
 
   // Sync from parent when loading a saved agent
   useEffect(() => {
@@ -38,6 +42,9 @@ export default function Call({
       );
       setHangupMessage(callConfig.hangupMessage || "Call will now disconnect");
       setTerminationTime(callConfig.terminationTime || 400);
+      setTwilioAccountSid(callConfig.twilioAccountSid || "");
+      setTwilioAuthToken(callConfig.twilioAuthToken || "");
+      setTwilioPhoneNumber(callConfig.twilioPhoneNumber || "");
     }
   }, [callConfig]);
 
@@ -56,8 +63,11 @@ export default function Call({
       hangupPrompt,
       hangupMessage,
       terminationTime,
+      twilioAccountSid,
+      twilioAuthToken,
+      twilioPhoneNumber,
     });
-  }, [provider, dtmfEnabled, noiseCancellation, noiseCancellationLevel, voicemailDetection, voicemailTime, hangupOnSilence, hangupSilenceTime, hangupByPrompt, hangupPrompt, hangupMessage, terminationTime]);
+  }, [provider, dtmfEnabled, noiseCancellation, noiseCancellationLevel, voicemailDetection, voicemailTime, hangupOnSilence, hangupSilenceTime, hangupByPrompt, hangupPrompt, hangupMessage, terminationTime, twilioAccountSid, twilioAuthToken, twilioPhoneNumber]);
 
   return (
     <div className="w-full space-y-6">
@@ -70,8 +80,47 @@ export default function Call({
           className="w-full max-w-xs rounded-md border border-gray-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="Custom">Custom</option>
+          <option value="Twilio">Twilio</option>
         </select>
       </div>
+
+      {/* Twilio Configuration */}
+      {provider === "Twilio" && (
+        <div className="space-y-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+          <h4 className="text-sm font-semibold text-gray-900">Twilio Configuration</h4>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Account SID</label>
+            <input
+              type="text"
+              value={twilioAccountSid}
+              onChange={(e) => setTwilioAccountSid(e.target.value)}
+              placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Auth Token</label>
+            <input
+              type="password"
+              value={twilioAuthToken}
+              onChange={(e) => setTwilioAuthToken(e.target.value)}
+              placeholder="Your Twilio Auth Token"
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Twilio Phone Number</label>
+            <input
+              type="text"
+              value={twilioPhoneNumber}
+              onChange={(e) => setTwilioPhoneNumber(e.target.value)}
+              placeholder="+1234567890"
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="mt-1 text-xs text-gray-500">The Twilio phone number to use for outbound and inbound calls.</p>
+          </div>
+        </div>
+      )}
 
       <div className="border-t border-gray-200"></div>
 

@@ -189,6 +189,8 @@ export const updateAgent = async (req, res) => {
       voice,
       bufferSize,
       speedRate,
+      // Call Configuration
+      callConfig,
     } = req.body;
 
     // Build update object with only provided fields
@@ -222,6 +224,9 @@ export const updateAgent = async (req, res) => {
     if (voice !== undefined) updateData.voice = voice;
     if (bufferSize !== undefined) updateData.bufferSize = bufferSize;
     if (speedRate !== undefined) updateData.speedRate = speedRate;
+
+    // Call Configuration
+    if (callConfig !== undefined) updateData.callConfig = callConfig;
 
     // ============================================================================
     // RE-ANALYZE SCRIPT FOR DYNAMIC SLOTS (NEW - Hybrid Approach)

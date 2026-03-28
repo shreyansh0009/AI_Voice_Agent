@@ -183,6 +183,10 @@ const agentSchema = new mongoose.Schema(
       },
       hangupMessage: { type: String, default: "Call will now disconnect" },
       terminationTime: { type: Number, default: 400 },
+      // Twilio Configuration
+      twilioAccountSid: { type: String, default: "" },
+      twilioAuthToken: { type: String, default: "" },
+      twilioPhoneNumber: { type: String, default: "" },
     },
 
     // ============================================

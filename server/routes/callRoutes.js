@@ -5,6 +5,7 @@ import PhoneNumber from "../models/PhoneNumber.js";
 import User from "../models/User.js";
 import asteriskAMI from "../services/asteriskAMI.service.js";
 import audioSocketServer from "../services/asteriskBridge.service.js";
+import twilioService from "../services/twilio.service.js";
 // Authentication is handled at router level in routes/index.js
 
 const router = express.Router();
@@ -46,7 +47,54 @@ router.post("/outbound", async (req, res) => {
             });
         }
 
-        // ── Find DID linked to this agent ───────────────────────────
+        // ── Twilio outbound path ─────────────────────────────────────
+        const isTwilio = agent.callConfig?.provider === "Twilio";
+
+        if (isTwilio) {
+            const { twilioAccountSid, twilioAuthToken, twilioPhoneNumber } = agent.callConfig || {};
+
+            if (!twilioAccountSid || !twilioAuthToken || !twilioPhoneNumber) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Twilio credentials not configured for this agent.",
+                    code: "TWILIO_NOT_CONFIGURED",
+                });
+            }
+
+            // ── Check wallet balance ────────────────────────────────
+            const user = await User.findById(userId);
+            if (!user || (user.walletBalance || 0) <= 0) {
+                return res.status(402).json({
+                    success: false,
+                    error: "Insufficient wallet balance. Please add funds.",
+                    code: "INSUFFICIENT_BALANCE",
+                });
+            }
+
+            const toNumber = `+91${cleanedPhone}`;
+            const baseUrl = process.env.TWILIO_WEBHOOK_BASE_URL || `https://${req.headers.host}`;
+            const webhookUrl = `${baseUrl}/api/twilio/voice?agentId=${agent._id}&conversationType=twilio+outbound`;
+            const statusCallbackUrl = `${baseUrl}/api/twilio/status`;
+
+            const call = await twilioService.createCall(
+                twilioAccountSid,
+                twilioAuthToken,
+                twilioPhoneNumber,
+                toNumber,
+                webhookUrl,
+                statusCallbackUrl
+            );
+
+            console.log(`📞 Twilio outbound call initiated: ${call.sid} → ${toNumber} (Agent: ${agent.name})`);
+
+            return res.json({
+                success: true,
+                callId: call.sid,
+                message: "Call initiated! You will receive a call shortly.",
+            });
+        }
+
+        // ── Asterisk outbound path ───────────────────────────────────
         const phoneRecord = await PhoneNumber.findOne({
             linkedAgentId: agentId,
             status: "linked",

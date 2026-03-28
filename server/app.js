@@ -20,7 +20,9 @@ import adminRoutes from "./routes/adminRoutes.js";
 import ragService from "./services/ragService.js";
 import { connectDB } from "./config/database.js";
 import freeswitchRoutes from "./routes/freeswitchRoutes.js";
+import twilioRoutes from "./routes/twilioRoutes.js";
 import audioSocketServer from "./services/asteriskBridge.service.js";
+import twilioBridgeServer from "./services/twilioBridge.service.js";
 import { startSubscriptionCron } from "./cron/subscriptionCron.js";
 import { startExchangeRateCron } from "./cron/exchangeRateCron.js";
 import { startTrialExpiryCron } from "./cron/trialExpiryCron.js";
@@ -73,6 +75,9 @@ if (config.env === "development") {
 // Public FreeSWITCH routes - No Authentication required
 // This must remain before other /api routes to bypass auth middleware
 app.use("/api/freeswitch", freeswitchRoutes);
+
+// Public Twilio webhook routes - No Authentication required (called by Twilio)
+app.use("/api/twilio", twilioRoutes);
 // API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
@@ -158,6 +163,30 @@ if (config.env !== "production") {
     // Start trial expiry cron job
     startTrialExpiryCron();
   });
+
+  // 📞 Attach WebSocket server for Twilio Media Streams
+  const twilioWss = new WebSocketServer({ noServer: true });
+  twilioWss.on("connection", (ws, req) => {
+    const pathParts = req.url.split("/").filter(Boolean); // ['ws', 'twilio', 'CAxxxx']
+    const callSid = pathParts[2];
+    if (callSid) {
+      twilioBridgeServer.handleWebSocket(ws, callSid);
+    } else {
+      ws.close(1008, "Missing callSid");
+    }
+  });
+
+  // Route HTTP upgrades: /ws/twilio/* → twilioWss, everything else → spy wss
+  server.on("upgrade", (req, socket, head) => {
+    if (req.url && req.url.startsWith("/ws/twilio/")) {
+      twilioWss.handleUpgrade(req, socket, head, (ws) => {
+        twilioWss.emit("connection", ws, req);
+      });
+    }
+    // /ws/spy is handled automatically by the spy WSS registered below
+  });
+
+  console.log("📞 Twilio WebSocket bridge attached on /ws/twilio/:callSid");
 
   // 🔊 Attach WebSocket server for live call spy
   const wss = new WebSocketServer({ server, path: '/ws/spy' });

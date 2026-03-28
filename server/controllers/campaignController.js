@@ -5,6 +5,7 @@ import Call from "../models/Call.js";
 import User from "../models/User.js";
 import asteriskAMI from "../services/asteriskAMI.service.js";
 import audioSocketServer from "../services/asteriskBridge.service.js";
+import twilioService from "../services/twilio.service.js";
 import { v2 as cloudinary } from "cloudinary";
 import * as XLSX from "xlsx";
 import fs from "fs";
@@ -380,6 +381,9 @@ async function processCampaign(campaignId, dids, agent, userId) {
     return campaign.contacts.find((c) => c.status === "calling" && !c.calledAt);
   }
 
+  const isTwilio = agent.callConfig?.provider === "Twilio";
+  const baseUrl = process.env.TWILIO_WEBHOOK_BASE_URL || process.env.BASE_URL || "https://localhost";
+
   /**
    * Worker for a single channel/DID.
    * Picks contacts one by one until none are left.
@@ -402,35 +406,54 @@ async function processCampaign(campaignId, dids, agent, userId) {
           { $set: { "contacts.$.calledAt": new Date() } }
         );
 
-        // Originate the call via Asterisk AMI
-        const { uuid } = await asteriskAMI.originate(didDigits, contact.phone);
+        let callId;
 
-        // Register so AudioSocket routes to correct agent
-        audioSocketServer.registerPendingCall(uuid, did.number);
+        if (isTwilio) {
+          // ── Twilio outbound ────────────────────────────────────────
+          const { twilioAccountSid, twilioAuthToken, twilioPhoneNumber } = agent.callConfig;
+          const webhookUrl = `${baseUrl}/api/twilio/voice?agentId=${agent._id}&conversationType=twilio+campaign+outbound`;
+          const statusCallbackUrl = `${baseUrl}/api/twilio/status`;
+          const toNumber = contact.phone.startsWith("+") ? contact.phone : `+91${contact.phone}`;
 
-        // Create call record in DB
-        await Call.create({
-          callId: uuid,
-          executionId: uuid.substring(0, 8),
-          agentId: agent._id,
-          userId: userId,
-          calledNumber: did.number,
-          callerNumber: contact.phone,
-          userNumber: contact.phone,
-          status: "initiated",
-          startedAt: new Date(),
-          hangupBy: "system",
-          conversationType: "campaign outbound",
-          provider: "Asterisk",
-          batch: `campaign-${campaignId}`,
-        });
+          const call = await twilioService.createCall(
+            twilioAccountSid,
+            twilioAuthToken,
+            twilioPhoneNumber,
+            toNumber,
+            webhookUrl,
+            statusCallbackUrl
+          );
+          callId = call.sid;
+        } else {
+          // ── Asterisk outbound ──────────────────────────────────────
+          const { uuid } = await asteriskAMI.originate(didDigits, contact.phone);
+          audioSocketServer.registerPendingCall(uuid, did.number);
+
+          // Create preliminary call record for Asterisk
+          await Call.create({
+            callId: uuid,
+            executionId: uuid.substring(0, 8),
+            agentId: agent._id,
+            userId: userId,
+            calledNumber: did.number,
+            callerNumber: contact.phone,
+            userNumber: contact.phone,
+            status: "initiated",
+            startedAt: new Date(),
+            hangupBy: "system",
+            conversationType: "campaign outbound",
+            provider: "Asterisk",
+            batch: `campaign-${campaignId}`,
+          });
+          callId = uuid;
+        }
 
         // Mark contact as completed (call originated successfully)
         await Campaign.updateOne(
           { _id: campaignId, "contacts._id": contact._id },
           {
             $set: {
-              "contacts.$.callId": uuid,
+              "contacts.$.callId": callId,
               "contacts.$.status": "completed",
             },
             $inc: {
@@ -441,13 +464,13 @@ async function processCampaign(campaignId, dids, agent, userId) {
         );
 
         console.log(
-          `📞 Campaign call [${did.displayNumber}]: ${uuid} → ${contact.phone} (${contact.name || "unnamed"})`
+          `📞 Campaign call [${isTwilio ? "Twilio" : did.displayNumber}]: ${callId} → ${contact.phone} (${contact.name || "unnamed"})`
         );
 
-        // Small delay before next call on this channel to avoid overwhelming Asterisk
+        // Small delay before next call to avoid overwhelming provider
         await new Promise((r) => setTimeout(r, 1000));
       } catch (err) {
-        console.error(`Campaign call failed for ${contact.phone} on ${did.displayNumber}:`, err.message);
+        console.error(`Campaign call failed for ${contact.phone} on ${isTwilio ? "Twilio" : did.displayNumber}:`, err.message);
 
         // Mark contact as failed
         await Campaign.updateOne(
