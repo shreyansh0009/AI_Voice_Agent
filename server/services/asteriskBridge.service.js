@@ -29,8 +29,8 @@ const AUDIOSOCKET_HOST = process.env.AUDIOSOCKET_HOST || "0.0.0.0";
 const DEFAULT_AGENT_ID = process.env.DEFAULT_PHONE_AGENT_ID || null;
 
 // Audio settings for AudioSocket telephony
-const SAMPLE_RATE = 8000; // AudioSocket() app expects 8kHz PCM
-const FRAME_SIZE = 320; // 20ms at 8kHz slin16 (320 bytes = 160 samples × 2 bytes)
+const SAMPLE_RATE = parseInt(process.env.AUDIOSOCKET_SAMPLE_RATE || "8000", 10); // AudioSocket() app expects 8kHz or 16kHz PCM
+const FRAME_SIZE = (SAMPLE_RATE / 1000) * 20 * 2; // 20ms frame: 320 bytes @8kHz, 640 bytes @16kHz
 const SILENCE_THRESHOLD_MS = 1500; // Silence duration to trigger processing
 const FRAME_DURATION_MS = 20;
 const ECHO_GUARD_MS = 1500;
