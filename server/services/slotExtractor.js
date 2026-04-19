@@ -35,6 +35,7 @@ export const SLOTS = {
   MONTHLY_INCOME: "monthlyIncome",
   PROPERTY_TYPE: "propertyType",
   LOCATION: "location",
+  DOCUMENT_HASH: "documentHash",
 };
 
 // ============================================================================
@@ -148,6 +149,16 @@ const EXTRACTION_PATTERNS = {
     ],
     validator: "text",
     aliases: ["flat type", "house type"],
+  },
+
+  // Document Hash (SHA-256 hex string — 64 chars, spoken with spaces/dashes by STT)
+  [SLOTS.DOCUMENT_HASH]: {
+    patterns: [
+      /(?:hash|code|verification code|document code|दस्तावेज़ कोड)\s*(?:is|hai|h|:)?\s*([a-fA-F0-9\s\-]{10,})/i,
+      /([a-fA-F0-9]{8,64})/i, // Bare hex string (8+ chars to avoid false positives)
+    ],
+    validator: "documentHash",
+    aliases: ["hash", "code", "verification code", "doc code"],
   },
 };
 

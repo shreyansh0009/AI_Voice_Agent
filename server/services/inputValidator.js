@@ -67,6 +67,14 @@ const VALIDATION_RULES = {
     maxLength: 50,
     errorMessage: "Please specify the model or product.",
   },
+
+  // Document hash: SHA-256 hex string (64 chars after cleaning)
+  documentHash: {
+    pattern: /^[a-fA-F0-9]{8,64}$/,
+    minLength: 8,
+    maxLength: 64,
+    errorMessage: "Please provide a valid document verification code.",
+  },
 };
 
 // ============================================================================
@@ -276,6 +284,25 @@ export function extractModel(input) {
   return null;
 }
 
+/**
+ * Extract document hash from user input
+ * Handles: STT artifacts like spaces between hex chars, spoken "alpha bravo charlie" etc.
+ * SHA-256 hashes are 64 hex characters.
+ */
+export function extractDocumentHash(input) {
+  if (!input || typeof input !== "string") return null;
+
+  // Remove all non-hex characters (spaces, dashes, etc. from STT)
+  const cleaned = input.replace(/[^a-fA-F0-9]/g, "").toLowerCase();
+
+  // Accept 8-64 hex chars (partial hashes are useful too)
+  if (cleaned.length >= 8 && /^[a-f0-9]+$/.test(cleaned)) {
+    return cleaned;
+  }
+
+  return null;
+}
+
 // ============================================================================
 // VALIDATION FUNCTIONS
 // ============================================================================
@@ -370,6 +397,21 @@ export function validateModel(value) {
   return { valid: true, value: extracted };
 }
 
+/**
+ * Validate document hash
+ */
+export function validateDocumentHash(value) {
+  if (!value)
+    return { valid: false, error: VALIDATION_RULES.documentHash.errorMessage };
+
+  const extracted = extractDocumentHash(value);
+  if (!extracted) {
+    return { valid: false, error: VALIDATION_RULES.documentHash.errorMessage };
+  }
+
+  return { valid: true, value: extracted };
+}
+
 // ============================================================================
 // UNIFIED VALIDATION
 // ============================================================================
@@ -395,6 +437,8 @@ export function validateField(fieldType, userInput) {
       return validateAddress(userInput);
     case "model":
       return validateModel(userInput);
+    case "documentHash":
+      return validateDocumentHash(userInput);
     default:
       // Unknown field type - accept any non-empty input
       return userInput && userInput.trim().length > 0

@@ -1,0 +1,104 @@
+{
+  "flowId": "document_verification_v1",
+  "domain": "general",
+  "version": "1.1",
+  "description": "Document status check flow — caller provides document hash, gets current status",
+
+  "startStep": "greeting",
+  "defaultLanguage": "en",
+
+  "agentConfig": {
+    "name": "DocVerify Assistant",
+    "brand": "DocVerify",
+    "tone": "professional",
+    "style": "concise"
+  },
+
+  "interruptions": {
+    "HELP": "handoff",
+    "STOP": "end",
+    "SPEAK_TO_HUMAN": "handoff",
+    "CANCEL": "end"
+  },
+
+  "steps": {
+    "greeting": {
+      "type": "message",
+      "text": {
+        "en": "Hello! Welcome to {{companyName}}. I can help you check the status of your document.",
+        "hi": "नमस्ते! {{companyName}} में आपका स्वागत है। मैं आपके दस्तावेज़ की स्थिति जांचने में मदद कर सकती हूँ।"
+      },
+      "next": "collect_doc_hash"
+    },
+
+    "collect_doc_hash": {
+      "type": "input",
+      "field": "documentHash",
+      "validation": "documentHash",
+      "maxRetries": 2,
+      "text": {
+        "en": "Please provide your document verification code. It's the unique code you received when your document was uploaded.",
+        "hi": "कृपया अपना दस्तावेज़ सत्यापन कोड बताइए। यह वह अनूठा कोड है जो आपको दस्तावेज़ अपलोड होने पर मिला था।"
+      },
+      "retryText": {
+        "en": "I couldn't catch that. Please provide the document verification code again.",
+        "hi": "मुझे समझ नहीं आया। कृपया दस्तावेज़ सत्यापन कोड दोबारा बताइए।"
+      },
+      "onSuccess": "verify_action",
+      "onFailure": "handoff"
+    },
+
+    "verify_action": {
+      "type": "action",
+      "actionId": "VERIFY_DOCUMENT",
+      "text": {
+        "en": "Let me check the status of that document for you. One moment please.",
+        "hi": "मैं आपके दस्तावेज़ की स्थिति जांचती हूँ। एक पल रुकिए।"
+      },
+      "next": "post_verify"
+    },
+
+    "post_verify": {
+      "type": "message",
+      "text": {
+        "en": "{{verificationResult}}",
+        "hi": "{{verificationResult}}"
+      },
+      "next": "ask_anything_else"
+    },
+
+    "ask_anything_else": {
+      "type": "choice",
+      "field": "continueIntent",
+      "options": ["yes", "done"],
+      "text": {
+        "en": "Would you like to check another document, or are you done?",
+        "hi": "क्या आप एक और दस्तावेज़ की स्थिति जांचना चाहते हैं, या आपका काम हो गया?"
+      },
+      "next": {
+        "yes": "collect_doc_hash",
+        "done": "end"
+      },
+      "defaultNext": "end"
+    },
+
+    "handoff": {
+      "type": "handoff",
+      "text": {
+        "en": "Let me connect you with a support agent. Please hold.",
+        "hi": "मैं आपको सहायता एजेंट से जोड़ती हूँ। कृपया रुकिए।"
+      },
+      "action": "transfer_to_human",
+      "resumeEnabled": true
+    },
+
+    "end": {
+      "type": "end",
+      "text": {
+        "en": "Thank you for using {{companyName}}! Goodbye!",
+        "hi": "{{companyName}} का उपयोग करने के लिए धन्यवाद! अलविदा!"
+      },
+      "isEnd": true
+    }
+  }
+}

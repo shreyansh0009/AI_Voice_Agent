@@ -22,6 +22,7 @@ import {
   createAudioFrame,
   splitIntoChunks,
 } from "./audioProcessor.js";
+import docVerifyAction from "./docVerifyAction.service.js";
 
 // Configuration
 const AUDIOSOCKET_PORT = parseInt(process.env.AUDIOSOCKET_PORT || "9092", 10);
@@ -965,6 +966,27 @@ class CallSession {
                 // Only auto-advance message and action steps
                 if (step.type !== 'message' && step.type !== 'action') {
                   break;
+                }
+
+                // Execute external action if step has actionId
+                if (step.type === 'action' && step.actionId) {
+                  try {
+                    console.log(`🔧 [${this.uuid}] Executing action: ${step.actionId}`);
+                    const actionResult = await docVerifyAction.executeAction(
+                      step.actionId,
+                      this.collectedData
+                    );
+                    // Inject result into collectedData so {{placeholder}} works in next step
+                    if (actionResult.dataKey) {
+                      this.collectedData[actionResult.dataKey] = actionResult.responseText;
+                      this.customerContext[actionResult.dataKey] = actionResult.responseText;
+                    }
+                    console.log(`✅ [${this.uuid}] Action ${step.actionId} completed (success: ${actionResult.success})`);
+                  } catch (actionError) {
+                    console.error(`❌ [${this.uuid}] Action ${step.actionId} failed:`, actionError.message);
+                    this.collectedData.verificationResult = "I'm sorry, I couldn't complete that action right now. Please try again later.";
+                    this.collectedData.statusResult = this.collectedData.verificationResult;
+                  }
                 }
 
                 // Check for end

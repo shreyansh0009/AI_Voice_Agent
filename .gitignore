@@ -1,1 +1,6 @@
 claude.md
+node_modules
+.claude/
+.vscode/
+CLAUDE.md
+.env
